@@ -9,7 +9,7 @@ import { ImagePlus } from 'lucide-react';
 import {
   ACCENTS,
   accentColors,
-  DEFAULT_APPEARANCE,
+  newWorkspaceAppearance,
   FRAMES,
   isCustomAccent,
   SYMBOLS,
@@ -127,7 +127,12 @@ export function WorkspaceEditor({
   const close = useOverlay((state) => state.close);
   const [name, setName] = useState(existing?.name ?? '');
   const [appearance, setAppearance] = useState<WorkspaceAppearance>(
-    existing?.appearance ?? DEFAULT_APPEARANCE,
+    () => existing?.appearance ?? newWorkspaceAppearance(count),
+  );
+  const otherNames = useShell((state) =>
+    (state.snapshot?.workspaces ?? [])
+      .filter((w) => w.id !== workspaceId)
+      .map((w) => w.name.trim().toLowerCase()),
   );
   const [imageError, setImageError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -154,6 +159,8 @@ export function WorkspaceEditor({
   };
 
   const trimmedName = name.trim();
+  const duplicate =
+    trimmedName !== '' && otherNames.includes(trimmedName.toLowerCase());
   const displayName = trimmedName || `Workspace ${count + 1}`;
   const save = async () => {
     if (workspaceId && existing) {
@@ -217,6 +224,12 @@ export function WorkspaceEditor({
             spellCheck={false}
             className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none placeholder:text-fg-subtle focus:bg-field-focus focus:shadow-[0_0_0_1px_var(--hairline),0_0_0_3px_var(--accent-soft)] select-text"
           />
+          {duplicate && (
+            <p className="text-[12px] text-fg-muted">
+              Another workspace is already called “{trimmedName}”. A different
+              name, icon or accent will help tell them apart.
+            </p>
+          )}
         </Field>
 
         <Field label="Icon">

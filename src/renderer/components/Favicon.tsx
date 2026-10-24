@@ -1,12 +1,16 @@
 import { useState } from 'react';
-import { CircleAlert, Globe, Search } from 'lucide-react';
+import { CircleAlert, Globe, Hourglass, Search } from 'lucide-react';
 import type { PageSnapshot } from '../../shared/types';
 
 export function Favicon({ page }: { page: PageSnapshot }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
   let content;
-  if (page.isLoading) {
+  if (page.isUnresponsive) {
+    content = (
+      <Hourglass size={13} strokeWidth={1.75} className="text-danger" />
+    );
+  } else if (page.isLoading) {
     content = <span className="spinner" aria-hidden />;
   } else if (page.error) {
     content = (
@@ -34,7 +38,11 @@ export function Favicon({ page }: { page: PageSnapshot }) {
   }
 
   return (
-    <span className="grid size-4 shrink-0 place-items-center" aria-hidden>
+    <span
+      className="grid size-4 shrink-0 place-items-center transition-opacity duration-[var(--duration-base)] data-[asleep=true]:opacity-50"
+      data-asleep={page.isDiscarded}
+      aria-hidden
+    >
       {content}
     </span>
   );

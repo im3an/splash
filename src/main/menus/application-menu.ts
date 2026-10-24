@@ -4,6 +4,7 @@ import {
   nativeTheme,
   type MenuItemConstructorOptions,
 } from 'electron';
+import type { PreferencesService } from '../preferences';
 import type { TrailStore } from '../storage/trail-store';
 import type { TrailWindow } from '../windows/browser-window';
 import { workspaceMenuItems } from './workspace-menu';
@@ -12,7 +13,9 @@ export interface MenuActions {
   /** The window menu commands act on, creating one if none is open. */
   currentWindow(): TrailWindow | null;
   openWindow(): TrailWindow;
+  openSettings(): void;
   store: TrailStore;
+  preferences: PreferencesService;
 }
 
 type Appearance = typeof nativeTheme.themeSource;
@@ -36,19 +39,31 @@ export function installApplicationMenu(actions: MenuActions): void {
     ({
       label,
       type: 'radio',
-      checked: nativeTheme.themeSource === source,
-      click: () => {
-        nativeTheme.themeSource = source;
-        try {
-          actions.store.setPreference('appearance', source);
-        } catch (error) {
-          console.error('Could not save appearance', error);
-        }
-      },
+      checked: actions.preferences.get().theme === source,
+      click: () => actions.preferences.update({ theme: source }),
     }) satisfies MenuItemConstructorOptions;
 
   const template: MenuItemConstructorOptions[] = [
-    { role: 'appMenu' },
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        {
+          label: 'Settings…',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => actions.openSettings(),
+        },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
     {
       label: 'File',
       submenu: [

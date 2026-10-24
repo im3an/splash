@@ -1,0 +1,104 @@
+import { useState, type ComponentType } from 'react';
+import {
+  Cpu,
+  Download,
+  Keyboard,
+  LayoutGrid,
+  Paintbrush,
+  Settings2,
+  Shield,
+  type LucideIcon,
+} from 'lucide-react';
+import { useWorkspaceTheme } from '../hooks/use-workspace-theme';
+import {
+  AdvancedSettings,
+  AppearanceSettings,
+  DownloadSettings,
+  GeneralSettings,
+  PrivacySettings,
+  ShortcutSettings,
+  WorkspaceSettings,
+} from './sections';
+
+const SECTIONS: {
+  id: string;
+  label: string;
+  /** A longer heading for the page, when the nav label is shortened. */
+  title?: string;
+  icon: LucideIcon;
+  body: ComponentType;
+}[] = [
+  { id: 'general', label: 'General', icon: Settings2, body: GeneralSettings },
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    icon: Paintbrush,
+    body: AppearanceSettings,
+  },
+  {
+    id: 'workspaces',
+    label: 'Workspaces',
+    icon: LayoutGrid,
+    body: WorkspaceSettings,
+  },
+  {
+    id: 'privacy',
+    label: 'Privacy',
+    title: 'Privacy and site permissions',
+    icon: Shield,
+    body: PrivacySettings,
+  },
+  {
+    id: 'downloads',
+    label: 'Downloads',
+    icon: Download,
+    body: DownloadSettings,
+  },
+  {
+    id: 'shortcuts',
+    label: 'Shortcuts',
+    icon: Keyboard,
+    body: ShortcutSettings,
+  },
+  { id: 'advanced', label: 'Advanced', icon: Cpu, body: AdvancedSettings },
+];
+
+/** The Settings window: sections on the left, the chosen one on the right. */
+export function SettingsApp() {
+  useWorkspaceTheme();
+  const [active, setActive] = useState(SECTIONS[0]!.id);
+  const section =
+    SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0]!;
+  const Body = section.body;
+
+  return (
+    <div className="flex h-full">
+      <nav
+        aria-label="Settings sections"
+        className="drag flex w-[220px] shrink-0 flex-col gap-px px-2 pt-[52px]"
+      >
+        {SECTIONS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            aria-current={id === active ? 'page' : undefined}
+            onClick={() => setActive(id)}
+            className="flex h-8 items-center gap-2.5 rounded-[var(--radius-row)] px-2.5 text-left text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg aria-[current=page]:bg-elevated aria-[current=page]:text-fg aria-[current=page]:shadow-[var(--shadow-row)]"
+          >
+            <Icon size={15} strokeWidth={1.75} className="shrink-0" />
+            <span className="truncate">{label}</span>
+          </button>
+        ))}
+      </nav>
+      <main className="min-w-0 flex-1 overflow-y-auto bg-surface">
+        <div className="drag h-[48px]" />
+        <div className="mx-auto flex max-w-[620px] flex-col gap-7 px-8 pb-10 select-text">
+          <h1 className="text-[20px] font-semibold tracking-[-0.01em]">
+            {section.title ?? section.label}
+          </h1>
+          <Body />
+        </div>
+      </main>
+    </div>
+  );
+}

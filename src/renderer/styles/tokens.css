@@ -43,6 +43,7 @@
   --radius-row: 6px;
 
   --sidebar-width: 252px;
+  --row-height: 30px;
   --toolbar-height: 48px;
   --gutter: 8px;
   --traffic-lights: 80px;
@@ -87,4 +88,8 @@
     --duration-fast: 0ms;
     --duration-base: 0ms;
   }
+}
+
+:root[data-density='compact'] {
+  --row-height: 26px;
 }

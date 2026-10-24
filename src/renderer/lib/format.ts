@@ -32,6 +32,92 @@ export function pageLabel(page: PageSnapshot): string {
   return 'New page';
 }
 
+/** "youtube.com" for https://www.youtube.com/watch?v=… */
+export function shortHost(url: string): string {
+  return hostOf(url).replace(/^www\./, '');
+}
+
+const TITLE_SEPARATOR = /\s+[-–—|·•]\s+/g;
+const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'ac', 'gov', 'edu']);
+
+/** The name a host's brand goes by: "wikipedia" for en.wikipedia.org. */
+function brandOf(host: string): string {
+  const labels = host.split('.');
+  if (labels.length < 2) return labels[0] ?? host;
+  const second = labels.at(-2)!;
+  const generic = labels.length > 2 && SECOND_LEVEL.has(second);
+  return (generic ? labels.at(-3)! : second).toLowerCase();
+}
+
+function squash(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+/** Whether a piece of a title is the site's own name ("Google Search"). */
+function namesSite(segment: string, brand: string): boolean {
+  const name = squash(segment);
+  if (!name) return false;
+  return (
+    name === brand ||
+    (brand.length >= 3 && name.includes(brand)) ||
+    (name.length >= 3 && brand.includes(name))
+  );
+}
+
+/**
+ * A page's title split from the site it belongs to, the way a trail row
+ * shows it: "Matcha" + "Wikipedia" for "Matcha - Wikipedia". Without a site
+ * name in the title the short host stands in; a title that is only the
+ * site's name gets no second part.
+ */
+export function pageParts(page: PageSnapshot): {
+  title: string;
+  site: string | null;
+} {
+  const label = pageLabel(page);
+  if (!page.url || securityOf(page.url) === 'none') {
+    return { title: label, site: null };
+  }
+  const host = shortHost(page.url);
+  const brand = brandOf(host);
+  if (page.customTitle || !page.title.trim()) {
+    return { title: label, site: label === host ? null : host };
+  }
+
+  const title = page.title.trim();
+  const separators = [...title.matchAll(TITLE_SEPARATOR)];
+  const last = separators.at(-1);
+  const first = separators[0];
+  if (last && namesSite(title.slice(last.index + last[0].length), brand)) {
+    return {
+      title: title.slice(0, last.index),
+      site: title.slice(last.index + last[0].length),
+    };
+  }
+  if (first && namesSite(title.slice(0, first.index), brand)) {
+    return {
+      title: title.slice(first.index + first[0].length),
+      site: title.slice(0, first.index),
+    };
+  }
+  const onlySite = separators.length === 0 && namesSite(title, brand);
+  return { title, site: onlySite ? null : host };
+}
+
+/**
+ * The resting address bar for a web page: its short host, then its title
+ * ("youtube.com / Patient Zero"). `null` for anything that should show its
+ * address as is.
+ */
+export function addressParts(
+  page: PageSnapshot,
+): { host: string; title: string | null } | null {
+  if (!page.url || securityOf(page.url) === 'none') return null;
+  const host = shortHost(page.url);
+  const named = Boolean(page.customTitle || page.title.trim());
+  return { host, title: named ? pageParts(page).title : null };
+}
+
 export type Security = 'secure' | 'insecure' | 'none';
 
 export function securityOf(url: string | null): Security {
@@ -128,4 +214,17 @@ export function permissionNames(
   const names = permissions.map((permission) => PERMISSION_NAMES[permission]);
   if (names.length <= 1) return names[0] ?? '';
   return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
+/** "12.3 MB" */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1000;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit++;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }

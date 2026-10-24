@@ -7,6 +7,7 @@ export type Overlay =
   | { kind: 'palette' }
   | { kind: 'suggestions' }
   | { kind: 'site-info' }
+  | { kind: 'downloads' }
   | { kind: 'workspace-editor'; workspaceId: WorkspaceId | null };
 
 interface OverlayState {

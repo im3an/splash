@@ -63,6 +63,14 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE workspaces ADD COLUMN appearance TEXT;
   `,
+  // 5 — the downloads list, so it survives a restart.
+  `
+  CREATE TABLE downloads (
+    id TEXT PRIMARY KEY,
+    record TEXT NOT NULL,
+    started_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export class SchemaTooNewError extends Error {}
@@ -74,8 +82,8 @@ export function schemaVersion(db: DatabaseSync): number {
   return row?.user_version ?? 0;
 }
 
-/** Brings the database up to date, one migration per transaction. */
-export function migrate(
+/** Refuses, without writing anything, a database made by a newer Splash. */
+export function assertSupportedSchema(
   db: DatabaseSync,
   migrations: readonly string[] = MIGRATIONS,
 ): void {
@@ -85,6 +93,15 @@ export function migrate(
       `Database schema v${current} is newer than this app (v${migrations.length})`,
     );
   }
+}
+
+/** Brings the database up to date, one migration per transaction. */
+export function migrate(
+  db: DatabaseSync,
+  migrations: readonly string[] = MIGRATIONS,
+): void {
+  assertSupportedSchema(db, migrations);
+  const current = schemaVersion(db);
   for (let version = current; version < migrations.length; version++) {
     db.exec('BEGIN');
     try {

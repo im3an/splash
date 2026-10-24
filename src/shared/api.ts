@@ -1,6 +1,13 @@
 import type {
   BrowserSnapshot,
+  AboutInfo,
+  ClearDataRequest,
   ContentInsets,
+  DefaultBrowserStatus,
+  SiteSettings,
+  StorageStatus,
+  DownloadAction,
+  DownloadSummary,
   PageId,
   PaletteItem,
   PermissionDecision,
@@ -10,9 +17,11 @@ import type {
   WorkspaceAppearance,
   WorkspaceId,
 } from './types';
+import type { Preferences } from './preferences';
 
 export interface InvokeOutputs {
   'browser:get-snapshot': BrowserSnapshot;
+  'storage:status': StorageStatus;
   'page:create': PageId;
   'page:activate': void;
   'page:close': void;
@@ -45,12 +54,30 @@ export interface InvokeOutputs {
   'site:reset': void;
   'view:freeze': string | null;
   'palette:query': PaletteItem[];
+  'downloads:list': DownloadSummary[];
+  'downloads:act': void;
+  'downloads:clear': void;
+  'downloads:open-folder': void;
+  'settings:sites': SiteSettings[];
+  'settings:clear-data': { summary: string; undoToken: string | null };
+  'settings:undo-clear': boolean;
+  'settings:default-browser': DefaultBrowserStatus;
+  'settings:make-default-browser': DefaultBrowserStatus;
+  'settings:open-data-folder': void;
+  'settings:about': AboutInfo;
+  'settings:edit-workspace': void;
+  'settings:delete-workspace': void;
+  'preferences:get': Preferences;
+  'preferences:update': Preferences;
   'workspace:move': void;
 }
 
 export const eventChannels = {
   snapshot: 'browser:snapshot',
   uiCommand: 'ui:command',
+  preferences: 'preferences:changed',
+  downloads: 'downloads:changed',
+  storage: 'storage:changed',
 } as const;
 
 /** The API the preload script exposes on `window.splash`. */
@@ -125,4 +152,26 @@ export interface SplashApi {
   focusPage(): void;
   onSnapshot(listener: (snapshot: BrowserSnapshot) => void): () => void;
   onUiCommand(listener: (command: UiCommand) => void): () => void;
+  listDownloads(): Promise<DownloadSummary[]>;
+  actOnDownload(id: string, action: DownloadAction): Promise<void>;
+  clearDownloads(): Promise<void>;
+  openDownloadsFolder(): Promise<void>;
+  onDownloads(listener: (downloads: DownloadSummary[]) => void): () => void;
+  listSiteSettings(): Promise<SiteSettings[]>;
+  clearBrowsingData(
+    request: ClearDataRequest,
+  ): Promise<{ summary: string; undoToken: string | null }>;
+  undoClearBrowsingData(token: string): Promise<boolean>;
+  defaultBrowserStatus(): Promise<DefaultBrowserStatus>;
+  makeDefaultBrowser(): Promise<DefaultBrowserStatus>;
+  openDataFolder(): Promise<void>;
+  about(): Promise<AboutInfo>;
+  /** Opens the workspace editor in the browser window (null: new workspace). */
+  editWorkspace(workspaceId: WorkspaceId | null): Promise<void>;
+  deleteWorkspace(workspaceId: WorkspaceId): Promise<void>;
+  storageStatus(): Promise<StorageStatus>;
+  onStorageStatus(listener: (status: StorageStatus) => void): () => void;
+  getPreferences(): Promise<Preferences>;
+  updatePreferences(patch: Partial<Preferences>): Promise<Preferences>;
+  onPreferences(listener: (preferences: Preferences) => void): () => void;
 }

@@ -24,6 +24,7 @@ export function page(
     isMuted: false,
     zoomPercent: 100,
     find: null,
+    isUnresponsive: false,
     blockedPermissions: [],
     permissionRequest: null,
     ...overrides,

@@ -46,7 +46,13 @@ export function workspaceMenuItems(
       // Undoable with Reopen Closed Page, so no confirmation is needed.
       label: 'Delete Workspace',
       enabled: workspaces.length > 1,
-      click: () => controller.deleteWorkspace(activeWorkspaceId),
+      // Resolved when clicked: the menu can outlive the workspace it was
+      // built for.
+      click: () => {
+        if (controller.snapshot().workspaces.length > 1) {
+          controller.deleteWorkspace(controller.currentWorkspaceId);
+        }
+      },
     },
   ];
 }

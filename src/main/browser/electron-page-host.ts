@@ -35,19 +35,23 @@ export interface PageHostEnvironment {
   isSoundBlocked(origin: string): boolean;
 }
 
-/** Where a page's permission requests go: its own trail row and prompt. */
-export interface PermissionTarget {
+/**
+ * A trail page as session-wide handlers see it: where its permission
+ * requests go and which page its downloads belong to.
+ */
+export interface PageHandle {
+  pageId: string;
   request(origin: string, permissions: SitePermission[]): Promise<boolean>;
   blocked(permissions: SitePermission[]): void;
 }
 
-const permissionTargets = new Map<number, PermissionTarget>();
+const pageHandles = new Map<number, PageHandle>();
 
-/** The page a permission request came from, if it is one of ours. */
-export function permissionTargetFor(
-  contents: WebContents | null,
-): PermissionTarget | undefined {
-  return contents ? permissionTargets.get(contents.id) : undefined;
+/** The trail page behind a WebContents, if it is one of ours. */
+export function pageHandleFor(
+  contents: WebContents | null | undefined,
+): PageHandle | undefined {
+  return contents ? pageHandles.get(contents.id) : undefined;
 }
 
 function isFaviconUrl(url: string): boolean {
@@ -96,12 +100,13 @@ class ElectronPageHost implements PageHost {
     this.view.setBackgroundColor('#ffffff');
     this.wire(this.view.webContents);
     const id = this.view.webContents.id;
-    permissionTargets.set(id, {
+    pageHandles.set(id, {
+      pageId: events.pageId,
       request: (origin, permissions) =>
         this.events.onPermissionRequest(origin, permissions),
       blocked: (permissions) => this.events.onPermissionBlocked(permissions),
     });
-    this.view.webContents.once('destroyed', () => permissionTargets.delete(id));
+    this.view.webContents.once('destroyed', () => pageHandles.delete(id));
   }
 
   private get contents(): WebContents {
@@ -342,10 +347,13 @@ class ElectronPageHost implements PageHost {
         });
       },
     );
+    contents.on('unresponsive', () => emit({ isUnresponsive: true }));
+    contents.on('responsive', () => emit({ isUnresponsive: false }));
     contents.on('render-process-gone', (_event, details) => {
       if (details.reason === 'clean-exit') return;
       emit({
         isLoading: false,
+        isUnresponsive: false,
         error: {
           kind: 'crashed',
           code: details.exitCode,

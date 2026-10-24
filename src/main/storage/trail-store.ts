@@ -1,4 +1,5 @@
 import type {
+  DownloadSummary,
   PageId,
   SitePermission,
   WorkspaceAppearance,
@@ -55,6 +56,19 @@ export interface HistoryMatch {
   lastVisitedAt: number;
 }
 
+export interface HistoryRow {
+  url: string;
+  title: string;
+  visitCount: number;
+  lastVisitedAt: number;
+}
+
+export interface PermissionRecord {
+  origin: string;
+  permission: SitePermission;
+  granted: boolean;
+}
+
 export interface TrailStore {
   loadSession(): StoredSession | null;
   saveSession(session: StoredSession): void;
@@ -75,5 +89,14 @@ export interface TrailStore {
   ): void;
   /** Forgets every decision for `origin`, or for all sites. */
   clearPermissions(origin?: string): void;
+  /** Every remembered permission decision, by site. */
+  listPermissions(): PermissionRecord[];
+  /** Removes history visited at or after `since`, returning what went. */
+  deleteHistory(since: number): HistoryRow[];
+  /** Puts deleted history back (undo). */
+  restoreHistory(rows: HistoryRow[]): void;
+  loadDownloads(): DownloadSummary[];
+  saveDownload(download: DownloadSummary): void;
+  deleteDownload(id: string): void;
   close(): void;
 }

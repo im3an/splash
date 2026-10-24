@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ACCENTS, FRAMES, SYMBOLS } from './appearance';
+import { SEARCH_ENGINES } from './preferences';
 
 /**
  * The single contract between the shell UI and the main process.
@@ -13,6 +14,19 @@ const addressInput = z.string().trim().min(1).max(8192);
 const inset = z.number().finite().min(0).max(10_000);
 const pageTitle = z.string().max(300).nullable();
 const workspaceId = z.uuid();
+
+export const preferencesSchema = z.strictObject({
+  searchEngine: z.enum(
+    SEARCH_ENGINES.map((engine) => engine.id) as [
+      (typeof SEARCH_ENGINES)[number]['id'],
+      ...(typeof SEARCH_ENGINES)[number]['id'][],
+    ],
+  ),
+  theme: z.enum(['system', 'light', 'dark']),
+  density: z.enum(['comfortable', 'compact']),
+  downloads: z.enum(['folder', 'ask']),
+  awakePages: z.number().int().min(2).max(100),
+});
 const sitePermission = z.enum([
   'camera',
   'microphone',
@@ -69,6 +83,7 @@ export const workspaceAppearanceSchema = z.strictObject({
 
 export const invokeContract = {
   'browser:get-snapshot': z.undefined(),
+  'storage:status': z.undefined(),
   'page:create': z.strictObject({ input: addressInput.optional() }),
   'page:activate': z.strictObject({ pageId }),
   'page:close': z.strictObject({ pageId }),
@@ -133,6 +148,41 @@ export const invokeContract = {
   }),
   'site:reset': z.strictObject({ origin: siteOrigin }),
   'view:freeze': z.undefined(),
+  'downloads:list': z.undefined(),
+  'downloads:act': z.strictObject({
+    id: z.uuid(),
+    action: z.enum([
+      'cancel',
+      'pause',
+      'resume',
+      'retry',
+      'open',
+      'show',
+      'remove',
+    ]),
+  }),
+  'downloads:clear': z.undefined(),
+  'downloads:open-folder': z.undefined(),
+  'settings:sites': z.undefined(),
+  'settings:clear-data': z.strictObject({
+    range: z.enum(['hour', 'day', 'week', 'all']),
+    history: z.boolean(),
+    cookies: z.boolean(),
+    cache: z.boolean(),
+    permissions: z.boolean(),
+    downloads: z.boolean(),
+  }),
+  'settings:undo-clear': z.strictObject({ token: z.uuid() }),
+  'settings:default-browser': z.undefined(),
+  'settings:make-default-browser': z.undefined(),
+  'settings:open-data-folder': z.undefined(),
+  'settings:about': z.undefined(),
+  'settings:edit-workspace': z.strictObject({
+    workspaceId: workspaceId.nullable(),
+  }),
+  'settings:delete-workspace': z.strictObject({ workspaceId }),
+  'preferences:get': z.undefined(),
+  'preferences:update': z.strictObject({ patch: preferencesSchema.partial() }),
   'palette:query': z.strictObject({
     query: z.string().max(500),
     scope: z.enum(['palette', 'address']),

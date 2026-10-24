@@ -1,6 +1,6 @@
 import { app, systemPreferences, type Session } from 'electron';
 import type { SitePermission } from '../../shared/types';
-import { permissionTargetFor } from '../browser/electron-page-host';
+import { pageHandleFor } from '../browser/electron-page-host';
 import {
   AUTO_GRANTED,
   resolvePermissionRequest,
@@ -39,7 +39,7 @@ export function configureWebSession(
         callback(true);
         return;
       }
-      const target = permissionTargetFor(contents);
+      const target = pageHandleFor(contents);
       const mediaTypes =
         'mediaTypes' in details ? (details.mediaTypes ?? []) : [];
       const permissions = sitePermissionsFor(permission, mediaTypes);

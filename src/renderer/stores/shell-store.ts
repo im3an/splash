@@ -1,11 +1,13 @@
 import { create } from 'zustand';
 import type { SplashApi } from '../../shared/api';
+import type { Preferences } from '../../shared/preferences';
 import { useOverlay } from './overlay-store';
 import type { BrowserSnapshot, PageId, PageSnapshot } from '../../shared/types';
 
 interface ShellState {
   /** `null` until the main process has sent the first snapshot. */
   snapshot: BrowserSnapshot | null;
+  preferences: Preferences | null;
   sidebarOpen: boolean;
   /** Incremented to ask the address bar to take focus. */
   addressFocusRequest: number;
@@ -30,6 +32,7 @@ interface ShellState {
 
 export const useShell = create<ShellState>()((set) => ({
   snapshot: null,
+  preferences: null,
   sidebarOpen: true,
   addressFocusRequest: 0,
   renamingPageId: null,
@@ -104,6 +107,14 @@ export function connectShell(splash: SplashApi): () => void {
       }
     }
   });
+  const unsubscribePreferences = splash.onPreferences((preferences) =>
+    useShell.setState({ preferences }),
+  );
+  void splash.getPreferences().then((preferences) => {
+    if (useShell.getState().preferences === null) {
+      useShell.setState({ preferences });
+    }
+  });
   // Subscribe first so no update is missed; a pushed snapshot is never older
   // than the one we asked for, so it wins if it arrives first.
   void splash.getSnapshot().then((snapshot) => {
@@ -112,5 +123,6 @@ export function connectShell(splash: SplashApi): () => void {
   return () => {
     unsubscribeSnapshot();
     unsubscribeCommands();
+    unsubscribePreferences();
   };
 }

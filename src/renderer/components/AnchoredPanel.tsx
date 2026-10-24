@@ -9,31 +9,38 @@ export function AnchoredPanel({
   width,
   children,
   label,
+  anchor = 'address',
 }: {
   /** `null` matches the address field's width. */
   width: number | null;
   children: ReactNode;
   label: string;
+  /** Under the address field, or at the page area's leading edge. */
+  anchor?: 'address' | 'start';
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 8, width: width ?? 480 });
 
   useLayoutEffect(() => {
     const measure = () => {
+      if (anchor === 'start') {
+        setPosition({ left: 8, width: width ?? 360 });
+        return;
+      }
       const field = document.getElementById('address-field');
       const container = ref.current?.offsetParent;
       if (!field || !(container instanceof HTMLElement)) return;
-      const anchor = field.getBoundingClientRect();
+      const fieldRect = field.getBoundingClientRect();
       const frame = container.getBoundingClientRect();
       setPosition({
-        left: Math.max(8, anchor.left - frame.left),
-        width: width ?? anchor.width,
+        left: Math.max(8, fieldRect.left - frame.left),
+        width: width ?? fieldRect.width,
       });
     };
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, [width]);
+  }, [width, anchor]);
 
   return (
     <div

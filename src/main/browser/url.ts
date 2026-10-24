@@ -1,5 +1,10 @@
+import {
+  DEFAULT_PREFERENCES,
+  searchEngine,
+  type SearchEngineId,
+} from '../../shared/preferences';
+
 const NAVIGABLE_PROTOCOLS = new Set(['http:', 'https:']);
-const SEARCH_URL = 'https://duckduckgo.com/?q=';
 
 const SCHEME = /^[a-z][a-z\d+.-]*:\/\//i;
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
@@ -14,8 +19,11 @@ export function isNavigableUrl(value: string): boolean {
   }
 }
 
-export function searchUrl(query: string): string {
-  return SEARCH_URL + encodeURIComponent(query);
+export function searchUrl(
+  query: string,
+  engine: SearchEngineId = DEFAULT_PREFERENCES.searchEngine,
+): string {
+  return searchEngine(engine).url + encodeURIComponent(query);
 }
 
 function looksLikeHost(hostname: string): boolean {
@@ -31,21 +39,25 @@ function looksLikeHost(hostname: string): boolean {
  * Anything that is not recognisably a web address becomes a search, so this
  * never produces a `file:`, `javascript:` or other privileged URL.
  */
-export function resolveAddressInput(raw: string): string {
+export function resolveAddressInput(
+  raw: string,
+  engine: SearchEngineId = DEFAULT_PREFERENCES.searchEngine,
+): string {
   const input = raw.trim();
-  if (input === '' || /\s/.test(input)) return searchUrl(input);
+  const search = () => searchUrl(input, engine);
+  if (input === '' || /\s/.test(input)) return search();
 
   if (SCHEME.test(input)) {
-    return isNavigableUrl(input) ? new URL(input).href : searchUrl(input);
+    return isNavigableUrl(input) ? new URL(input).href : search();
   }
 
   let candidate: URL;
   try {
     candidate = new URL(`http://${input}`);
   } catch {
-    return searchUrl(input);
+    return search();
   }
-  if (!looksLikeHost(candidate.hostname)) return searchUrl(input);
+  if (!looksLikeHost(candidate.hostname)) return search();
 
   const isLocal =
     candidate.hostname === 'localhost' ||

@@ -23,17 +23,26 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { ChevronRight, StickyNote, Volume2, VolumeX, X } from 'lucide-react';
+import {
+  ChevronRight,
+  Moon,
+  StickyNote,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react';
 import type { PageId } from '../../shared/types';
 import {
   projectDrop,
   rowsWhileDragging,
   type DropProjection,
 } from '../lib/drop-projection';
-import { pageLabel } from '../lib/format';
+import { pageLabel, pageParts } from '../lib/format';
 import { visibleRows, type TrailRow as Row } from '../lib/trail';
 import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';
+import { useDownloads } from '../stores/downloads-store';
+import { DownloadRing } from './DownloadRing';
 import { Favicon } from './Favicon';
 import { PageNote } from './PageNote';
 
@@ -160,6 +169,11 @@ const TrailRow = memo(function TrailRow({
 }) {
   const page = useShell((state) => state.snapshot?.pages[row.id]);
   const renaming = useShell((state) => state.renamingPageId === row.id);
+  const download = useDownloads((state) =>
+    state.downloads.find(
+      (d) => d.pageId === row.id && d.state === 'progressing',
+    ),
+  );
   const startRename = useShell((state) => state.startRename);
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: row.id, disabled: renaming });
@@ -168,6 +182,7 @@ const TrailRow = memo(function TrailRow({
 
   const expanded = row.hasChildren ? !page.collapsed : undefined;
   const label = pageLabel(page);
+  const parts = pageParts(page);
 
   const activate = () => void api().activatePage(row.id);
   const close = (event: MouseEvent) => {
@@ -201,7 +216,11 @@ const TrailRow = memo(function TrailRow({
       aria-label={label}
       aria-roledescription="page"
       tabIndex={active ? 0 : -1}
-      title={page.url ?? undefined}
+      title={
+        page.isDiscarded
+          ? `${page.url ?? label}\nAsleep to save memory. Opens where you left it.`
+          : (page.url ?? undefined)
+      }
       onClick={activate}
       onAuxClick={(event) => event.button === 1 && close(event)}
       onContextMenu={(event) => {
@@ -212,7 +231,7 @@ const TrailRow = memo(function TrailRow({
       data-active={active}
       data-dragging={dragging}
       data-discarded={page.isDiscarded}
-      className="group relative flex h-[30px] items-center gap-2 rounded-[var(--radius-row)] pr-1 text-fg-muted outline-offset-[-2px] transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg data-[active=true]:bg-elevated data-[active=true]:text-fg data-[active=true]:shadow-[var(--shadow-row)] data-[dragging=true]:z-10 data-[dragging=true]:bg-elevated data-[dragging=true]:text-fg data-[dragging=true]:shadow-[var(--shadow-row)]"
+      className="group relative flex h-[var(--row-height)] items-center gap-2 rounded-[var(--radius-row)] pr-1 text-fg-muted outline-offset-[-2px] transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg data-[active=true]:bg-elevated data-[active=true]:text-fg data-[active=true]:shadow-[var(--shadow-row)] data-[dragging=true]:z-10 data-[dragging=true]:bg-elevated data-[dragging=true]:text-fg data-[dragging=true]:shadow-[var(--shadow-row)]"
       style={{
         paddingLeft: 4 + depth * INDENT,
         // Rows only ever slide vertically; depth comes from the projection.
@@ -249,13 +268,28 @@ const TrailRow = memo(function TrailRow({
         <RenameField pageId={row.id} initial={label} />
       ) : (
         <span
-          className="min-w-0 flex-1 truncate group-data-[discarded=true]:opacity-80"
+          className="min-w-0 flex-1 truncate group-data-[discarded=true]:text-fg-subtle"
           onDoubleClick={(event) => {
             event.stopPropagation();
             startRename(row.id);
           }}
         >
-          {label}
+          {parts.title}
+          {parts.site && (
+            <span className="ml-1.5 text-fg-subtle">{parts.site}</span>
+          )}
+        </span>
+      )}
+      {download && !renaming && (
+        <span
+          className="grid size-6 shrink-0 place-items-center"
+          title={`Downloading ${download.filename}`}
+          aria-label={`Downloading ${download.filename}`}
+        >
+          <DownloadRing
+            received={download.receivedBytes}
+            total={download.totalBytes}
+          />
         </span>
       )}
       {(page.isAudible || page.isMuted) && !renaming && (
@@ -278,6 +312,14 @@ const TrailRow = memo(function TrailRow({
             <Volume2 size={13} strokeWidth={2} />
           )}
         </button>
+      )}
+      {page.isDiscarded && !active && !renaming && !page.note && (
+        <Moon
+          size={10}
+          strokeWidth={2}
+          className="shrink-0 text-fg-subtle opacity-70 group-hover:hidden"
+          aria-label="Asleep"
+        />
       )}
       {page.note && !renaming && (
         <StickyNote

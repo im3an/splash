@@ -6,7 +6,12 @@ import {
   type FormEvent,
 } from 'react';
 import { Lock, Search, ShieldOff, TriangleAlert } from 'lucide-react';
-import { displayUrl, permissionNames, securityOf } from '../lib/format';
+import {
+  addressParts,
+  displayUrl,
+  permissionNames,
+  securityOf,
+} from '../lib/format';
 import { runPaletteItem } from '../lib/run-palette-item';
 import { api } from '../splash-api';
 import { useOverlay } from '../stores/overlay-store';
@@ -20,6 +25,8 @@ export function AddressBar() {
   // `null` while not editing: the field then mirrors the active page.
   const [draft, setDraft] = useState<string | null>(null);
   const editing = draft !== null;
+  // Hovering the resting field reveals the page's full address.
+  const [hovered, setHovered] = useState(false);
   const openOverlay = useOverlay((state) => state.open);
   const closeOverlay = useOverlay((state) => state.close);
   const suggesting = useOverlay(
@@ -27,7 +34,8 @@ export function AddressBar() {
   );
 
   const url = page?.url ?? null;
-  const value = draft ?? (url ? displayUrl(url) : '');
+  const value = draft ?? (url ? (hovered ? url : displayUrl(url)) : '');
+  const parts = !editing && !hovered && page ? addressParts(page) : null;
   // A page that never connected has no security state worth showing.
   const security = page?.error ? 'none' : securityOf(url);
   const blocked = page?.blockedPermissions ?? [];
@@ -105,46 +113,66 @@ export function AddressBar() {
     <form onSubmit={submit} className="min-w-0 flex-1" role="search">
       <div
         id="address-field"
-        className="relative flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] bg-field pr-1.5 pl-1 transition-[background-color,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-out)] focus-within:bg-field-focus focus-within:shadow-[0_0_0_1px_var(--hairline),0_0_0_4px_var(--accent-soft)]"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        data-resting={Boolean(url) && !editing}
+        className="group/address relative flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] bg-field pr-1.5 pl-1 transition-[background-color,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-out)] focus-within:bg-field-focus focus-within:shadow-[0_0_0_1px_var(--hairline),0_0_0_4px_var(--accent-soft)] data-[resting=true]:bg-transparent data-[resting=true]:hover:bg-field"
       >
         <SecurityButton
           security={editing ? 'none' : security}
           onOpen={() => void openOverlay({ kind: 'site-info' })}
         />
-        <input
-          ref={inputRef}
-          value={value}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            void suggest(event.target.value);
-          }}
-          onFocus={() => setDraft(url ?? '')}
-          onBlur={() => {
-            setDraft(null);
-            stopSuggesting();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.preventDefault();
-              finish();
-            } else if (event.key === 'ArrowDown' && suggesting) {
-              event.preventDefault();
-              useSuggestions.getState().move(1);
-            } else if (event.key === 'ArrowUp' && suggesting) {
-              event.preventDefault();
-              useSuggestions.getState().move(-1);
-            }
-          }}
-          placeholder="Search or enter address"
-          aria-label="Address"
-          aria-autocomplete="list"
-          aria-expanded={suggesting}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          autoComplete="off"
-          className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-fg-subtle select-text"
-        />
+        <div className="relative flex h-full min-w-0 flex-1">
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              void suggest(event.target.value);
+            }}
+            onFocus={() => setDraft(url ?? '')}
+            onBlur={() => {
+              setDraft(null);
+              stopSuggesting();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                finish();
+              } else if (event.key === 'ArrowDown' && suggesting) {
+                event.preventDefault();
+                useSuggestions.getState().move(1);
+              } else if (event.key === 'ArrowUp' && suggesting) {
+                event.preventDefault();
+                useSuggestions.getState().move(-1);
+              }
+            }}
+            placeholder="Search or enter address"
+            aria-label="Address"
+            aria-autocomplete="list"
+            aria-expanded={suggesting}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            autoComplete="off"
+            data-covered={parts !== null}
+            className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-fg-subtle select-text data-[covered=true]:text-transparent"
+          />
+          {parts && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 flex items-center text-[13px] whitespace-nowrap"
+            >
+              <span className="shrink-0 text-fg">{parts.host}</span>
+              {parts.title && (
+                <span className="min-w-0 truncate text-fg-subtle">
+                  <span className="px-1.5">/</span>
+                  {parts.title}
+                </span>
+              )}
+            </span>
+          )}
+        </div>
         {!editing && page && blocked.length > 0 && (
           <button
             type="button"
@@ -205,7 +233,9 @@ function SecurityButton({
           : 'Site settings: not secure'
       }
       title="Site settings"
-      className="flex h-6 shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-fg-subtle transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg"
+      // A secure lock is the expected case, so it waits for the field's hover
+      // or focus; "Not secure" always shows.
+      className={`flex h-6 shrink-0 items-center gap-1 rounded-[5px] px-1.5 text-fg-subtle transition-[color,background-color,opacity] duration-[var(--duration-fast)] hover:bg-hover hover:text-fg ${secure ? 'opacity-0 group-focus-within/address:opacity-100 group-hover/address:opacity-100' : ''}`}
     >
       {secure ? (
         <Lock size={12} strokeWidth={2} />

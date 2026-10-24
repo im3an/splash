@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -89,6 +89,7 @@ const SESSION: StoredSession = {
             isMuted: false,
             zoomPercent: 100,
             find: null,
+            isUnresponsive: false,
           },
           history: null,
           createdAt: 1,
@@ -240,6 +241,35 @@ describe('SqliteTrailStore history and preferences', () => {
     expect(store.getPermission('https://other.example', 'camera')).toBeNull();
   });
 
+  it('clears history by time and puts it back', () => {
+    const store = memoryStore();
+    store.recordVisit('https://old.example/', 100);
+    store.recordVisit('https://new.example/', 500);
+    store.recordTitle('https://new.example/', 'New');
+    const removed = store.deleteHistory(300);
+    expect(removed).toEqual([
+      {
+        url: 'https://new.example/',
+        title: 'New',
+        visitCount: 1,
+        lastVisitedAt: 500,
+      },
+    ]);
+    expect(store.searchHistory('example', 10)).toHaveLength(1);
+    store.restoreHistory(removed);
+    expect(store.searchHistory('new', 10)[0]?.title).toBe('New');
+  });
+
+  it('lists permission decisions by site', () => {
+    const store = memoryStore();
+    store.setPermission('https://b.example', 'camera', true);
+    store.setPermission('https://a.example', 'location', false);
+    expect(store.listPermissions()).toEqual([
+      { origin: 'https://a.example', permission: 'location', granted: false },
+      { origin: 'https://b.example', permission: 'camera', granted: true },
+    ]);
+  });
+
   it('stores preferences', () => {
     const store = memoryStore();
     expect(store.getPreference('x')).toBeNull();
@@ -261,6 +291,19 @@ describe('openTrailStore', () => {
     expect(readdirSync(dir).some((name) => name.includes('unreadable'))).toBe(
       true,
     );
+  });
+
+  it('leaves a database from a newer version byte for byte untouched', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'splash-store-'));
+    const file = path.join(dir, 'splash.db');
+    const newer = new DatabaseSync(file);
+    newer.exec("CREATE TABLE marker (x); INSERT INTO marker VALUES ('keep');");
+    newer.exec('PRAGMA user_version = 999');
+    newer.close();
+    const before = readFileSync(file);
+    expect(() => openTrailStore(file)).toThrow(/newer/);
+    expect(readFileSync(file).equals(before)).toBe(true);
+    expect(readdirSync(dir)).toEqual(['splash.db']);
   });
 
   it('persists across reopening', () => {

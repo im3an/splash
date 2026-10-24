@@ -1,16 +1,20 @@
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import {
+  app,
   BrowserWindow,
   nativeTheme,
+  shell,
   screen,
   session,
   type Rectangle,
 } from 'electron';
 import { eventChannels } from '../../shared/api';
 import { DEFAULT_APPEARANCE, framePreset } from '../../shared/appearance';
+import type { Preferences } from '../../shared/preferences';
 import type {
+  BrowserSnapshot,
   ContentInsets,
+  StorageStatus,
   SiteInfo,
   UiCommand,
   WorkspaceAppearance,
@@ -19,6 +23,7 @@ import { BrowserController } from '../browser/browser-controller';
 import { buildPaletteItems } from '../browser/palette';
 import { createElectronPageHostFactory } from '../browser/electron-page-host';
 import { contentBounds } from '../browser/layout';
+import { isSameDocument, shellUrl } from './shell-url';
 import type { IpcTarget } from '../ipc/register-ipc';
 import { showPageMenu } from '../menus/page-menu';
 import { showWorkspaceMenu } from '../menus/workspace-menu';
@@ -31,15 +36,19 @@ import {
 import { WEB_PARTITION } from '../security/web-security';
 import { SessionPersister } from '../storage/session-persister';
 import type { TrailStore } from '../storage/trail-store';
+import type { PreferencesService } from '../preferences';
+import type { DownloadManager } from '../downloads/download-manager';
 
 const BOUNDS_KEY = 'window.bounds';
-/** The app-wide light/dark choice from View › Appearance. */
-const APP_APPEARANCE_KEY = 'appearance';
 
 export interface TrailWindowOptions {
   store: TrailStore;
+  preferences: PreferencesService;
+  downloads: DownloadManager;
   /** Called when the list of workspaces, their names or the active one changes. */
   onWorkspacesChanged(): void;
+  /** Every snapshot sent to this window, for other windows that mirror it. */
+  onSnapshot?(snapshot: BrowserSnapshot): void;
 }
 
 /** The last window position, if it still fits on a connected display. */
@@ -73,27 +82,6 @@ function chromeBackground(appearance: WorkspaceAppearance): string {
     : frame.light.chrome;
 }
 
-function shellUrl(): string {
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) return MAIN_WINDOW_VITE_DEV_SERVER_URL;
-  const file = path.join(
-    __dirname,
-    `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`,
-  );
-  return pathToFileURL(file).href;
-}
-
-function isSameDocument(candidate: string, expected: string): boolean {
-  try {
-    const a = new URL(candidate);
-    const b = new URL(expected);
-    return b.protocol === 'file:'
-      ? a.protocol === 'file:' && a.pathname === b.pathname
-      : a.origin === b.origin;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * One browser window: the shell UI in the window's own WebContents, and the
  * page views managed by its `BrowserController` layered above it.
@@ -105,6 +93,8 @@ export class TrailWindow {
   private insets: ContentInsets | null = null;
   private readonly persister: SessionPersister;
   private workspaceKey = '';
+  /** Why the last save failed, until one succeeds again. */
+  private saveProblem: string | null = null;
 
   constructor(private readonly options: TrailWindowOptions) {
     const url = shellUrl();
@@ -140,6 +130,7 @@ export class TrailWindow {
       }),
       onSnapshot: (snapshot) => {
         this.send(eventChannels.snapshot, snapshot);
+        this.options.onSnapshot?.(snapshot);
         this.persister.schedule();
         const key = JSON.stringify([
           snapshot.activeWorkspaceId,
@@ -151,6 +142,8 @@ export class TrailWindow {
           this.options.onWorkspacesChanged();
         }
       },
+      maxLiveViews: options.preferences.get().awakePages,
+      searchEngine: () => options.preferences.get().searchEngine,
       onVisit: (visited) =>
         this.safely(() => store.recordVisit(visited, Date.now())),
       onTitle: (visited, title) =>
@@ -160,7 +153,17 @@ export class TrailWindow {
     this.persister = new SessionPersister({
       store,
       exportSession: () => this.controller.exportSession(),
-      onError: (error) => console.error('Could not save the session', error),
+      onError: (error) => {
+        console.error('Could not save the session', error);
+        this.saveProblem =
+          error instanceof Error ? error.message : String(error);
+        this.send(eventChannels.storage, this.storageStatus());
+      },
+      onSaved: () => {
+        if (this.saveProblem === null) return;
+        this.saveProblem = null;
+        this.send(eventChannels.storage, this.storageStatus());
+      },
     });
     const stored = this.safely(() => store.loadSession());
     if (stored) this.controller.restoreSession(stored);
@@ -169,6 +172,7 @@ export class TrailWindow {
       isShellUrl: (candidate) => isSameDocument(candidate, url),
       invoke: {
         'browser:get-snapshot': () => this.controller.snapshot(),
+        'storage:status': () => this.storageStatus(),
         'page:create': ({ input }) => this.controller.createPage({ input }),
         'page:activate': ({ pageId }) => this.controller.activatePage(pageId),
         'page:close': ({ pageId }) => this.controller.closePage(pageId),
@@ -227,6 +231,16 @@ export class TrailWindow {
           this.controller.applySoundPolicy(origin, false);
         },
         'view:freeze': () => this.controller.captureActivePage(),
+        'downloads:list': () => this.options.downloads.list(),
+        'downloads:act': ({ id, action }) =>
+          this.options.downloads.act(id, action),
+        'downloads:clear': () => this.options.downloads.clearFinished(),
+        'downloads:open-folder': () => {
+          void shell.openPath(app.getPath('downloads'));
+        },
+        'preferences:get': () => this.options.preferences.get(),
+        'preferences:update': ({ patch }) =>
+          this.options.preferences.update(patch),
         'palette:query': ({ query, scope }) => {
           const snapshot = this.controller.snapshot();
           return buildPaletteItems({
@@ -238,6 +252,7 @@ export class TrailWindow {
               : [],
             activeWorkspaceId: snapshot.activeWorkspaceId,
             activePageId: snapshot.activePageId,
+            searchEngine: this.options.preferences.get().searchEngine,
           });
         },
         'workspace:move': ({ workspaceId, index }) =>
@@ -284,9 +299,25 @@ export class TrailWindow {
     void this.window.loadURL(url);
   }
 
-  /** Writes any pending session changes now. */
-  flush(): void {
-    this.persister.flush();
+  /** Writes any pending session changes now; false if that failed. */
+  flush(): boolean {
+    return this.persister.flush();
+  }
+
+  storageStatus(): StorageStatus {
+    return { problem: this.saveProblem };
+  }
+
+  /** Tells the shell the downloads list changed. */
+  sendDownloads(): void {
+    this.send(eventChannels.downloads, this.options.downloads.list());
+  }
+
+  /** Applies changed app-wide settings to this window. */
+  applyPreferences(preferences: Preferences): void {
+    this.controller.setMaxLiveViews(preferences.awakePages);
+    this.applyAppearance();
+    this.send(eventChannels.preferences, preferences);
   }
 
   sendUiCommand(command: UiCommand): void {
@@ -298,17 +329,10 @@ export class TrailWindow {
    * A workspace can insist on light or dark; otherwise the app-wide choice
    * applies. The window frame takes the workspace's frame colour.
    */
-  private applyAppearance(): void {
+  applyAppearance(): void {
     const { mode } = this.controller.activeAppearance;
-    const appChoice = this.safely(() =>
-      this.options.store.getPreference(APP_APPEARANCE_KEY),
-    );
     const source =
-      mode !== 'system'
-        ? mode
-        : appChoice === 'light' || appChoice === 'dark'
-          ? appChoice
-          : 'system';
+      mode !== 'system' ? mode : this.options.preferences.get().theme;
     if (nativeTheme.themeSource !== source) nativeTheme.themeSource = source;
     if (!this.window.isDestroyed()) {
       this.window.setBackgroundColor(

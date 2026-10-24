@@ -82,6 +82,27 @@ const api: SplashApi = {
   focusPage: () => send('view:focus-page'),
   onSnapshot: (listener) => subscribe(eventChannels.snapshot, listener),
   onUiCommand: (listener) => subscribe(eventChannels.uiCommand, listener),
+  listDownloads: () => invoke('downloads:list'),
+  actOnDownload: (id, action) => invoke('downloads:act', { id, action }),
+  clearDownloads: () => invoke('downloads:clear'),
+  openDownloadsFolder: () => invoke('downloads:open-folder'),
+  onDownloads: (listener) => subscribe(eventChannels.downloads, listener),
+  listSiteSettings: () => invoke('settings:sites'),
+  clearBrowsingData: (request) => invoke('settings:clear-data', request),
+  undoClearBrowsingData: (token) => invoke('settings:undo-clear', { token }),
+  defaultBrowserStatus: () => invoke('settings:default-browser'),
+  makeDefaultBrowser: () => invoke('settings:make-default-browser'),
+  openDataFolder: () => invoke('settings:open-data-folder'),
+  about: () => invoke('settings:about'),
+  editWorkspace: (workspaceId) =>
+    invoke('settings:edit-workspace', { workspaceId }),
+  deleteWorkspace: (workspaceId) =>
+    invoke('settings:delete-workspace', { workspaceId }),
+  storageStatus: () => invoke('storage:status'),
+  onStorageStatus: (listener) => subscribe(eventChannels.storage, listener),
+  getPreferences: () => invoke('preferences:get'),
+  updatePreferences: (patch) => invoke('preferences:update', { patch }),
+  onPreferences: (listener) => subscribe(eventChannels.preferences, listener),
 };
 
 contextBridge.exposeInMainWorld('splash', api);

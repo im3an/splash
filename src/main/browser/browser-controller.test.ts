@@ -576,6 +576,14 @@ describe('BrowserController', () => {
       expect(home).not.toBe(work);
     });
 
+    it('gives each new workspace a different accent', () => {
+      const { controller, latest } = setup();
+      controller.createWorkspace('Work');
+      controller.createWorkspace('Later');
+      const accents = latest().workspaces.map((w) => w.appearance.accent);
+      expect(new Set(accents).size).toBe(3);
+    });
+
     it('reorders workspaces', () => {
       const { controller, latest } = setup();
       controller.createWorkspace('Work');
@@ -612,6 +620,28 @@ describe('BrowserController', () => {
       expect(latest().pages[id]?.note).toBeNull();
     });
 
+    it('records a visit when a requested address commits', () => {
+      const { controller, hosts, visits } = setup();
+      const id = controller.createPage({ url: 'https://a.com/' });
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+      expect(visits).toEqual(['https://a.com/']);
+
+      controller.navigate(id, 'b.com');
+      hosts[0]!.events.onStateChange({ url: 'https://b.com/' });
+      hosts[0]!.events.onStateChange({ url: 'https://b.com/#part' });
+      expect(visits).toEqual(['https://a.com/', 'https://b.com/']);
+    });
+
+    it('does not count a restored page as a new visit', () => {
+      const original = setup();
+      original.controller.createPage({ url: 'https://a.com/' });
+      const session = original.controller.exportSession();
+      const restored = setup();
+      restored.controller.restoreSession(session);
+      restored.hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+      expect(restored.visits).toEqual([]);
+    });
+
     it('reports new documents and their titles, not fragment changes', () => {
       const { controller, hosts, visits, titles } = setup();
       controller.createPage({ input: 'a.com' });
@@ -620,7 +650,7 @@ describe('BrowserController', () => {
       host.events.onStateChange({ url: 'https://a.com/#section' });
       host.events.onStateChange({ url: 'https://a.com/next' });
       host.events.onStateChange({ title: 'Next' });
-      expect(visits).toEqual(['https://a.com/next']);
+      expect(visits).toEqual(['https://a.com/', 'https://a.com/next']);
       expect(titles).toEqual([['https://a.com/next', 'Next']]);
     });
   });

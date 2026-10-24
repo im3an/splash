@@ -3,7 +3,7 @@ import { RotateCcw } from 'lucide-react';
 import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';
 
-const VISIBLE_MS = 6000;
+const VISIBLE_MS = 9000;
 
 /** A brief, quiet offer to bring back what was just closed. */
 export function UndoToast() {
@@ -22,19 +22,26 @@ export function UndoToast() {
   const visible = lastClosed !== null && shownSerial === lastClosed.serial;
   if (!visible) return null;
 
+  const pages = `${lastClosed.pageCount} page${lastClosed.pageCount === 1 ? '' : 's'}`;
   const message =
     lastClosed.kind === 'workspace'
-      ? `Deleted workspace “${lastClosed.label}”`
+      ? `Deleted workspace “${lastClosed.label}”${lastClosed.pageCount > 0 ? ` and its ${pages}` : ''}.`
       : lastClosed.pageCount > 1
-        ? `Closed ${lastClosed.pageCount} pages`
-        : `Closed “${lastClosed.label}”`;
+        ? `Closed “${lastClosed.label}” and ${lastClosed.pageCount - 1} more.`
+        : `Closed “${lastClosed.label}”.`;
 
   return (
     <div
       role="status"
-      className="toast-in mx-1 mb-2 flex items-center gap-2 rounded-[var(--radius-control)] bg-elevated py-1.5 pr-1 pl-3 text-[12px] text-fg-muted shadow-[var(--shadow-row)]"
+      className="toast-in mx-1 mb-2 flex items-start gap-2 rounded-[var(--radius-control)] bg-elevated py-1.5 pr-1 pl-3 text-[12px] text-fg-muted shadow-[var(--shadow-row)]"
     >
-      <span className="min-w-0 flex-1 truncate">{message}</span>
+      <span
+        className="line-clamp-3 min-w-0 flex-1 leading-[1.4]"
+        title={message}
+      >
+        {message}
+        <span className="text-fg-subtle"> ⇧⌘T also undoes it.</span>
+      </span>
       <button
         type="button"
         onClick={() => {

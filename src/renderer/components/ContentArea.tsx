@@ -8,6 +8,7 @@ import { useOverlay } from '../stores/overlay-store';
 import { selectActivePage, useShell } from '../stores/shell-store';
 import { AddressSuggestions } from './AddressSuggestions';
 import { CommandPalette } from './CommandPalette';
+import { DownloadsPanel } from './DownloadsPanel';
 import { SiteInfoPopover } from './SiteInfoPopover';
 import { WorkspaceEditor } from './WorkspaceEditor';
 
@@ -61,6 +62,8 @@ function OverlayHost() {
       return <AddressSuggestions />;
     case 'site-info':
       return <SiteInfoPopover />;
+    case 'downloads':
+      return <DownloadsPanel />;
     case 'workspace-editor':
       return <WorkspaceEditor workspaceId={overlay.workspaceId} />;
     default:

@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { Rectangle } from 'electron';
-import { DEFAULT_APPEARANCE } from '../../shared/appearance';
+import {
+  DEFAULT_APPEARANCE,
+  newWorkspaceAppearance,
+} from '../../shared/appearance';
 import type {
   BrowserSnapshot,
   PageId,
@@ -26,6 +29,7 @@ import type {
 import { TrailTree } from './trail-tree';
 import { isNavigableUrl, resolveAddressInput } from './url';
 import { stepZoom } from './zoom';
+import type { SearchEngineId } from '../../shared/preferences';
 
 interface Workspace {
   id: WorkspaceId;
@@ -50,6 +54,8 @@ interface Page {
   /** A name the user gave the page, shown instead of its title. */
   customTitle: string | null;
   note: string | null;
+  /** The last address the page actually committed, as opposed to requested. */
+  committedUrl: string | null;
   /** Permission requests waiting for the user, oldest first. */
   permissionQueue: PendingPermission[];
   /** Permissions refused on the current site. */
@@ -86,6 +92,8 @@ export interface BrowserControllerOptions {
   now?: () => number;
   /** Live views kept before the least recently used are discarded. */
   maxLiveViews?: number;
+  /** The engine typed searches go to. */
+  searchEngine?: () => SearchEngineId;
 }
 
 export interface CreatePageOptions {
@@ -116,6 +124,7 @@ const EMPTY_STATE: PageRuntimeState = {
   isMuted: false,
   zoomPercent: 100,
   find: null,
+  isUnresponsive: false,
 };
 
 /**
@@ -141,7 +150,7 @@ export class BrowserController {
   private readonly schedule: (flush: () => void) => void;
   private readonly createId: () => string;
   private readonly now: () => number;
-  private readonly maxLiveViews: number;
+  private maxLiveViews: number;
 
   constructor(private readonly options: BrowserControllerOptions) {
     this.schedule = options.schedule ?? queueMicrotask;
@@ -176,7 +185,7 @@ export class BrowserController {
       options.url !== undefined
         ? options.url
         : options.input !== undefined
-          ? resolveAddressInput(options.input)
+          ? this.resolve(options.input)
           : null;
     if (url !== null) this.load(id, url, options.referrer);
 
@@ -272,6 +281,7 @@ export class BrowserController {
           ...closed.state,
           isLoading: false,
           isAudible: false,
+          isUnresponsive: false,
           find: null,
         },
       });
@@ -361,7 +371,13 @@ export class BrowserController {
 
   navigate(id: PageId, input: string): void {
     this.require(id);
-    this.load(id, resolveAddressInput(input));
+    this.load(id, this.resolve(input));
+  }
+
+  /** Changes how many pages stay awake, putting extra ones to sleep now. */
+  setMaxLiveViews(count: number): void {
+    this.maxLiveViews = Math.max(1, Math.trunc(count));
+    this.enforceLiveBudget();
   }
 
   /** Back within the page's history, then up the trail to its parent. */
@@ -435,6 +451,7 @@ export class BrowserController {
       ...page.state,
       isLoading: false,
       isAudible: false,
+      isUnresponsive: false,
       find: null,
     };
     if (this.visibleId === id) this.visibleId = null;
@@ -532,12 +549,13 @@ export class BrowserController {
 
   createWorkspace(
     name?: string,
-    appearance: WorkspaceAppearance = DEFAULT_APPEARANCE,
+    appearance?: WorkspaceAppearance,
   ): WorkspaceId {
+    const count = this.workspaces.size;
     const workspace = this.addWorkspace(
-      cleanText(name ?? null) ?? `Workspace ${this.workspaces.size + 1}`,
+      cleanText(name ?? null) ?? `Workspace ${count + 1}`,
     );
-    workspace.appearance = appearance;
+    workspace.appearance = appearance ?? newWorkspaceAppearance(count);
     this.switchWorkspace(workspace.id);
     return workspace.id;
   }
@@ -718,6 +736,8 @@ export class BrowserController {
           faviconUrl: stored.faviconUrl,
         },
         history: stored.history,
+        // Coming back to a saved page isn't a new visit.
+        committedUrl: stored.url,
         customTitle: stored.customTitle,
         note: stored.note,
         createdAt: stored.createdAt,
@@ -792,6 +812,10 @@ export class BrowserController {
 
   // ── Internals ──────────────────────────────────────────────────────────
 
+  private resolve(input: string): string {
+    return resolveAddressInput(input, this.options.searchEngine?.());
+  }
+
   private get workspace(): Workspace {
     return this.requireWorkspace(this.activeWorkspaceId);
   }
@@ -859,6 +883,7 @@ export class BrowserController {
       lastVisitedChildId: null,
       customTitle: null,
       note: null,
+      committedUrl: null,
       permissionQueue: [],
       blocked: new Set(),
     };
@@ -951,6 +976,7 @@ export class BrowserController {
     // Events from a host that has since been discarded or closed are stale.
     const isCurrent = () => this.pages.get(id)?.host === host;
     const host: PageHost = this.options.createHost({
+      pageId: id,
       onStateChange: (patch) => {
         if (isCurrent()) this.updateState(id, patch);
       },
@@ -1039,19 +1065,21 @@ export class BrowserController {
   private updateState(id: PageId, patch: Partial<PageRuntimeState>): void {
     const page = this.pages.get(id);
     if (!page) return;
-    const previousUrl = page.state.url;
     page.state = { ...page.state, ...patch };
     const url = page.state.url;
-    if (patch.url && originOf(patch.url) !== originOf(previousUrl)) {
-      // Requests and refusals belong to the site the page has left.
-      this.cancelPermissionRequests(page);
-      page.blocked.clear();
-    }
-    if (
-      patch.url &&
-      (previousUrl === null || !isSameDocumentUrl(patch.url, previousUrl))
-    ) {
-      this.options.onVisit?.(patch.url);
+    // URLs from a host are committed navigations. Compare against the last
+    // commit, not the address requested by `load`, which is set earlier.
+    if (patch.url) {
+      const previous = page.committedUrl;
+      page.committedUrl = patch.url;
+      if (originOf(patch.url) !== originOf(previous)) {
+        // Requests and refusals belong to the site the page has left.
+        this.cancelPermissionRequests(page);
+        page.blocked.clear();
+      }
+      if (previous === null || !isSameDocumentUrl(patch.url, previous)) {
+        this.options.onVisit?.(patch.url);
+      }
     }
     if (patch.title && url) this.options.onTitle?.(url, patch.title);
     if ('error' in patch || 'url' in patch) this.syncVisibleHost();

@@ -65,9 +65,9 @@ describe('SessionPersister', () => {
       .mockImplementation(() => undefined);
     const { persister, onError } = setup(saveSession);
     persister.schedule();
-    persister.flush();
+    expect(persister.flush()).toBe(false);
     expect(onError).toHaveBeenCalledOnce();
-    persister.flush();
+    expect(persister.flush()).toBe(true);
     expect(saveSession).toHaveBeenCalledTimes(2);
     persister.dispose();
   });

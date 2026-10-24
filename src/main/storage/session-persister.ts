@@ -8,6 +8,8 @@ export interface SessionPersisterOptions {
   /** Saves happen at least this often, to keep scroll positions current. */
   intervalMs?: number;
   onError?(error: unknown): void;
+  /** A save went through (after `onError`, this means it recovered). */
+  onSaved?(): void;
 }
 
 /**
@@ -34,21 +36,25 @@ export class SessionPersister {
     this.timer = setTimeout(() => this.flush(), this.options.delayMs ?? 600);
   }
 
-  flush(): void {
+  /** Saves now if anything changed. Returns whether everything is saved. */
+  flush(): boolean {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    if (!this.dirty) return;
+    if (!this.dirty) return true;
     this.dirty = false;
     try {
       this.options.store.saveSession(this.options.exportSession());
+      this.options.onSaved?.();
+      return true;
     } catch (error) {
       this.dirty = true;
       this.options.onError?.(error);
+      return false;
     }
   }
 
-  dispose(): void {
-    this.flush();
+  dispose(): boolean {
     clearInterval(this.interval);
+    return this.flush();
   }
 }

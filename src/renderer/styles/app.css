@@ -58,7 +58,7 @@
   .drag {
     -webkit-app-region: drag;
   }
-  .drag :is(button, input, a, [role='treeitem']) {
+  .drag :is(button, input, a, [role='treeitem'], [role='search']) {
     -webkit-app-region: no-drag;
   }
 

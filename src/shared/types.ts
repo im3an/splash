@@ -40,6 +40,7 @@ export interface PageSnapshot {
   isMuted: boolean;
   zoomPercent: number;
   find: FindResult | null;
+  isUnresponsive: boolean;
   /** Permissions this page asked for and was refused, for the address bar. */
   blockedPermissions: SitePermission[];
   /** A permission request waiting for the user's answer. */
@@ -116,6 +117,80 @@ export type PaletteCommand =
   | 'zoom-reset'
   | 'mute-page'
   | 'site-info';
+
+export type DownloadState =
+  | 'progressing'
+  | 'paused'
+  | 'completed'
+  | 'cancelled'
+  | 'interrupted'
+  /** Finished, but the file has since been moved or deleted. */
+  | 'missing';
+
+export interface DownloadSummary {
+  id: string;
+  /** The page that started it, while that page exists. */
+  pageId: PageId | null;
+  url: string;
+  filename: string;
+  savePath: string | null;
+  state: DownloadState;
+  receivedBytes: number;
+  totalBytes: number;
+  startedAt: number;
+  /** Why it stopped, in plain words, for interrupted downloads. */
+  problem: string | null;
+  /** The file can run code; opening it asks first. */
+  runnable: boolean;
+}
+
+export type DownloadAction =
+  | 'cancel'
+  | 'pause'
+  | 'resume'
+  | 'retry'
+  | 'open'
+  | 'show'
+  | 'remove';
+
+export interface SiteSettings {
+  origin: string;
+  host: string;
+  permissions: {
+    permission: SitePermission;
+    label: string;
+    decision: PermissionDecision;
+  }[];
+}
+
+export interface DefaultBrowserStatus {
+  isDefault: boolean;
+  /** Only the installed app can register itself with macOS. */
+  canChange: boolean;
+}
+
+export interface AboutInfo {
+  version: string;
+  electron: string;
+  chromium: string;
+  dataFolder: string;
+}
+
+export interface StorageStatus {
+  /** Why saving the session is failing; `null` while saves succeed. */
+  problem: string | null;
+}
+
+export type ClearRange = 'hour' | 'day' | 'week' | 'all';
+
+export interface ClearDataRequest {
+  range: ClearRange;
+  history: boolean;
+  cookies: boolean;
+  cache: boolean;
+  permissions: boolean;
+  downloads: boolean;
+}
 
 export interface PermissionRequest {
   id: string;

@@ -1,5 +1,10 @@
 import type { Rectangle } from 'electron';
-import type { FindResult, PageError, SitePermission } from '../../shared/types';
+import type {
+  FindResult,
+  PageError,
+  PageId,
+  SitePermission,
+} from '../../shared/types';
 
 /** Live state reported by a page's Chromium view. */
 export interface PageRuntimeState {
@@ -18,6 +23,8 @@ export interface PageRuntimeState {
   zoomPercent: number;
   /** The latest find-in-page result, while a search is open. */
   find: FindResult | null;
+  /** The page's renderer has stopped responding. */
+  isUnresponsive: boolean;
 }
 
 export interface HistoryEntry {
@@ -39,6 +46,8 @@ export interface LoadOptions {
 }
 
 export interface PageHostEvents {
+  /** The trail page this host shows. */
+  readonly pageId: PageId;
   onStateChange(patch: Partial<PageRuntimeState>): void;
   /** The page asked to open a new window (`window.open`, `target=_blank`). */
   onOpenRequest(url: string, options: { background: boolean }): void;

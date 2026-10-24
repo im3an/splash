@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { DEFAULT_APPEARANCE } from '../../shared/appearance';
 import { workspaceAppearanceSchema } from '../../shared/ipc';
 import type {
+  DownloadSummary,
   PageId,
   SitePermission,
   WorkspaceAppearance,
@@ -10,9 +11,15 @@ import type {
 import { isClosedRecord, type ClosedRecord } from '../browser/closed-records';
 import type { PageHistory } from '../browser/page-host';
 import { isNavigableUrl } from '../browser/url';
-import { migrate, SchemaTooNewError } from './migrations';
+import {
+  assertSupportedSchema,
+  migrate,
+  SchemaTooNewError,
+} from './migrations';
 import type {
   HistoryMatch,
+  HistoryRow,
+  PermissionRecord,
   StoredPage,
   StoredSession,
   StoredWorkspace,
@@ -343,6 +350,97 @@ export class SqliteTrailStore implements TrailStore {
     }
   }
 
+  listPermissions(): PermissionRecord[] {
+    const rows = this.db
+      .prepare(
+        'SELECT origin, permission, granted FROM permission_decisions ORDER BY origin, permission',
+      )
+      .all() as unknown as {
+      origin: string;
+      permission: SitePermission;
+      granted: number;
+    }[];
+    return rows.map((row) => ({
+      origin: row.origin,
+      permission: row.permission,
+      granted: row.granted === 1,
+    }));
+  }
+
+  deleteHistory(since: number): HistoryRow[] {
+    let removed: HistoryRow[] = [];
+    this.transaction(() => {
+      removed = (
+        this.db
+          .prepare(
+            'SELECT url, title, visit_count, last_visited_at FROM history WHERE last_visited_at >= ?',
+          )
+          .all(since) as unknown as {
+          url: string;
+          title: string;
+          visit_count: number;
+          last_visited_at: number;
+        }[]
+      ).map((row) => ({
+        url: row.url,
+        title: row.title,
+        visitCount: row.visit_count,
+        lastVisitedAt: row.last_visited_at,
+      }));
+      this.db
+        .prepare('DELETE FROM history WHERE last_visited_at >= ?')
+        .run(since);
+    });
+    return removed;
+  }
+
+  restoreHistory(rows: HistoryRow[]): void {
+    const insert = this.db.prepare(
+      `INSERT INTO history (url, title, visit_count, last_visited_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (url) DO UPDATE SET
+         title = excluded.title,
+         visit_count = history.visit_count + excluded.visit_count,
+         last_visited_at = max(history.last_visited_at, excluded.last_visited_at)`,
+    );
+    this.transaction(() => {
+      for (const row of rows) {
+        insert.run(row.url, row.title, row.visitCount, row.lastVisitedAt);
+      }
+    });
+  }
+
+  loadDownloads(): DownloadSummary[] {
+    const rows = this.db
+      .prepare('SELECT record FROM downloads ORDER BY started_at DESC')
+      .all() as unknown as { record: string }[];
+    const downloads: DownloadSummary[] = [];
+    for (const row of rows) {
+      try {
+        const record = JSON.parse(row.record) as DownloadSummary;
+        if (typeof record.id === 'string' && typeof record.url === 'string') {
+          downloads.push(record);
+        }
+      } catch {
+        // A damaged entry only drops out of the list.
+      }
+    }
+    return downloads;
+  }
+
+  saveDownload(download: DownloadSummary): void {
+    this.db
+      .prepare(
+        `INSERT INTO downloads (id, record, started_at) VALUES (?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET record = excluded.record`,
+      )
+      .run(download.id, JSON.stringify(download), download.startedAt);
+  }
+
+  deleteDownload(id: string): void {
+    this.db.prepare('DELETE FROM downloads WHERE id = ?').run(id);
+  }
+
   close(): void {
     if (this.db.isOpen) this.db.close();
   }
@@ -374,6 +472,9 @@ export function openTrailStore(file: string): OpenStoreResult {
   const open = () => {
     const db = new DatabaseSync(file);
     try {
+      // Check first: even switching the journal mode would modify a file
+      // that belongs to a newer version.
+      assertSupportedSchema(db);
       db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
       return new SqliteTrailStore(db);
     } catch (error) {

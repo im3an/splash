@@ -160,3 +160,14 @@ export function accentColors(accent: string): { light: string; dark: string } {
   const preset = ACCENTS.find((other) => other.id === accent) ?? ACCENTS[0]!;
   return { light: preset.light, dark: preset.dark };
 }
+
+/**
+ * The look a new workspace starts with. The accent rotates through the
+ * presets so new workspaces don't all look alike.
+ */
+export function newWorkspaceAppearance(
+  existingCount: number,
+): WorkspaceAppearance {
+  const accent = ACCENTS[existingCount % ACCENTS.length]!;
+  return { ...DEFAULT_APPEARANCE, accent: accent.id };
+}

@@ -27,8 +27,9 @@ export type SendHandlers = {
 export interface IpcTarget {
   /** Whether a frame URL belongs to the shipped shell UI. */
   isShellUrl(url: string): boolean;
-  invoke: InvokeHandlers;
-  send: SendHandlers;
+  /** A window may handle only some channels; others are refused. */
+  invoke: Partial<InvokeHandlers>;
+  send: Partial<SendHandlers>;
 }
 
 /** Finds the shell window a message came from; `null` for any other sender. */
@@ -61,9 +62,11 @@ export function registerIpc(resolve: IpcTargetResolver): () => void {
     ipcMain.handle(channel, (event, raw: unknown) => {
       const target = trustedTarget(event, resolve);
       if (!target) throw new Error(`Rejected ${channel} from untrusted sender`);
-      const input = invokeContract[channel].parse(raw);
-      const handler = target.invoke[channel] as (value: unknown) => unknown;
-      return handler(input);
+      const handler = target.invoke[channel] as
+        | ((value: unknown) => unknown)
+        | undefined;
+      if (!handler) throw new Error(`${channel} is not available here`);
+      return handler(invokeContract[channel].parse(raw));
     });
   }
 
@@ -73,8 +76,10 @@ export function registerIpc(resolve: IpcTargetResolver): () => void {
       if (!target) return;
       const result = sendContract[channel].safeParse(raw);
       if (!result.success) return;
-      const handler = target.send[channel] as (value: unknown) => void;
-      handler(result.data);
+      const handler = target.send[channel] as
+        | ((value: unknown) => void)
+        | undefined;
+      handler?.(result.data);
     };
     ipcMain.on(channel, listener);
     return [channel, listener] as const;

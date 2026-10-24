@@ -7,6 +7,11 @@ import type {
 import type { HistoryMatch } from '../storage/trail-store';
 import type { PageListing } from './browser-controller';
 import { resolveAddressInput, searchUrl } from './url';
+import {
+  DEFAULT_PREFERENCES,
+  searchEngine,
+  type SearchEngineId,
+} from '../../shared/preferences';
 
 interface CommandDefinition {
   command: PaletteCommand;
@@ -92,6 +97,7 @@ export interface PaletteInput {
   history: HistoryMatch[];
   activeWorkspaceId: WorkspaceId;
   activePageId: PageId | null;
+  searchEngine?: SearchEngineId;
 }
 
 function hostOf(url: string): string {
@@ -201,14 +207,15 @@ export function buildPaletteItems(input: PaletteInput): PaletteItem[] {
     return input.scope === 'palette' ? [...pageItems, ...commandItems] : [];
   }
 
-  const resolved = resolveAddressInput(query);
-  const isSearch = resolved === searchUrl(query);
+  const engine = input.searchEngine ?? DEFAULT_PREFERENCES.searchEngine;
+  const resolved = resolveAddressInput(query, engine);
+  const isSearch = resolved === searchUrl(query, engine);
   const navigate: PaletteItem = {
     kind: 'navigate',
     id: 'navigate',
     input: query,
     title: isSearch ? `Search for “${query}”` : `Go to ${hostOf(resolved)}`,
-    subtitle: isSearch ? 'DuckDuckGo' : resolved,
+    subtitle: isSearch ? searchEngine(engine).name : resolved,
   };
 
   if (input.scope === 'address') {
