@@ -38,5 +38,5 @@ function contentSecurityPolicy(): Plugin {
 export default defineConfig({
   plugins: [contentSecurityPolicy(), react(), tailwindcss()],
   // Packaging output must not trigger dev-server reloads.
-  server: { watch: { ignored: ['**/out/**'] } },
+  server: { watch: { ignored: ['**/out/**', '**/.claude/worktrees/**'] } },
 });
