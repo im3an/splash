@@ -1,60 +1,50 @@
 import type { ReactNode } from 'react';
 import { ArrowLeft, ArrowRight, PanelLeft, RotateCw, X } from 'lucide-react';
-import { api } from '../splash-api';
-import { selectActivePage, useShell } from '../stores/shell-store';
+import type { CommandId } from '../../../shared/commands';
+import { runCommand } from '../../commands/run-command';
+import { usePreferences } from '../../stores/preferences-store';
+import { selectActivePage, useShell } from '../../stores/shell-store';
+import { withShortcut } from '../common/Shortcut';
+import { Toasts } from '../overlays/Toasts';
 import { AddressBar } from './AddressBar';
 
 export function Toolbar() {
   const page = useShell(selectActivePage);
-  const sidebarOpen = useShell((state) => state.sidebarOpen);
-  const toggleSidebar = useShell((state) => state.toggleSidebar);
-
-  const hasContent = Boolean(page?.url);
+  const sidebarOpen = usePreferences((state) => state.sidebarOpen);
 
   return (
     <header
-      className="drag flex h-[var(--toolbar-height)] shrink-0 items-center gap-0.5 pr-2 transition-[padding] duration-[var(--duration-base)] ease-[var(--ease-out)]"
+      className="drag relative flex h-[var(--toolbar-height)] shrink-0 items-center gap-0.5 pr-2 transition-[padding] duration-[var(--duration-base)] ease-[var(--ease-out)]"
       style={{ paddingLeft: sidebarOpen ? 8 : 'var(--traffic-lights)' }}
     >
       {!sidebarOpen && (
-        <ToolbarButton
-          label="Show sidebar"
-          shortcut="⌘S"
-          onClick={toggleSidebar}
-        >
+        <ToolbarButton label="Show sidebar" command="sidebar.toggle">
           <PanelLeft size={16} strokeWidth={1.75} />
         </ToolbarButton>
       )}
       <ToolbarButton
         label="Back"
-        shortcut="⌘["
+        command="nav.back"
         disabled={!page?.canGoBack}
-        onClick={() => page && void api().goBack(page.id)}
       >
         <ArrowLeft size={16} strokeWidth={1.75} />
       </ToolbarButton>
       <ToolbarButton
         label="Forward"
-        shortcut="⌘]"
+        command="nav.forward"
         disabled={!page?.canGoForward}
-        onClick={() => page && void api().goForward(page.id)}
       >
         <ArrowRight size={16} strokeWidth={1.75} />
       </ToolbarButton>
       {page?.isLoading ? (
-        <ToolbarButton
-          label="Stop"
-          shortcut="⌘."
-          onClick={() => void api().stop(page.id)}
-        >
+        <ToolbarButton label="Stop" command="nav.stop">
           <X size={16} strokeWidth={1.75} />
         </ToolbarButton>
       ) : (
         <ToolbarButton
           label="Reload"
-          shortcut="⌘R"
-          disabled={!hasContent}
-          onClick={() => page && void api().reload(page.id)}
+          command="nav.reload"
+          disabled={!page?.url}
         >
           <RotateCw size={15} strokeWidth={1.75} />
         </ToolbarButton>
@@ -62,21 +52,20 @@ export function Toolbar() {
       <div className="ml-1.5 flex min-w-0 flex-1">
         <AddressBar />
       </div>
+      {!sidebarOpen && <Toasts placement="toolbar" />}
     </header>
   );
 }
 
 function ToolbarButton({
   label,
-  shortcut,
+  command,
   disabled,
-  onClick,
   children,
 }: {
   label: string;
-  shortcut: string;
+  command: CommandId;
   disabled?: boolean;
-  onClick: () => void;
   children: ReactNode;
 }) {
   return (
@@ -84,9 +73,9 @@ function ToolbarButton({
       type="button"
       className="icon-button"
       aria-label={label}
-      title={`${label} (${shortcut})`}
+      title={withShortcut(label, command)}
       disabled={disabled}
-      onClick={onClick}
+      onClick={() => void runCommand(command)}
     >
       {children}
     </button>

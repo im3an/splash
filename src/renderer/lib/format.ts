@@ -20,7 +20,10 @@ export function displayUrl(url: string): string {
   return rest === '/' ? parsed.host : parsed.host + rest;
 }
 
-export function pageLabel(page: PageSnapshot): string {
+export function pageLabel(
+  page: Pick<PageSnapshot, 'title' | 'customTitle' | 'url'>,
+): string {
+  if (page.customTitle) return page.customTitle;
   const title = page.title.trim();
   if (title) return title;
   if (page.url) return hostOf(page.url);

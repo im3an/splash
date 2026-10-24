@@ -2,8 +2,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BrowserWindow, nativeTheme, session } from 'electron';
 import { eventChannels } from '../../shared/api';
-import type { ContentInsets, UiCommand } from '../../shared/types';
-import { BrowserController } from '../browser/browser-controller';
+import type { Appearance, ContentInsets, UiCommand } from '../../shared/types';
+import { BrowserController } from '../../engine/browser-controller';
 import { createElectronPageHostFactory } from '../browser/electron-page-host';
 import { contentBounds } from '../browser/layout';
 import type { IpcTarget } from '../ipc/register-ipc';
@@ -39,6 +39,11 @@ function isSameDocument(candidate: string, expected: string): boolean {
   }
 }
 
+export interface TrailWindowOptions {
+  /** The shell owns the appearance preference and reports every change. */
+  onAppearance(appearance: Appearance): void;
+}
+
 /**
  * One browser window: the shell UI in the window's own WebContents, and the
  * page views managed by its `BrowserController` layered above it.
@@ -49,7 +54,7 @@ export class TrailWindow {
   readonly ipc: IpcTarget;
   private insets: ContentInsets | null = null;
 
-  constructor() {
+  constructor(options: TrailWindowOptions) {
     const url = shellUrl();
 
     this.window = new BrowserWindow({
@@ -84,9 +89,11 @@ export class TrailWindow {
       isShellUrl: (candidate) => isSameDocument(candidate, url),
       invoke: {
         'browser:get-snapshot': () => this.controller.snapshot(),
-        'page:create': ({ input }) => this.controller.createPage({ input }),
+        'page:create': ({ input, parentId }) =>
+          this.controller.createPage({ input, parentId }),
         'page:activate': ({ pageId }) => this.controller.activatePage(pageId),
-        'page:close': ({ pageId }) => this.controller.closePage(pageId),
+        'page:close': ({ pageId, withDescendants }) =>
+          this.controller.closePage(pageId, { withDescendants }),
         'page:navigate': ({ pageId, input }) =>
           this.controller.navigate(pageId, input),
         'page:go-back': ({ pageId }) => this.controller.goBack(pageId),
@@ -95,6 +102,18 @@ export class TrailWindow {
         'page:stop': ({ pageId }) => this.controller.stop(pageId),
         'page:set-collapsed': ({ pageId, collapsed }) =>
           this.controller.setCollapsed(pageId, collapsed),
+        'page:rename': ({ pageId, title }) =>
+          this.controller.renamePage(pageId, title),
+        'page:move': ({ pageId, parentId, beforeId }) =>
+          this.controller.movePage(pageId, parentId, beforeId),
+        'workspace:create': ({ name }) =>
+          this.controller.createWorkspace(name, { activate: true }),
+        'workspace:activate': ({ workspaceId }) =>
+          this.controller.activateWorkspace(workspaceId),
+        'workspace:rename': ({ workspaceId, name }) =>
+          this.controller.renameWorkspace(workspaceId, name),
+        'workspace:delete': ({ workspaceId }) =>
+          this.controller.deleteWorkspace(workspaceId),
       },
       send: {
         'view:set-content-insets': (insets) => {
@@ -102,6 +121,7 @@ export class TrailWindow {
           this.layout();
         },
         'view:focus-page': () => this.controller.focusActivePage(),
+        'app:set-appearance': (appearance) => options.onAppearance(appearance),
       },
     };
 

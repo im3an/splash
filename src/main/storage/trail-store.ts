@@ -1,4 +1,4 @@
-import type { PageId } from '../../shared/types';
+import type { PageId, WorkspaceColor, WorkspaceId } from '../../shared/types';
 
 /**
  * Persistence boundary for trails. Phase 4 implements this with SQLite
@@ -12,16 +12,27 @@ export interface StoredPage {
   position: number;
   url: string | null;
   title: string;
+  customTitle: string | null;
   collapsed: boolean;
 }
 
-export interface StoredTrail {
+export interface StoredWorkspace {
+  id: WorkspaceId;
+  name: string;
+  color: WorkspaceColor;
+  /** Position in the sidebar's workspace switcher. */
+  position: number;
   pages: StoredPage[];
   activePageId: PageId | null;
 }
 
+export interface StoredWindow {
+  workspaces: StoredWorkspace[];
+  activeWorkspaceId: WorkspaceId;
+}
+
 export interface TrailStore {
-  load(): StoredTrail | null;
-  save(trail: StoredTrail): void;
+  load(): StoredWindow | null;
+  save(window: StoredWindow): void;
   close(): void;
 }

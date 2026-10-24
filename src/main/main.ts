@@ -1,6 +1,7 @@
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, nativeTheme, session } from 'electron';
+import type { Appearance } from '../shared/types';
 import { registerIpc } from './ipc/register-ipc';
-import { installApplicationMenu } from './menu';
+import { installApplicationMenu, syncAppearanceMenu } from './menu';
 import {
   configureAppSession,
   configureWebSession,
@@ -11,8 +12,14 @@ import { TrailWindow } from './windows/browser-window';
 
 const windows = new Set<TrailWindow>();
 
+/** Applies the shell's appearance preference to every window and web page. */
+function setAppearance(appearance: Appearance): void {
+  nativeTheme.themeSource = appearance;
+  syncAppearanceMenu(appearance);
+}
+
 function openWindow(): TrailWindow {
-  const trailWindow = new TrailWindow();
+  const trailWindow = new TrailWindow({ onAppearance: setAppearance });
   windows.add(trailWindow);
   trailWindow.window.on('closed', () => windows.delete(trailWindow));
   return trailWindow;

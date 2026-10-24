@@ -16,7 +16,10 @@
   --color-fg-subtle: var(--fg-subtle);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
   --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-scrim: var(--scrim);
   --color-skeleton: var(--skeleton);
   --font-sans: var(--font-ui);
   --font-mono: var(--font-mono);
@@ -58,7 +61,7 @@
   .drag {
     -webkit-app-region: drag;
   }
-  .drag :is(button, input, a, [role='treeitem']) {
+  .drag :is(button, input, a, [role='treeitem'], [data-no-drag]) {
     -webkit-app-region: no-drag;
   }
 
@@ -114,6 +117,57 @@
     animation: load-sweep 1.15s var(--ease-out) infinite;
   }
 
+  /* Insertion marker while dragging a page over the tree. */
+  .drop-line {
+    position: absolute;
+    right: 4px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+    pointer-events: none;
+  }
+  .drop-line::before {
+    content: '';
+    position: absolute;
+    left: -3px;
+    top: -2px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent);
+    background: var(--chrome);
+  }
+
+  .workspace-dot {
+    background: var(--dot-color);
+  }
+
+  /*
+   * Entrances only, short and transform/opacity-only so they never block
+   * input; a newer state simply replaces an animation in flight.
+   */
+  .row-enter {
+    animation: row-in var(--duration-fast) var(--ease-out);
+  }
+  .tree-enter[data-direction='next'] {
+    animation: slide-in-next var(--duration-base) var(--ease-out);
+  }
+  .tree-enter[data-direction='previous'] {
+    animation: slide-in-previous var(--duration-base) var(--ease-out);
+  }
+  .popover-enter {
+    animation: popover-in 100ms var(--ease-out);
+  }
+  .sheet-enter {
+    animation: sheet-in 180ms var(--ease-out);
+  }
+  .fade-enter {
+    animation: fade-in var(--duration-fast) var(--ease-out);
+  }
+  .toast-enter {
+    animation: sheet-in var(--duration-base) var(--ease-out);
+  }
+
   .spinner {
     width: 12px;
     height: 12px;
@@ -139,6 +193,47 @@
   }
 }
 
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes slide-in-next {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+
+@keyframes slide-in-previous {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -148,6 +243,57 @@
 @media (prefers-reduced-motion: reduce) {
   .skeleton,
   .load-indicator::after,
+  /* Insertion marker while dragging a page over the tree. */
+  .drop-line {
+    position: absolute;
+    right: 4px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+    pointer-events: none;
+  }
+  .drop-line::before {
+    content: '';
+    position: absolute;
+    left: -3px;
+    top: -2px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent);
+    background: var(--chrome);
+  }
+
+  .workspace-dot {
+    background: var(--dot-color);
+  }
+
+  /*
+   * Entrances only, short and transform/opacity-only so they never block
+   * input; a newer state simply replaces an animation in flight.
+   */
+  .row-enter {
+    animation: row-in var(--duration-fast) var(--ease-out);
+  }
+  .tree-enter[data-direction='next'] {
+    animation: slide-in-next var(--duration-base) var(--ease-out);
+  }
+  .tree-enter[data-direction='previous'] {
+    animation: slide-in-previous var(--duration-base) var(--ease-out);
+  }
+  .popover-enter {
+    animation: popover-in 100ms var(--ease-out);
+  }
+  .sheet-enter {
+    animation: sheet-in 180ms var(--ease-out);
+  }
+  .fade-enter {
+    animation: fade-in var(--duration-fast) var(--ease-out);
+  }
+  .toast-enter {
+    animation: sheet-in var(--duration-base) var(--ease-out);
+  }
+
   .spinner {
     animation-duration: 0s;
   }

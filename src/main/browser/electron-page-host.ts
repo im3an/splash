@@ -5,8 +5,12 @@ import {
   type Session,
   type WebContents,
 } from 'electron';
-import type { PageHost, PageHostEvents, PageHostFactory } from './page-host';
-import { isNavigableUrl } from './url';
+import type {
+  PageHost,
+  PageHostEvents,
+  PageHostFactory,
+} from '../../engine/page-host';
+import { isNavigableUrl } from '../../engine/url';
 
 /** Must match `--radius-content` in the renderer's design tokens. */
 const CONTENT_RADIUS = 10;

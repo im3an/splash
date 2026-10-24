@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { CircleAlert, Globe, Search } from 'lucide-react';
-import type { PageSnapshot } from '../../shared/types';
+import type { PageSnapshot } from '../../../shared/types';
 
 export function Favicon({ page }: { page: PageSnapshot }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);

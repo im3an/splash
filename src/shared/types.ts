@@ -1,4 +1,7 @@
+import type { CommandId } from './commands';
+
 export type PageId = string;
+export type WorkspaceId = string;
 
 export type PageErrorKind = 'load-failed' | 'crashed';
 
@@ -17,7 +20,10 @@ export interface PageSnapshot {
   childIds: PageId[];
   /** `null` until the page has been pointed at an address. */
   url: string | null;
+  /** The title the page itself reports. */
   title: string;
+  /** A name the user gave the page; shown instead of `title` when set. */
+  customTitle: string | null;
   faviconUrl: string | null;
   isLoading: boolean;
   canGoBack: boolean;
@@ -26,7 +32,31 @@ export interface PageSnapshot {
   error: PageError | null;
 }
 
+export const WORKSPACE_COLORS = [
+  'clay',
+  'moss',
+  'sky',
+  'plum',
+  'sand',
+  'slate',
+] as const;
+
+export type WorkspaceColor = (typeof WORKSPACE_COLORS)[number];
+
+export interface WorkspaceSummary {
+  id: WorkspaceId;
+  name: string;
+  color: WorkspaceColor;
+  pageCount: number;
+}
+
+/**
+ * Everything the shell renders. Workspaces each own an independent trail;
+ * only the active workspace's pages are included.
+ */
 export interface BrowserSnapshot {
+  workspaces: WorkspaceSummary[];
+  activeWorkspaceId: WorkspaceId;
   pages: Record<PageId, PageSnapshot>;
   rootIds: PageId[];
   activePageId: PageId | null;
@@ -40,5 +70,7 @@ export interface ContentInsets {
   left: number;
 }
 
+export type Appearance = 'system' | 'light' | 'dark';
+
 /** Commands the main process asks the shell UI to perform (usually from the app menu). */
-export type UiCommand = 'focus-address-bar' | 'toggle-sidebar';
+export type UiCommand = CommandId;

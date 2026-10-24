@@ -6,13 +6,15 @@ import {
   type FormEvent,
 } from 'react';
 import { Lock, Search, TriangleAlert } from 'lucide-react';
-import { displayUrl, securityOf } from '../lib/format';
-import { api } from '../splash-api';
-import { selectActivePage, useShell } from '../stores/shell-store';
+import { attempt } from '../../commands/run-command';
+import { displayUrl, securityOf } from '../../lib/format';
+import { api } from '../../splash-api';
+import { selectActivePage, useShell } from '../../stores/shell-store';
+import { useUi } from '../../stores/ui-store';
 
 export function AddressBar() {
   const page = useShell(selectActivePage);
-  const focusRequest = useShell((state) => state.addressFocusRequest);
+  const focusRequest = useUi((state) => state.addressFocusRequest);
   const inputRef = useRef<HTMLInputElement>(null);
   // `null` while not editing: the field then mirrors the active page.
   const [draft, setDraft] = useState<string | null>(null);
@@ -53,8 +55,14 @@ export function AddressBar() {
     const input = (draft ?? '').trim();
     if (!input) return;
     const splash = api();
-    if (page) await splash.navigate(page.id, input);
-    else await splash.createPage(input);
+    let failed = true;
+    await attempt(async () => {
+      if (page) await splash.navigate(page.id, input);
+      else await splash.createPage({ input });
+      failed = false;
+    }, 'Couldn’t open that address.');
+    // Keep what was typed after a failure, so it can be corrected.
+    if (failed) return;
     setDraft(null);
     inputRef.current?.blur();
     splash.focusPage();

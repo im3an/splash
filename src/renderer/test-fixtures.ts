@@ -10,6 +10,7 @@ export function page(
     childIds: [],
     url: `https://${id}.example/`,
     title: id,
+    customTitle: null,
     faviconUrl: null,
     isLoading: false,
     canGoBack: false,
@@ -32,6 +33,11 @@ export function sampleSnapshot(
     page('e', { ...overrides.e }),
   ];
   return {
+    workspaces: [
+      { id: 'w1', name: 'Personal', color: 'clay', pageCount: pages.length },
+      { id: 'w2', name: 'Research', color: 'moss', pageCount: 0 },
+    ],
+    activeWorkspaceId: 'w1',
     pages: Object.fromEntries(pages.map((p) => [p.id, p])),
     rootIds: ['a', 'e'],
     activePageId: 'a',

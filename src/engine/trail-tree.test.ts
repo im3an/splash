@@ -65,4 +65,54 @@ describe('TrailTree', () => {
     expect(tree.get('a')?.collapsed).toBe(false);
     expect(tree.get('b')?.collapsed).toBe(false);
   });
+
+  it('removes a whole subtree', () => {
+    const tree = build();
+    expect(tree.removeSubtree('a')).toEqual(['a', 'b', 'd', 'c']);
+    expect(tree.rootIds).toEqual(['e']);
+    expect(tree.size).toBe(1);
+  });
+
+  it('skips children when choosing a successor for a removed subtree', () => {
+    expect(build().successorOf('b', true)).toBe('c');
+    expect(build().successorOf('a', true)).toBe('e');
+    expect(build().successorOf('d', true)).toBe('b');
+  });
+
+  it('moves a node with its subtree before a sibling', () => {
+    const tree = build();
+    tree.move('c', 'a', 'b');
+    expect(tree.get('a')?.childIds).toEqual(['c', 'b']);
+    tree.move('e', null, 'a');
+    expect(tree.rootIds).toEqual(['e', 'a']);
+  });
+
+  it('moves a node to the end of another parent', () => {
+    const tree = build();
+    tree.move('b', 'e', null);
+    expect(tree.get('e')?.childIds).toEqual(['b']);
+    expect(tree.get('b')?.parentId).toBe('e');
+    expect(tree.order()).toEqual(['a', 'c', 'e', 'b', 'd']);
+  });
+
+  it('reorders within the same parent', () => {
+    const tree = build();
+    tree.move('b', 'a', null);
+    expect(tree.get('a')?.childIds).toEqual(['c', 'b']);
+  });
+
+  it('refuses to move a node into its own subtree', () => {
+    const tree = build();
+    expect(() => tree.move('a', 'd', null)).toThrow();
+    expect(() => tree.move('a', 'a', null)).toThrow();
+    expect(() => tree.move('c', 'a', 'd')).toThrow();
+    expect(tree.order()).toEqual(['a', 'b', 'd', 'c', 'e']);
+  });
+
+  it('knows descendants', () => {
+    const tree = build();
+    expect(tree.isDescendant('d', 'a')).toBe(true);
+    expect(tree.isDescendant('a', 'd')).toBe(false);
+    expect(tree.descendantsOf('a')).toEqual(['b', 'd', 'c']);
+  });
 });

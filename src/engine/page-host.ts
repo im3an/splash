@@ -1,5 +1,12 @@
-import type { Rectangle } from 'electron';
-import type { PageError } from '../../shared/types';
+import type { PageError } from '../shared/types';
+
+/** Where a page view sits inside its window, in device-independent pixels. */
+export interface Bounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 /** Live state reported by a page's Chromium view. */
 export interface PageRuntimeState {
@@ -28,7 +35,7 @@ export interface PageHost {
   goForward(): void;
   reload(): void;
   stop(): void;
-  show(bounds: Rectangle): void;
+  show(bounds: Bounds): void;
   hide(): void;
   focus(): void;
   toggleDevTools(): void;

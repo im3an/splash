@@ -32,12 +32,13 @@ function subscribe<T>(channel: string, listener: (value: T) => void) {
 }
 
 const api: SplashApi = {
+  backend: 'electron',
   platform: process.platform,
   getSnapshot: () => invoke('browser:get-snapshot'),
-  createPage: (input) =>
-    invoke('page:create', input === undefined ? {} : { input }),
+  createPage: (request = {}) => invoke('page:create', request),
   activatePage: (pageId) => invoke('page:activate', { pageId }),
-  closePage: (pageId) => invoke('page:close', { pageId }),
+  closePage: (pageId, options = {}) =>
+    invoke('page:close', { pageId, ...options }),
   navigate: (pageId, input) => invoke('page:navigate', { pageId, input }),
   goBack: (pageId) => invoke('page:go-back', { pageId }),
   goForward: (pageId) => invoke('page:go-forward', { pageId }),
@@ -45,7 +46,17 @@ const api: SplashApi = {
   stop: (pageId) => invoke('page:stop', { pageId }),
   setCollapsed: (pageId, collapsed) =>
     invoke('page:set-collapsed', { pageId, collapsed }),
+  renamePage: (pageId, title) => invoke('page:rename', { pageId, title }),
+  movePage: (pageId, parentId, beforeId) =>
+    invoke('page:move', { pageId, parentId, beforeId }),
+  createWorkspace: (name) => invoke('workspace:create', { name }),
+  activateWorkspace: (workspaceId) =>
+    invoke('workspace:activate', { workspaceId }),
+  renameWorkspace: (workspaceId, name) =>
+    invoke('workspace:rename', { workspaceId, name }),
+  deleteWorkspace: (workspaceId) => invoke('workspace:delete', { workspaceId }),
   setContentInsets: (insets) => send('view:set-content-insets', insets),
+  setAppearance: (appearance) => send('app:set-appearance', appearance),
   focusPage: () => send('view:focus-page'),
   onSnapshot: (listener) => subscribe(eventChannels.snapshot, listener),
   onUiCommand: (listener) => subscribe(eventChannels.uiCommand, listener),

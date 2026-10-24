@@ -15,6 +15,12 @@ describe('displayUrl', () => {
 });
 
 describe('pageLabel', () => {
+  it('prefers a name the user gave the page', () => {
+    expect(pageLabel(page('a', { title: 'Docs', customTitle: 'Mine' }))).toBe(
+      'Mine',
+    );
+  });
+
   it('prefers the title, then the host, then a placeholder', () => {
     expect(pageLabel(page('a', { title: 'Docs' }))).toBe('Docs');
     expect(pageLabel(page('a', { title: '  ', url: 'https://x.dev/p' }))).toBe(

@@ -1,35 +1,54 @@
 /*
- * Design tokens. Two themes: a warm paper light and a graphite dark.
+ * Design tokens. Two themes: a warm paper light and a graphite dark, each
+ * colour written once as `light-dark(light, dark)`. `color-scheme` picks the
+ * side: the OS by default, or the user's choice via `data-theme` on <html>.
  * `--chrome` and `--radius-content` are mirrored in the main process
  * (window background, page view corner radius) — keep them in sync.
  */
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
 
-  --chrome: #f3efe9;
-  --surface: #faf8f5;
-  --elevated: #ffffff;
-  --field: rgb(70 52 32 / 0.065);
-  --field-focus: #ffffff;
-  --hover: rgb(70 52 32 / 0.06);
-  --pressed: rgb(70 52 32 / 0.1);
-  --divider: rgb(70 52 32 / 0.1);
-  --hairline: rgb(70 52 32 / 0.14);
+  --chrome: light-dark(#f3efe9, #1c1c1e);
+  --surface: light-dark(#faf8f5, #222224);
+  --elevated: light-dark(#ffffff, #2d2d30);
+  --field: light-dark(rgb(70 52 32 / 0.065), rgb(255 255 255 / 0.06));
+  --field-focus: light-dark(#ffffff, #2a2a2d);
+  --hover: light-dark(rgb(70 52 32 / 0.06), rgb(255 255 255 / 0.05));
+  --pressed: light-dark(rgb(70 52 32 / 0.1), rgb(255 255 255 / 0.09));
+  --divider: light-dark(rgb(70 52 32 / 0.1), rgb(255 255 255 / 0.07));
+  --hairline: light-dark(rgb(70 52 32 / 0.14), rgb(255 255 255 / 0.1));
+  --scrim: light-dark(rgb(243 239 233 / 0.72), rgb(28 28 30 / 0.72));
 
-  --fg: #221d17;
-  --fg-muted: #6c6359;
-  --fg-subtle: #a0968a;
+  --fg: light-dark(#221d17, #ebebed);
+  --fg-muted: light-dark(#6c6359, #a2a2a8);
+  --fg-subtle: light-dark(#a0968a, #6f6f76);
 
-  --accent: #b4542d;
-  --accent-soft: rgb(180 84 45 / 0.16);
-  --danger: #b03a2e;
+  --accent: light-dark(#b4542d, #e3906a);
+  --accent-soft: light-dark(rgb(180 84 45 / 0.16), rgb(227 144 106 / 0.2));
+  --accent-fg: light-dark(#ffffff, #1c1c1e);
+  --danger: light-dark(#b03a2e, #ec7a6b);
+  --danger-soft: light-dark(rgb(176 58 46 / 0.1), rgb(236 122 107 / 0.14));
 
-  --shadow-row:
-    0 0 0 0.5px rgb(70 52 32 / 0.12), 0 1px 2px rgb(70 52 32 / 0.08);
-  --shadow-content:
-    0 0 0 0.5px rgb(70 52 32 / 0.14), 0 1px 3px rgb(70 52 32 / 0.06);
-  --skeleton: rgb(70 52 32 / 0.07);
+  --ring: light-dark(rgb(70 52 32 / 0.12), rgb(255 255 255 / 0.08));
+  --ring-strong: light-dark(rgb(70 52 32 / 0.14), rgb(255 255 255 / 0.1));
+  --drop: light-dark(rgb(70 52 32 / 0.08), rgb(0 0 0 / 0.3));
+  --drop-strong: light-dark(rgb(70 52 32 / 0.14), rgb(0 0 0 / 0.45));
+
+  --shadow-row: 0 0 0 0.5px var(--ring), 0 1px 2px var(--drop);
+  --shadow-content: 0 0 0 0.5px var(--ring-strong), 0 1px 3px var(--drop);
+  --shadow-popover:
+    0 0 0 0.5px var(--ring-strong), 0 6px 20px var(--drop-strong),
+    0 1px 3px var(--drop);
+  --skeleton: light-dark(rgb(70 52 32 / 0.07), rgb(255 255 255 / 0.06));
+
+  /* Workspace identity colours. */
+  --ws-clay: light-dark(#b4542d, #e3906a);
+  --ws-moss: light-dark(#4f7a52, #8fbf8a);
+  --ws-sky: light-dark(#3f6f96, #86b4dc);
+  --ws-plum: light-dark(#7a4f86, #c49ad0);
+  --ws-sand: light-dark(#a07a2c, #d8b56a);
+  --ws-slate: light-dark(#5c6670, #a3adb8);
 
   --font-ui:
     -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
@@ -38,6 +57,7 @@
   --radius-content: 10px;
   --radius-control: 7px;
   --radius-row: 6px;
+  --radius-popover: 9px;
 
   --sidebar-width: 252px;
   --toolbar-height: 48px;
@@ -49,34 +69,17 @@
   --duration-base: 220ms;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
+:root[data-theme='light'] {
+  color-scheme: light;
+}
 
-    --chrome: #1c1c1e;
-    --surface: #222224;
-    --elevated: #2d2d30;
-    --field: rgb(255 255 255 / 0.06);
-    --field-focus: #2a2a2d;
-    --hover: rgb(255 255 255 / 0.05);
-    --pressed: rgb(255 255 255 / 0.09);
-    --divider: rgb(255 255 255 / 0.07);
-    --hairline: rgb(255 255 255 / 0.1);
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
 
-    --fg: #ebebed;
-    --fg-muted: #a2a2a8;
-    --fg-subtle: #6f6f76;
-
-    --accent: #e3906a;
-    --accent-soft: rgb(227 144 106 / 0.2);
-    --danger: #ec7a6b;
-
-    --shadow-row:
-      0 0 0 0.5px rgb(255 255 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.3);
-    --shadow-content:
-      0 0 0 0.5px rgb(255 255 255 / 0.08), 0 1px 3px rgb(0 0 0 / 0.25);
-    --skeleton: rgb(255 255 255 / 0.06);
-  }
+/* In a plain browser there are no traffic lights to make room for. */
+:root[data-backend='mock'] {
+  --traffic-lights: 8px;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,8 +1,11 @@
-import { ContentArea } from './components/ContentArea';
-import { Sidebar } from './components/Sidebar';
-import { Toolbar } from './components/Toolbar';
+import { useKeyboardShortcuts } from './commands/use-keyboard-shortcuts';
+import { ContentArea } from './components/content/ContentArea';
+import { ContextMenu } from './components/overlays/ContextMenu';
+import { Sidebar } from './components/sidebar/Sidebar';
+import { Toolbar } from './components/toolbar/Toolbar';
 
 export function App() {
+  useKeyboardShortcuts();
   return (
     <div className="flex h-full">
       <Sidebar />
@@ -10,6 +13,7 @@ export function App() {
         <Toolbar />
         <ContentArea />
       </main>
+      <ContextMenu />
     </div>
   );
 }

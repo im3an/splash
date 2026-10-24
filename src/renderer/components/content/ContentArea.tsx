@@ -1,10 +1,17 @@
 import { useCallback, useRef, type ReactNode } from 'react';
 import { CircleAlert, Plus } from 'lucide-react';
-import type { ContentInsets, PageSnapshot } from '../../shared/types';
-import { useContentInsets } from '../hooks/use-content-insets';
-import { describeError, hostOf } from '../lib/format';
-import { api } from '../splash-api';
-import { selectActivePage, useShell } from '../stores/shell-store';
+import type { ContentInsets, PageSnapshot } from '../../../shared/types';
+import { runCommand } from '../../commands/run-command';
+import { useContentInsets } from '../../hooks/use-content-insets';
+import { describeError, hostOf } from '../../lib/format';
+import { api } from '../../splash-api';
+import {
+  selectActivePage,
+  selectActiveWorkspace,
+  useShell,
+} from '../../stores/shell-store';
+import { Shortcut } from '../common/Shortcut';
+import { MockPage } from './MockPage';
 
 /**
  * The frame the active page's Chromium view is placed over. When there is no
@@ -41,6 +48,8 @@ function Surface() {
   if (!hasPages || !page) return <NoPages />;
   if (page.error) return <PageFailed page={page} />;
   if (page.url === null) return <NewPage />;
+  // The mock backend has no Chromium view; the shell draws the page itself.
+  if (api().backend === 'mock') return <MockPage page={page} />;
   // The page's own view covers this area.
   return null;
 }
@@ -54,15 +63,11 @@ function Centered({ children }: { children: ReactNode }) {
 }
 
 function NoPages() {
-  const focusAddressBar = useShell((state) => state.focusAddressBar);
-  const newPage = async () => {
-    await api().createPage();
-    focusAddressBar();
-  };
+  const workspace = useShell(selectActiveWorkspace);
   return (
     <Centered>
       <h1 className="text-[15px] font-semibold tracking-[-0.01em]">
-        Start a trail
+        {workspace ? `Start a trail in ${workspace.name}` : 'Start a trail'}
       </h1>
       <p className="mt-1.5 text-fg-muted">
         Open a page, and every page you reach from it branches beneath it in the
@@ -70,12 +75,12 @@ function NoPages() {
       </p>
       <button
         type="button"
-        onClick={newPage}
+        onClick={() => void runCommand('page.new')}
         className="mt-5 inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] bg-elevated px-3 text-fg shadow-[var(--shadow-row)] transition-colors duration-[var(--duration-fast)] hover:bg-field-focus active:bg-pressed"
       >
         <Plus size={14} strokeWidth={1.75} />
         New page
-        <kbd className="ml-1 font-sans text-[11px] text-fg-subtle">⌘T</kbd>
+        <Shortcut command="page.new" className="ml-1" />
       </button>
     </Centered>
   );
@@ -88,7 +93,8 @@ function NewPage() {
         Type an address or a search in the bar above.
       </p>
       <p className="mt-1 text-[12px] text-fg-subtle">
-        Press <kbd className="font-sans">⌘L</kbd> to jump there at any time.
+        Press <Shortcut command="address.focus" className="text-[12px]" /> to
+        jump there at any time.
       </p>
     </Centered>
   );
@@ -117,7 +123,7 @@ function PageFailed({ page }: { page: PageSnapshot }) {
         {page.canGoBack && (
           <button
             type="button"
-            onClick={() => void api().goBack(page.id)}
+            onClick={() => void runCommand('nav.back', { pageId: page.id })}
             className="h-8 rounded-[var(--radius-control)] px-3 text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg"
           >
             Go back
@@ -125,7 +131,7 @@ function PageFailed({ page }: { page: PageSnapshot }) {
         )}
         <button
           type="button"
-          onClick={() => void api().reload(page.id)}
+          onClick={() => void runCommand('nav.reload', { pageId: page.id })}
           className="h-8 rounded-[var(--radius-control)] bg-elevated px-3 text-fg shadow-[var(--shadow-row)] transition-colors duration-[var(--duration-fast)] hover:bg-field-focus active:bg-pressed"
         >
           Try again

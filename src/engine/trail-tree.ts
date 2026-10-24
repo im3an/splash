@@ -1,4 +1,4 @@
-import type { PageId } from '../../shared/types';
+import type { PageId } from '../shared/types';
 
 export interface TrailNode {
   id: PageId;
@@ -58,6 +58,67 @@ export class TrailTree {
     this.nodes.delete(id);
   }
 
+  /** Removes a node and everything nested under it; returns the removed ids. */
+  removeSubtree(id: PageId): PageId[] {
+    const node = this.require(id);
+    const removed = this.descendantsOf(id);
+    removed.unshift(id);
+    const siblings = this.siblingsOf(node.parentId);
+    siblings.splice(siblings.indexOf(id), 1);
+    for (const removedId of removed) this.nodes.delete(removedId);
+    return removed;
+  }
+
+  /**
+   * Moves a node, with its subtree, to be a child of `parentId` placed before
+   * `beforeId`, or last when `beforeId` is `null`.
+   */
+  move(id: PageId, parentId: PageId | null, beforeId: PageId | null): void {
+    const node = this.require(id);
+    if (parentId !== null) {
+      this.require(parentId);
+      if (parentId === id || this.isDescendant(parentId, id)) {
+        throw new Error(`Cannot move ${id} into its own subtree`);
+      }
+    }
+    if (beforeId === id) return;
+    const target = this.siblingsOf(parentId);
+    if (beforeId !== null && !target.includes(beforeId)) {
+      throw new Error(
+        `${beforeId} is not a child of ${parentId ?? 'the root'}`,
+      );
+    }
+
+    const current = this.siblingsOf(node.parentId);
+    current.splice(current.indexOf(id), 1);
+    const index = beforeId === null ? target.length : target.indexOf(beforeId);
+    target.splice(index, 0, id);
+    node.parentId = parentId;
+  }
+
+  /** Whether `id` sits somewhere below `ancestorId`. */
+  isDescendant(id: PageId, ancestorId: PageId): boolean {
+    let parentId = this.require(id).parentId;
+    while (parentId !== null) {
+      if (parentId === ancestorId) return true;
+      parentId = this.require(parentId).parentId;
+    }
+    return false;
+  }
+
+  /** Every node nested under `id`, depth-first. */
+  descendantsOf(id: PageId): PageId[] {
+    const result: PageId[] = [];
+    const visit = (ids: readonly PageId[]) => {
+      for (const childId of ids) {
+        result.push(childId);
+        visit(this.require(childId).childIds);
+      }
+    };
+    visit(this.require(id).childIds);
+    return result;
+  }
+
   setCollapsed(id: PageId, collapsed: boolean): void {
     this.require(id).collapsed = collapsed;
   }
@@ -88,11 +149,14 @@ export class TrailTree {
   /**
    * The page that should become active when `id` is removed: its first child
    * (which inherits its place), else the next sibling, else the previous
-   * sibling, else its parent.
+   * sibling, else its parent. With `withDescendants` its children are going
+   * too, so they are skipped.
    */
-  successorOf(id: PageId): PageId | null {
+  successorOf(id: PageId, withDescendants = false): PageId | null {
     const node = this.require(id);
-    if (node.childIds.length > 0) return node.childIds[0] ?? null;
+    if (!withDescendants && node.childIds.length > 0) {
+      return node.childIds[0] ?? null;
+    }
     const siblings = this.siblingsOf(node.parentId);
     const index = siblings.indexOf(id);
     return siblings[index + 1] ?? siblings[index - 1] ?? node.parentId;
