@@ -58,7 +58,24 @@ const api: SplashApi = {
   renameWorkspace: (workspaceId, name) =>
     invoke('workspace:rename', { workspaceId, name }),
   showWorkspaceMenu: () => invoke('workspace:show-menu'),
-  createWorkspace: () => invoke('workspace:create'),
+  createWorkspace: (name, appearance) =>
+    invoke('workspace:create', { name, appearance }),
+  customizeWorkspace: (workspaceId, name, appearance) =>
+    invoke('workspace:customize', { workspaceId, name, appearance }),
+  setMuted: (pageId, muted) => invoke('page:set-muted', { pageId, muted }),
+  zoom: (pageId, direction) => invoke('page:zoom', { pageId, direction }),
+  find: (pageId, text, { forward, findNext }) =>
+    invoke('page:find', { pageId, text, forward, findNext }),
+  stopFind: (pageId) => invoke('page:stop-find', { pageId }),
+  respondToPermission: (pageId, requestId, granted) =>
+    invoke('page:respond-permission', { pageId, requestId, granted }),
+  getSiteInfo: (pageId) => invoke('site:get-info', { pageId }),
+  setSitePermission: (origin, permission, decision) =>
+    invoke('site:set-permission', { origin, permission, decision }),
+  resetSite: (origin) => invoke('site:reset', { origin }),
+  freezePage: () => invoke('view:freeze'),
+  setOverlayActive: (active) => send('view:set-overlay', { active }),
+  queryPalette: (query, scope) => invoke('palette:query', { query, scope }),
   moveWorkspace: (workspaceId, index) =>
     invoke('workspace:move', { workspaceId, index }),
   setContentInsets: (insets) => send('view:set-content-insets', insets),

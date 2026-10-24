@@ -14,13 +14,15 @@ import {
 import { Plus } from 'lucide-react';
 import type { WorkspaceSummary } from '../../shared/types';
 import { api } from '../splash-api';
+import { useOverlay } from '../stores/overlay-store';
 import { useShell } from '../stores/shell-store';
+import { WorkspaceIcon } from './WorkspaceIcon';
 
 /** All workspaces at a glance: click to switch, drag to reorder. */
 export function WorkspaceBar() {
   const workspaces = useShell((state) => state.snapshot?.workspaces ?? []);
   const activeId = useShell((state) => state.snapshot?.activeWorkspaceId);
-  const setRenaming = useShell((state) => state.setRenamingWorkspace);
+  const openOverlay = useOverlay((state) => state.open);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -31,10 +33,8 @@ export function WorkspaceBar() {
     if (index !== -1) void api().moveWorkspace(String(active.id), index);
   };
 
-  const create = async () => {
-    await api().createWorkspace();
-    setRenaming(true);
-  };
+  const create = () =>
+    void openOverlay({ kind: 'workspace-editor', workspaceId: null });
 
   return (
     <div className="flex shrink-0 items-center gap-1 border-t border-divider px-1 pt-2 pb-2">
@@ -65,7 +65,7 @@ export function WorkspaceBar() {
       </DndContext>
       <button
         type="button"
-        onClick={() => void create()}
+        onClick={create}
         aria-label="New workspace"
         title="New workspace (⇧⌘N)"
         className="icon-button size-7 shrink-0"
@@ -87,7 +87,6 @@ function WorkspaceChip({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: workspace.id });
-  const initial = [...workspace.name.trim()][0]?.toUpperCase() ?? '•';
   const shortcut = index < 9 ? ` (⌃${index + 1})` : '';
 
   return (
@@ -113,9 +112,9 @@ function WorkspaceChip({
           : undefined,
         transition,
       }}
-      className="grid size-7 shrink-0 place-items-center rounded-[var(--radius-control)] text-[12px] font-semibold text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg data-[active=true]:bg-elevated data-[active=true]:text-fg data-[active=true]:shadow-[var(--shadow-row)]"
+      className="grid size-7 shrink-0 place-items-center rounded-[var(--radius-control)] text-[12px] font-semibold text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg data-[active=true]:bg-elevated data-[active=true]:text-accent data-[active=true]:shadow-[var(--shadow-row)]"
     >
-      {initial}
+      <WorkspaceIcon icon={workspace.appearance.icon} name={workspace.name} />
     </button>
   );
 }

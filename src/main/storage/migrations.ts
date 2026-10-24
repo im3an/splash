@@ -59,6 +59,10 @@ export const MIGRATIONS: readonly string[] = [
     record TEXT NOT NULL
   );
   `,
+  // 4 — each workspace's look: icon, accent, frame and light/dark mode.
+  `
+  ALTER TABLE workspaces ADD COLUMN appearance TEXT;
+  `,
 ];
 
 export class SchemaTooNewError extends Error {}

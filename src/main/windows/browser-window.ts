@@ -8,18 +8,33 @@ import {
   type Rectangle,
 } from 'electron';
 import { eventChannels } from '../../shared/api';
-import type { ContentInsets, UiCommand } from '../../shared/types';
+import { DEFAULT_APPEARANCE, framePreset } from '../../shared/appearance';
+import type {
+  ContentInsets,
+  SiteInfo,
+  UiCommand,
+  WorkspaceAppearance,
+} from '../../shared/types';
 import { BrowserController } from '../browser/browser-controller';
+import { buildPaletteItems } from '../browser/palette';
 import { createElectronPageHostFactory } from '../browser/electron-page-host';
 import { contentBounds } from '../browser/layout';
 import type { IpcTarget } from '../ipc/register-ipc';
 import { showPageMenu } from '../menus/page-menu';
 import { showWorkspaceMenu } from '../menus/workspace-menu';
+import {
+  decisionOf,
+  PERMISSION_LABELS,
+  SITE_PERMISSIONS,
+  webOrigin,
+} from '../security/permissions';
 import { WEB_PARTITION } from '../security/web-security';
 import { SessionPersister } from '../storage/session-persister';
 import type { TrailStore } from '../storage/trail-store';
 
 const BOUNDS_KEY = 'window.bounds';
+/** The app-wide light/dark choice from View › Appearance. */
+const APP_APPEARANCE_KEY = 'appearance';
 
 export interface TrailWindowOptions {
   store: TrailStore;
@@ -50,13 +65,12 @@ function savedBounds(store: TrailStore): Rectangle | null {
   }
 }
 
-/** Must match `--color-chrome` in the renderer's design tokens. */
-const CHROME_BACKGROUND = { light: '#f3efe9', dark: '#1c1c1e' };
-
-function chromeBackground(): string {
+/** The window frame colour for a workspace's look, matching the shell. */
+function chromeBackground(appearance: WorkspaceAppearance): string {
+  const frame = framePreset(appearance.frame);
   return nativeTheme.shouldUseDarkColors
-    ? CHROME_BACKGROUND.dark
-    : CHROME_BACKGROUND.light;
+    ? frame.dark.chrome
+    : frame.light.chrome;
 }
 
 function shellUrl(): string {
@@ -105,7 +119,7 @@ export class TrailWindow {
       title: 'Splash',
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 18, y: 18 },
-      backgroundColor: chromeBackground(),
+      backgroundColor: chromeBackground(DEFAULT_APPEARANCE),
       webPreferences: {
         preload: path.join(__dirname, 'preload.cjs'),
         sandbox: true,
@@ -121,16 +135,19 @@ export class TrailWindow {
         window: this.window,
         session: session.fromPartition(WEB_PARTITION),
         preload: path.join(__dirname, 'page-preload.cjs'),
+        isSoundBlocked: (origin) =>
+          this.safely(() => store.getPermission(origin, 'sound')) === false,
       }),
       onSnapshot: (snapshot) => {
         this.send(eventChannels.snapshot, snapshot);
         this.persister.schedule();
         const key = JSON.stringify([
           snapshot.activeWorkspaceId,
-          snapshot.workspaces.map((w) => [w.id, w.name]),
+          snapshot.workspaces.map((w) => [w.id, w.name, w.appearance]),
         ]);
         if (key !== this.workspaceKey) {
           this.workspaceKey = key;
+          this.applyAppearance();
           this.options.onWorkspacesChanged();
         }
       },
@@ -181,7 +198,48 @@ export class TrailWindow {
         'workspace:rename': ({ workspaceId, name }) =>
           this.controller.renameWorkspace(workspaceId, name),
         'workspace:show-menu': () => showWorkspaceMenu(this),
-        'workspace:create': () => this.controller.createWorkspace(),
+        'workspace:create': ({ name, appearance }) =>
+          this.controller.createWorkspace(name, appearance),
+        'workspace:customize': ({ workspaceId, name, appearance }) =>
+          this.controller.customizeWorkspace(workspaceId, name, appearance),
+        'page:set-muted': ({ pageId, muted }) =>
+          this.controller.setMuted(pageId, muted),
+        'page:zoom': ({ pageId, direction }) =>
+          this.controller.zoom(pageId, direction),
+        'page:find': ({ pageId, text, forward, findNext }) =>
+          this.controller.find(pageId, text, { forward, findNext }),
+        'page:stop-find': ({ pageId }) => this.controller.stopFind(pageId),
+        'page:respond-permission': ({ pageId, requestId, granted }) =>
+          this.controller.respondToPermission(pageId, requestId, granted),
+        'site:get-info': ({ pageId }) => this.siteInfo(pageId),
+        'site:set-permission': ({ origin, permission, decision }) => {
+          store.setPermission(
+            origin,
+            permission,
+            decision === 'ask' ? null : decision === 'allow',
+          );
+          if (permission === 'sound') {
+            this.controller.applySoundPolicy(origin, decision === 'block');
+          }
+        },
+        'site:reset': ({ origin }) => {
+          store.clearPermissions(origin);
+          this.controller.applySoundPolicy(origin, false);
+        },
+        'view:freeze': () => this.controller.captureActivePage(),
+        'palette:query': ({ query, scope }) => {
+          const snapshot = this.controller.snapshot();
+          return buildPaletteItems({
+            query,
+            scope,
+            pages: this.controller.listPages(),
+            history: query.trim()
+              ? (this.safely(() => store.searchHistory(query, 12)) ?? [])
+              : [],
+            activeWorkspaceId: snapshot.activeWorkspaceId,
+            activePageId: snapshot.activePageId,
+          });
+        },
         'workspace:move': ({ workspaceId, index }) =>
           this.controller.moveWorkspace(workspaceId, index),
       },
@@ -191,13 +249,17 @@ export class TrailWindow {
           this.layout();
         },
         'view:focus-page': () => this.controller.focusActivePage(),
+        'view:set-overlay': ({ active }) =>
+          this.controller.setOverlayActive(active),
       },
     };
 
     this.lockShellNavigation(url);
 
     const syncBackground = () =>
-      this.window.setBackgroundColor(chromeBackground());
+      this.window.setBackgroundColor(
+        chromeBackground(this.controller.activeAppearance),
+      );
     nativeTheme.on('updated', syncBackground);
 
     // Recompute in the main process so the page tracks live resizing
@@ -230,6 +292,56 @@ export class TrailWindow {
   sendUiCommand(command: UiCommand): void {
     this.window.webContents.focus();
     this.send(eventChannels.uiCommand, command);
+  }
+
+  /**
+   * A workspace can insist on light or dark; otherwise the app-wide choice
+   * applies. The window frame takes the workspace's frame colour.
+   */
+  private applyAppearance(): void {
+    const { mode } = this.controller.activeAppearance;
+    const appChoice = this.safely(() =>
+      this.options.store.getPreference(APP_APPEARANCE_KEY),
+    );
+    const source =
+      mode !== 'system'
+        ? mode
+        : appChoice === 'light' || appChoice === 'dark'
+          ? appChoice
+          : 'system';
+    if (nativeTheme.themeSource !== source) nativeTheme.themeSource = source;
+    if (!this.window.isDestroyed()) {
+      this.window.setBackgroundColor(
+        chromeBackground(this.controller.activeAppearance),
+      );
+    }
+  }
+
+  /** Connection and permission details for the page's site. */
+  private siteInfo(pageId: string): SiteInfo | null {
+    const page = this.controller.snapshot().pages[pageId];
+    const origin = webOrigin(page?.url ?? undefined);
+    if (!origin) return null;
+    const { store } = this.options;
+    return {
+      origin,
+      host: new URL(origin).host,
+      security: origin.startsWith('https:') ? 'secure' : 'insecure',
+      permissions: SITE_PERMISSIONS.map((permission) => {
+        const decided = this.safely(() =>
+          store.getPermission(origin, permission),
+        );
+        return {
+          permission,
+          label: PERMISSION_LABELS[permission],
+          // Sound plays unless the user turned it off.
+          decision:
+            permission === 'sound' && decided === null
+              ? 'allow'
+              : decisionOf(decided ?? null),
+        };
+      }),
+    };
   }
 
   /** Storage problems are logged; they never take the browser down. */

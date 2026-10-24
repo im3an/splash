@@ -1,4 +1,9 @@
-import type { PageId, WorkspaceId } from '../../shared/types';
+import type {
+  PageId,
+  SitePermission,
+  WorkspaceAppearance,
+  WorkspaceId,
+} from '../../shared/types';
 import type { ClosedRecord } from '../browser/closed-records';
 import type { PageHistory } from '../browser/page-host';
 
@@ -10,6 +15,7 @@ import type { PageHistory } from '../browser/page-host';
 export interface StoredWorkspace {
   id: WorkspaceId;
   name: string;
+  appearance?: WorkspaceAppearance;
   activePageId: PageId | null;
   createdAt: number;
 }
@@ -60,5 +66,14 @@ export interface TrailStore {
   searchHistory(query: string, limit: number): HistoryMatch[];
   getPreference(key: string): string | null;
   setPreference(key: string, value: string): void;
+  /** `null` when the user hasn't decided for this site yet. */
+  getPermission(origin: string, permission: SitePermission): boolean | null;
+  setPermission(
+    origin: string,
+    permission: SitePermission,
+    granted: boolean | null,
+  ): void;
+  /** Forgets every decision for `origin`, or for all sites. */
+  clearPermissions(origin?: string): void;
   close(): void;
 }

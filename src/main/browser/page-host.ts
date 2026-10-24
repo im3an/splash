@@ -1,5 +1,5 @@
 import type { Rectangle } from 'electron';
-import type { PageError } from '../../shared/types';
+import type { FindResult, PageError, SitePermission } from '../../shared/types';
 
 /** Live state reported by a page's Chromium view. */
 export interface PageRuntimeState {
@@ -11,6 +11,13 @@ export interface PageRuntimeState {
   canGoBack: boolean;
   canGoForward: boolean;
   error: PageError | null;
+  /** The page is producing sound right now. */
+  isAudible: boolean;
+  isMuted: boolean;
+  /** Page zoom in percent; Chromium shares it across a site. */
+  zoomPercent: number;
+  /** The latest find-in-page result, while a search is open. */
+  find: FindResult | null;
 }
 
 export interface HistoryEntry {
@@ -41,6 +48,13 @@ export interface PageHostEvents {
   onNavigationCommand(command: 'back' | 'forward' | 'reload'): void;
   /** Whether back/forward lead anywhere, counting the trail. */
   navigationAvailability(): { canGoBack: boolean; canGoForward: boolean };
+  /** The page asks for permissions nobody has decided on yet. */
+  onPermissionRequest(
+    origin: string,
+    permissions: SitePermission[],
+  ): Promise<boolean>;
+  /** The page was refused something, without asking. */
+  onPermissionBlocked(permissions: SitePermission[]): void;
 }
 
 /**
@@ -62,6 +76,12 @@ export interface PageHost {
   restoreHistory(history: PageHistory): void;
   /** Pages playing sound are never discarded. */
   isAudible(): boolean;
+  setMuted(muted: boolean): void;
+  setZoomPercent(percent: number): void;
+  find(text: string, options: { forward: boolean; findNext: boolean }): void;
+  stopFind(): void;
+  /** A still image of what the page shows, as a data URL. */
+  capture(): Promise<string | null>;
   destroy(): void;
 }
 

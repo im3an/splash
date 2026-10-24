@@ -1,3 +1,4 @@
+import { DEFAULT_APPEARANCE } from '../shared/appearance';
 import type { BrowserSnapshot, PageSnapshot } from '../shared/types';
 
 export function page(
@@ -19,6 +20,12 @@ export function page(
     isDiscarded: false,
     customTitle: null,
     note: null,
+    isAudible: false,
+    isMuted: false,
+    zoomPercent: 100,
+    find: null,
+    blockedPermissions: [],
+    permissionRequest: null,
     ...overrides,
   };
 }
@@ -39,7 +46,14 @@ export function sampleSnapshot(
     rootIds: ['a', 'e'],
     activePageId: 'a',
     lastClosed: null,
-    workspaces: [{ id: 'w1', name: 'Personal', pageCount: pages.length }],
+    workspaces: [
+      {
+        id: 'w1',
+        name: 'Personal',
+        pageCount: pages.length,
+        appearance: DEFAULT_APPEARANCE,
+      },
+    ],
     activeWorkspaceId: 'w1',
   };
 }

@@ -1,5 +1,11 @@
 import { page } from '../test-fixtures';
-import { describeError, displayUrl, pageLabel, securityOf } from './format';
+import {
+  describeError,
+  displayUrl,
+  pageLabel,
+  permissionNames,
+  securityOf,
+} from './format';
 
 describe('displayUrl', () => {
   it('drops the scheme and bare root path of secure URLs', () => {
@@ -40,7 +46,25 @@ describe('describeError', () => {
       description: 'ERR_NAME_NOT_RESOLVED',
       url: 'https://nope.invalid/',
     });
-    expect(detail).toMatch(/address couldn’t be found/);
+    expect(detail).toMatch(/Check the spelling/);
+    expect(
+      describeError({
+        kind: 'load-failed',
+        code: -105,
+        description: 'ERR_NAME_NOT_RESOLVED',
+        url: 'https://nope.invalid/',
+      }).title,
+    ).toBe('Couldn’t find nope.invalid');
+    expect(
+      describeError({
+        kind: 'load-failed',
+        code: -106,
+        description: 'ERR_INTERNET_DISCONNECTED',
+        url: 'https://example.com/',
+      }).detail,
+    ).toBe(
+      'Couldn’t reach example.com. Check your connection, then try again.',
+    );
   });
 
   it('treats the -2xx range as certificate errors', () => {
@@ -62,5 +86,17 @@ describe('describeError', () => {
         url: '',
       }).title,
     ).toBe('This page stopped working');
+  });
+});
+
+describe('permissionNames', () => {
+  it('lists permissions in plain language', () => {
+    expect(permissionNames(['camera'])).toBe('camera');
+    expect(permissionNames(['camera', 'microphone'])).toBe(
+      'camera and microphone',
+    );
+    expect(permissionNames(['camera', 'microphone', 'location'])).toBe(
+      'camera, microphone and location',
+    );
   });
 });

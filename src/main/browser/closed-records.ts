@@ -1,4 +1,9 @@
-import type { ClosedSummary, PageId, WorkspaceId } from '../../shared/types';
+import type {
+  ClosedSummary,
+  PageId,
+  WorkspaceAppearance,
+  WorkspaceId,
+} from '../../shared/types';
 import type { PageHistory, PageRuntimeState } from './page-host';
 
 /**
@@ -21,6 +26,8 @@ export interface ClosedPage {
 export interface ClosedWorkspace {
   id: WorkspaceId;
   name: string;
+  /** Missing in records saved before workspaces had a look. */
+  appearance?: WorkspaceAppearance;
   createdAt: number;
   activePageId: PageId | null;
   /** Position in the workspace list. */

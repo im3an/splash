@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { Rectangle } from 'electron';
+import { DEFAULT_APPEARANCE } from '../../shared/appearance';
 import type {
   BrowserSnapshot,
   PageId,
   PageSnapshot,
+  PermissionRequest,
+  SitePermission,
+  WorkspaceAppearance,
   WorkspaceId,
 } from '../../shared/types';
 import type { StoredPage, StoredSession } from '../storage/trail-store';
@@ -21,10 +25,12 @@ import type {
 } from './page-host';
 import { TrailTree } from './trail-tree';
 import { isNavigableUrl, resolveAddressInput } from './url';
+import { stepZoom } from './zoom';
 
 interface Workspace {
   id: WorkspaceId;
   name: string;
+  appearance: WorkspaceAppearance;
   tree: TrailTree;
   activePageId: PageId | null;
   createdAt: number;
@@ -44,6 +50,27 @@ interface Page {
   /** A name the user gave the page, shown instead of its title. */
   customTitle: string | null;
   note: string | null;
+  /** Permission requests waiting for the user, oldest first. */
+  permissionQueue: PendingPermission[];
+  /** Permissions refused on the current site. */
+  blocked: Set<SitePermission>;
+}
+
+interface PendingPermission {
+  request: PermissionRequest;
+  resolve(granted: boolean): void;
+}
+
+/** A page as the command palette lists it, from any workspace. */
+export interface PageListing {
+  id: PageId;
+  workspaceId: WorkspaceId;
+  workspaceName: string;
+  title: string;
+  url: string | null;
+  faviconUrl: string | null;
+  note: string | null;
+  lastActiveAt: number;
 }
 
 export interface BrowserControllerOptions {
@@ -85,6 +112,10 @@ const EMPTY_STATE: PageRuntimeState = {
   canGoBack: false,
   canGoForward: false,
   error: null,
+  isAudible: false,
+  isMuted: false,
+  zoomPercent: 100,
+  find: null,
 };
 
 /**
@@ -100,6 +131,8 @@ export class BrowserController {
   private readonly pages = new Map<PageId, Page>();
   private visibleId: PageId | null = null;
   private bounds: Rectangle | null = null;
+  /** The shell is showing something over the page area (a popover). */
+  private overlayActive = false;
   private flushPending = false;
   private disposed = false;
   private closed: ClosedRecord[] = [];
@@ -216,6 +249,7 @@ export class BrowserController {
         record.workspace.index,
       );
       workspace.createdAt = record.workspace.createdAt;
+      workspace.appearance = record.workspace.appearance ?? DEFAULT_APPEARANCE;
     }
     workspace ??= this.workspace;
     const { tree } = workspace;
@@ -232,7 +266,14 @@ export class BrowserController {
         note: closed.note,
         history: closed.history,
         createdAt: closed.createdAt,
-        state: { ...closed.state, isLoading: false },
+        // Records saved by older versions may lack newer fields.
+        state: {
+          ...EMPTY_STATE,
+          ...closed.state,
+          isLoading: false,
+          isAudible: false,
+          find: null,
+        },
       });
     }
     const root = record.pages[0];
@@ -387,21 +428,135 @@ export class BrowserController {
     const page = this.require(id);
     if (!page.host) return;
     page.history = page.host.captureHistory() ?? page.history;
+    this.cancelPermissionRequests(page);
     page.host.destroy();
     page.host = null;
-    page.state = { ...page.state, isLoading: false };
+    page.state = {
+      ...page.state,
+      isLoading: false,
+      isAudible: false,
+      find: null,
+    };
     if (this.visibleId === id) this.visibleId = null;
     this.changed();
   }
 
+  setMuted(id: PageId, muted: boolean): void {
+    const page = this.require(id);
+    if (page.host) page.host.setMuted(muted);
+    else page.state = { ...page.state, isMuted: muted };
+    this.changed();
+  }
+
+  /** Steps the page's zoom, or resets it to 100%. */
+  zoom(id: PageId, direction: 'in' | 'out' | 'reset'): void {
+    const page = this.require(id);
+    const percent =
+      direction === 'reset' ? 100 : stepZoom(page.state.zoomPercent, direction);
+    page.host?.setZoomPercent(percent);
+  }
+
+  find(
+    id: PageId,
+    text: string,
+    options: { forward: boolean; findNext: boolean },
+  ): void {
+    this.require(id).host?.find(text, options);
+  }
+
+  stopFind(id: PageId): void {
+    this.require(id).host?.stopFind();
+  }
+
+  /** A still image of the active page, for the shell to show under popovers. */
+  async captureActivePage(): Promise<string | null> {
+    const id = this.visibleId;
+    return id === null
+      ? null
+      : ((await this.pages.get(id)?.host?.capture()) ?? null);
+  }
+
+  /** While the shell shows a popover over the page area, the page steps aside. */
+  setOverlayActive(active: boolean): void {
+    this.overlayActive = active;
+    this.syncVisibleHost();
+  }
+
+  /**
+   * Answers a page's pending permission request. Answers for requests that
+   * have meanwhile been cancelled are ignored.
+   */
+  respondToPermission(id: PageId, requestId: string, granted: boolean): void {
+    const page = this.require(id);
+    const index = page.permissionQueue.findIndex(
+      (pending) => pending.request.id === requestId,
+    );
+    if (index === -1) return;
+    const [pending] = page.permissionQueue.splice(index, 1);
+    pending!.resolve(granted);
+    this.changed();
+  }
+
+  /** Mutes or unmutes every live page on `origin`. */
+  applySoundPolicy(origin: string, muted: boolean): void {
+    for (const page of this.pages.values()) {
+      if (page.host && page.state.url && originOf(page.state.url) === origin) {
+        page.host.setMuted(muted);
+      }
+    }
+  }
+
+  /** Every page in every workspace, for search. */
+  listPages(): PageListing[] {
+    const listings: PageListing[] = [];
+    for (const workspaceId of this.workspaceOrder) {
+      const workspace = this.requireWorkspace(workspaceId);
+      for (const id of workspace.tree.order()) {
+        const page = this.require(id);
+        listings.push({
+          id,
+          workspaceId,
+          workspaceName: workspace.name,
+          title: page.customTitle ?? page.state.title,
+          url: page.state.url,
+          faviconUrl: page.state.faviconUrl,
+          note: page.note,
+          lastActiveAt: page.lastActiveAt,
+        });
+      }
+    }
+    return listings;
+  }
+
   // ── Workspaces ─────────────────────────────────────────────────────────
 
-  createWorkspace(name?: string): WorkspaceId {
+  createWorkspace(
+    name?: string,
+    appearance: WorkspaceAppearance = DEFAULT_APPEARANCE,
+  ): WorkspaceId {
     const workspace = this.addWorkspace(
       cleanText(name ?? null) ?? `Workspace ${this.workspaces.size + 1}`,
     );
+    workspace.appearance = appearance;
     this.switchWorkspace(workspace.id);
     return workspace.id;
+  }
+
+  /** Changes a workspace's name and look together, as the editor saves them. */
+  customizeWorkspace(
+    id: WorkspaceId,
+    name: string,
+    appearance: WorkspaceAppearance,
+  ): void {
+    const workspace = this.requireWorkspace(id);
+    workspace.name = cleanText(name) ?? workspace.name;
+    workspace.appearance = appearance;
+    this.changed();
+  }
+
+  /** The active workspace's look, which also decides the window's colours. */
+  get activeAppearance(): WorkspaceAppearance {
+    return this.workspace.appearance;
   }
 
   renameWorkspace(id: WorkspaceId, name: string): void {
@@ -435,6 +590,7 @@ export class BrowserController {
     this.remember(workspace, pageIds, [], {
       id,
       name: workspace.name,
+      appearance: workspace.appearance,
       createdAt: workspace.createdAt,
       activePageId: workspace.activePageId,
       index,
@@ -518,6 +674,7 @@ export class BrowserController {
         return {
           id,
           name: workspace.name,
+          appearance: workspace.appearance,
           activePageId: workspace.activePageId,
           createdAt: workspace.createdAt,
         };
@@ -541,6 +698,7 @@ export class BrowserController {
     for (const stored of session.workspaces) {
       const workspace = this.addWorkspace(stored.name, stored.id);
       workspace.createdAt = stored.createdAt;
+      workspace.appearance = stored.appearance ?? DEFAULT_APPEARANCE;
     }
     for (const stored of session.pages) {
       const workspace = this.workspaces.get(stored.workspaceId);
@@ -603,6 +761,8 @@ export class BrowserController {
         isDiscarded: page.host === null && page.state.url !== null,
         customTitle: page.customTitle,
         note: page.note,
+        blockedPermissions: [...page.blocked],
+        permissionRequest: page.permissionQueue[0]?.request ?? null,
       };
     }
     return {
@@ -612,7 +772,12 @@ export class BrowserController {
       lastClosed: this.closed.at(-1)?.summary ?? null,
       workspaces: this.workspaceOrder.map((id) => {
         const other = this.requireWorkspace(id);
-        return { id, name: other.name, pageCount: other.tree.size };
+        return {
+          id,
+          name: other.name,
+          pageCount: other.tree.size,
+          appearance: other.appearance,
+        };
       }),
       activeWorkspaceId: workspace.id,
     };
@@ -639,6 +804,7 @@ export class BrowserController {
     const workspace: Workspace = {
       id,
       name,
+      appearance: DEFAULT_APPEARANCE,
       tree: new TrailTree(),
       activePageId: null,
       createdAt: this.now(),
@@ -693,7 +859,16 @@ export class BrowserController {
       lastVisitedChildId: null,
       customTitle: null,
       note: null,
+      permissionQueue: [],
+      blocked: new Set(),
     };
+  }
+
+  /** Refuses whatever a page was still asking for. */
+  private cancelPermissionRequests(page: Page): void {
+    const queue = page.permissionQueue;
+    page.permissionQueue = [];
+    for (const pending of queue) pending.resolve(false);
   }
 
   /** Records pages about to be closed so they can be reopened. */
@@ -745,6 +920,7 @@ export class BrowserController {
     const page = this.pages.get(id);
     if (this.visibleId === id) this.visibleId = null;
     this.pages.delete(id);
+    if (page) this.cancelPermissionRequests(page);
     page?.host?.destroy();
   }
 
@@ -793,6 +969,27 @@ export class BrowserController {
         else this.reload(id);
       },
       navigationAvailability: () => this.trailNavigation(id),
+      onPermissionRequest: (origin, permissions) => {
+        const page = this.pages.get(id);
+        if (!isCurrent() || !page) return Promise.resolve(false);
+        return new Promise<boolean>((resolve) => {
+          page.permissionQueue.push({
+            request: { id: this.createId(), origin, permissions },
+            resolve: (granted) => {
+              if (!granted) for (const p of permissions) page.blocked.add(p);
+              resolve(granted);
+              this.changed();
+            },
+          });
+          this.changed();
+        });
+      },
+      onPermissionBlocked: (permissions) => {
+        const page = this.pages.get(id);
+        if (!isCurrent() || !page) return;
+        for (const permission of permissions) page.blocked.add(permission);
+        this.changed();
+      },
     });
     return host;
   }
@@ -845,6 +1042,11 @@ export class BrowserController {
     const previousUrl = page.state.url;
     page.state = { ...page.state, ...patch };
     const url = page.state.url;
+    if (patch.url && originOf(patch.url) !== originOf(previousUrl)) {
+      // Requests and refusals belong to the site the page has left.
+      this.cancelPermissionRequests(page);
+      page.blocked.clear();
+    }
     if (
       patch.url &&
       (previousUrl === null || !isSameDocumentUrl(patch.url, previousUrl))
@@ -866,6 +1068,7 @@ export class BrowserController {
     const activeId = this.activePageId;
     const active = activeId === null ? undefined : this.pages.get(activeId);
     const shouldShow =
+      !this.overlayActive &&
       active?.host != null &&
       this.bounds !== null &&
       active.state.url !== null &&
@@ -894,6 +1097,15 @@ export class BrowserController {
     const page = this.pages.get(id);
     if (!page) throw new Error(`Page ${id} does not exist`);
     return page;
+  }
+}
+
+function originOf(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
   }
 }
 

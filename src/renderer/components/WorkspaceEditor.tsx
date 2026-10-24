@@ -1,0 +1,414 @@
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
+import { ImagePlus } from 'lucide-react';
+import {
+  ACCENTS,
+  accentColors,
+  DEFAULT_APPEARANCE,
+  FRAMES,
+  isCustomAccent,
+  SYMBOLS,
+} from '../../shared/appearance';
+import type {
+  WorkspaceAppearance,
+  WorkspaceIcon as Icon,
+  WorkspaceId,
+  WorkspaceMode,
+} from '../../shared/types';
+import { themeVariables } from '../hooks/use-workspace-theme';
+import { api } from '../splash-api';
+import { useOverlay } from '../stores/overlay-store';
+import { useShell } from '../stores/shell-store';
+import { SYMBOL_ICONS, WorkspaceIcon } from './WorkspaceIcon';
+
+const ICON_KINDS: { kind: Icon['kind']; label: string }[] = [
+  { kind: 'letter', label: 'Letter' },
+  { kind: 'symbol', label: 'Symbol' },
+  { kind: 'emoji', label: 'Emoji' },
+  { kind: 'image', label: 'Image' },
+];
+
+const MODES: { mode: WorkspaceMode; label: string }[] = [
+  { mode: 'system', label: 'System' },
+  { mode: 'light', label: 'Light' },
+  { mode: 'dark', label: 'Dark' },
+];
+
+/** Scales an image file down to a small square PNG for the icon. */
+async function squareIcon(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const side = Math.min(bitmap.width, bitmap.height);
+  canvas
+    .getContext('2d')
+    ?.drawImage(
+      bitmap,
+      (bitmap.width - side) / 2,
+      (bitmap.height - side) / 2,
+      side,
+      side,
+      0,
+      0,
+      size,
+      size,
+    );
+  bitmap.close();
+  return canvas.toDataURL('image/png');
+}
+
+function Segmented<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { value: T; label: string }[];
+  value: T;
+  onChange(value: T): void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="flex rounded-[var(--radius-control)] bg-field p-0.5"
+    >
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="radio"
+          aria-checked={option.value === value}
+          onClick={() => onChange(option.value)}
+          className="h-7 flex-1 rounded-[5px] px-2 text-[12px] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:text-fg aria-checked:bg-elevated aria-checked:text-fg aria-checked:shadow-[var(--shadow-row)]"
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[11px] font-medium tracking-[0.02em] text-fg-subtle uppercase">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+/** Creating a workspace, or changing an existing one's name and look. */
+export function WorkspaceEditor({
+  workspaceId,
+}: {
+  workspaceId: WorkspaceId | null;
+}) {
+  const existing = useShell((state) =>
+    state.snapshot?.workspaces.find((w) => w.id === workspaceId),
+  );
+  const count = useShell((state) => state.snapshot?.workspaces.length ?? 0);
+  const close = useOverlay((state) => state.close);
+  const [name, setName] = useState(existing?.name ?? '');
+  const [appearance, setAppearance] = useState<WorkspaceAppearance>(
+    existing?.appearance ?? DEFAULT_APPEARANCE,
+  );
+  const [imageError, setImageError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const previewDark =
+    appearance.mode === 'system' ? dark : appearance.mode === 'dark';
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [close]);
+
+  const update = (patch: Partial<WorkspaceAppearance>) =>
+    setAppearance((current) => ({ ...current, ...patch }));
+  const setIconKind = (kind: Icon['kind']) => {
+    if (kind === appearance.icon.kind) return;
+    if (kind === 'letter') update({ icon: { kind: 'letter' } });
+    if (kind === 'symbol') update({ icon: { kind: 'symbol', name: 'house' } });
+    if (kind === 'emoji') update({ icon: { kind: 'emoji', value: '🌿' } });
+    if (kind === 'image') fileInput.current?.click();
+  };
+
+  const trimmedName = name.trim();
+  const displayName = trimmedName || `Workspace ${count + 1}`;
+  const save = async () => {
+    if (workspaceId && existing) {
+      await api().customizeWorkspace(workspaceId, displayName, appearance);
+    } else {
+      await api().createWorkspace(displayName, appearance);
+    }
+    close();
+  };
+
+  const preview = useMemo(
+    () => themeVariables(appearance, previewDark) as CSSProperties,
+    [appearance, previewDark],
+  );
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={existing ? 'Customize workspace' : 'New workspace'}
+      className="overlay-in absolute inset-0 flex items-start justify-center overflow-y-auto bg-[rgb(0_0_0/0.18)] p-6 pt-[8vh]"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) close();
+      }}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+        className="flex w-[440px] max-w-full flex-col gap-5 rounded-[12px] bg-elevated p-5 shadow-[0_0_0_0.5px_var(--hairline),0_18px_48px_rgb(0_0_0/0.22)]"
+      >
+        <div className="flex items-center gap-3">
+          <div
+            style={preview}
+            className="grid size-11 shrink-0 place-items-center rounded-[10px] bg-[var(--chrome)] text-[16px] font-semibold text-[var(--accent)] shadow-[0_0_0_0.5px_var(--hairline)]"
+          >
+            <WorkspaceIcon
+              icon={appearance.icon}
+              name={displayName}
+              size={20}
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-[15px] font-semibold">
+              {existing ? 'Customize workspace' : 'New workspace'}
+            </h1>
+            <p className="text-[12px] text-fg-subtle">
+              A workspace keeps its own trail, look and active page.
+            </p>
+          </div>
+        </div>
+
+        <Field label="Name">
+          <input
+            autoFocus
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder={`Workspace ${count + 1}`}
+            maxLength={80}
+            spellCheck={false}
+            className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none placeholder:text-fg-subtle focus:bg-field-focus focus:shadow-[0_0_0_1px_var(--hairline),0_0_0_3px_var(--accent-soft)] select-text"
+          />
+        </Field>
+
+        <Field label="Icon">
+          <Segmented
+            label="Icon type"
+            options={ICON_KINDS.map(({ kind, label }) => ({
+              value: kind,
+              label,
+            }))}
+            value={appearance.icon.kind}
+            onChange={setIconKind}
+          />
+          {appearance.icon.kind === 'symbol' && (
+            <div
+              role="radiogroup"
+              aria-label="Symbol"
+              className="grid grid-cols-8 gap-1"
+            >
+              {SYMBOLS.map((symbol) => {
+                const Symbol = SYMBOL_ICONS[symbol];
+                const selected =
+                  appearance.icon.kind === 'symbol' &&
+                  appearance.icon.name === symbol;
+                return (
+                  <button
+                    key={symbol}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    aria-label={symbol.replace(/-/g, ' ')}
+                    title={symbol.replace(/-/g, ' ')}
+                    onClick={() =>
+                      update({ icon: { kind: 'symbol', name: symbol } })
+                    }
+                    className="grid h-8 place-items-center rounded-[6px] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg aria-checked:bg-accent-soft aria-checked:text-accent"
+                  >
+                    <Symbol size={16} strokeWidth={1.75} />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {appearance.icon.kind === 'emoji' && (
+            <input
+              value={appearance.icon.value}
+              onChange={(event) =>
+                update({
+                  icon: {
+                    kind: 'emoji',
+                    value: event.target.value.slice(0, 16),
+                  },
+                })
+              }
+              aria-label="Emoji"
+              placeholder="Type or pick an emoji (⌃⌘Space)"
+              className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none focus:bg-field-focus focus:shadow-[0_0_0_1px_var(--hairline),0_0_0_3px_var(--accent-soft)] select-text"
+            />
+          )}
+          {appearance.icon.kind === 'image' && (
+            <button
+              type="button"
+              onClick={() => fileInput.current?.click()}
+              className="flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-field text-[12px] text-fg-muted hover:text-fg"
+            >
+              <ImagePlus size={14} strokeWidth={1.75} />
+              Choose another image…
+            </button>
+          )}
+          {imageError && (
+            <p className="text-[12px] text-danger">{imageError}</p>
+          )}
+          <input
+            ref={fileInput}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            hidden
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (!file) return;
+              try {
+                update({
+                  icon: { kind: 'image', dataUrl: await squareIcon(file) },
+                });
+                setImageError(null);
+              } catch {
+                setImageError(
+                  'That image couldn’t be read. Try a PNG or JPEG.',
+                );
+              }
+            }}
+          />
+        </Field>
+
+        <Field label="Accent">
+          <div
+            role="radiogroup"
+            aria-label="Accent colour"
+            className="flex flex-wrap items-center gap-1.5"
+          >
+            {ACCENTS.map((accent) => (
+              <button
+                key={accent.id}
+                type="button"
+                role="radio"
+                aria-checked={appearance.accent === accent.id}
+                aria-label={accent.label}
+                title={accent.label}
+                onClick={() => update({ accent: accent.id })}
+                style={{ background: previewDark ? accent.dark : accent.light }}
+                className="size-6 rounded-full shadow-[0_0_0_0.5px_var(--hairline)] outline-offset-2 aria-checked:outline-2 aria-checked:outline-[var(--fg-muted)]"
+              />
+            ))}
+            <label
+              title="Custom colour"
+              className="relative size-6 cursor-default overflow-hidden rounded-full shadow-[0_0_0_0.5px_var(--hairline)]"
+              style={{
+                background: isCustomAccent(appearance.accent)
+                  ? appearance.accent
+                  : 'conic-gradient(#e55, #ec5, #5c7, #5ae, #85e, #e55)',
+                outline: isCustomAccent(appearance.accent)
+                  ? '2px solid var(--fg-muted)'
+                  : undefined,
+                outlineOffset: 2,
+              }}
+            >
+              <input
+                type="color"
+                aria-label="Custom accent colour"
+                value={
+                  isCustomAccent(appearance.accent)
+                    ? appearance.accent
+                    : accentColors(appearance.accent).light
+                }
+                onChange={(event) => update({ accent: event.target.value })}
+                className="absolute inset-0 opacity-0"
+              />
+            </label>
+          </div>
+        </Field>
+
+        <Field label="Frame">
+          <div
+            role="radiogroup"
+            aria-label="Frame colour"
+            className="flex flex-wrap gap-1.5"
+          >
+            {FRAMES.map((frame) => (
+              <button
+                key={frame.id}
+                type="button"
+                role="radio"
+                aria-checked={appearance.frame === frame.id}
+                aria-label={frame.label}
+                title={frame.label}
+                onClick={() => update({ frame: frame.id })}
+                style={{
+                  background: previewDark
+                    ? frame.dark.chrome
+                    : frame.light.chrome,
+                }}
+                className="h-7 w-10 rounded-[6px] shadow-[0_0_0_0.5px_var(--hairline)] outline-offset-2 aria-checked:outline-2 aria-checked:outline-[var(--fg-muted)]"
+              />
+            ))}
+          </div>
+        </Field>
+
+        <Field label="Appearance">
+          <Segmented
+            label="Light or dark"
+            options={MODES.map(({ mode, label }) => ({ value: mode, label }))}
+            value={appearance.mode}
+            onChange={(mode) => update({ mode })}
+          />
+        </Field>
+
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={close}
+            className="h-8 rounded-[var(--radius-control)] px-3 text-fg-muted hover:bg-hover hover:text-fg"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="h-8 rounded-[var(--radius-control)] bg-accent px-3.5 font-medium text-chrome shadow-[var(--shadow-row)] hover:brightness-105 active:brightness-95"
+          >
+            {existing ? 'Save' : 'Create workspace'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

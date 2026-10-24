@@ -101,11 +101,10 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(() => {
-    configureAppSession(session.defaultSession);
-    configureWebSession(session.fromPartition(WEB_PARTITION));
-
     const startup = openStartupStore();
     store = startup.store;
+    configureAppSession(session.defaultSession);
+    configureWebSession(session.fromPartition(WEB_PARTITION), store);
     const appearance = store.getPreference(APPEARANCE_KEY);
     if (appearance === 'light' || appearance === 'dark') {
       nativeTheme.themeSource = appearance;

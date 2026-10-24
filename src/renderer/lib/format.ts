@@ -1,4 +1,8 @@
-import type { PageError, PageSnapshot } from '../../shared/types';
+import type {
+  PageError,
+  PageSnapshot,
+  SitePermission,
+} from '../../shared/types';
 
 function parse(url: string): URL | null {
   try {
@@ -37,17 +41,61 @@ export function securityOf(url: string | null): Security {
   return 'none';
 }
 
-const LOAD_ERRORS: Record<number, string> = {
-  [-7]: 'The site took too long to respond.',
-  [-101]: 'The connection was reset.',
-  [-102]: 'The site refused to connect.',
-  [-105]: 'The server’s address couldn’t be found.',
-  [-106]: 'You’re not connected to the internet.',
-  [-109]: 'The address couldn’t be reached.',
-  [-118]: 'The site took too long to respond.',
-  [-137]: 'The server’s address couldn’t be found.',
-  [-300]: 'The address isn’t valid.',
-};
+/** Plain-language reasons for Chromium's network errors, naming the site. */
+function loadFailure(
+  code: number,
+  host: string,
+): { title: string; detail: string } {
+  switch (code) {
+    case -106:
+      return {
+        title: 'You’re offline',
+        detail: `Couldn’t reach ${host}. Check your connection, then try again.`,
+      };
+    case -105:
+    case -137:
+      return {
+        title: `Couldn’t find ${host}`,
+        detail:
+          'Its address doesn’t exist or can’t be looked up. Check the spelling, then try again.',
+      };
+    case -102:
+      return {
+        title: `${host} refused to connect`,
+        detail:
+          'The site is up but turned the connection away. It may be down for maintenance.',
+      };
+    case -7:
+    case -118:
+      return {
+        title: `${host} took too long`,
+        detail:
+          'The site didn’t answer in time. It may be busy; try again in a moment.',
+      };
+    case -101:
+    case -100:
+      return {
+        title: `The connection to ${host} was cut`,
+        detail: 'It was reset before the page finished loading. Try again.',
+      };
+    case -300:
+      return {
+        title: 'That address isn’t valid',
+        detail: 'Check it for typos, then try again.',
+      };
+    default:
+      if (code <= -200 && code > -300) {
+        return {
+          title: 'This connection isn’t private',
+          detail: `${host}’s security certificate isn’t trusted, so Splash stopped loading it to protect what you send.`,
+        };
+      }
+      return {
+        title: `${host} couldn’t load`,
+        detail: 'Something went wrong while loading the page. Try again.',
+      };
+  }
+}
 
 export function describeError(error: PageError): {
   title: string;
@@ -60,11 +108,24 @@ export function describeError(error: PageError): {
         'Its process ended unexpectedly. Reloading usually brings it back.',
     };
   }
-  const certificateError = error.code <= -200 && error.code > -300;
-  return {
-    title: 'This page couldn’t load',
-    detail: certificateError
-      ? 'The site’s security certificate isn’t trusted, so the connection was stopped.'
-      : (LOAD_ERRORS[error.code] ?? 'Something went wrong while loading it.'),
-  };
+  return loadFailure(error.code, error.url ? hostOf(error.url) : 'The site');
+}
+
+const PERMISSION_NAMES: Record<SitePermission, string> = {
+  camera: 'camera',
+  microphone: 'microphone',
+  location: 'location',
+  notifications: 'notifications',
+  midi: 'MIDI devices',
+  clipboard: 'clipboard',
+  sound: 'sound',
+};
+
+/** "camera and microphone", "camera, microphone and location". */
+export function permissionNames(
+  permissions: readonly SitePermission[],
+): string {
+  const names = permissions.map((permission) => PERMISSION_NAMES[permission]);
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 }

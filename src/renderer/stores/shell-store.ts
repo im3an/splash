@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { SplashApi } from '../../shared/api';
+import { useOverlay } from './overlay-store';
 import type { BrowserSnapshot, PageId, PageSnapshot } from '../../shared/types';
 
 interface ShellState {
@@ -13,6 +14,9 @@ interface ShellState {
   /** The page whose note is open for editing. */
   editingNotePageId: PageId | null;
   renamingWorkspace: boolean;
+  findOpen: boolean;
+  /** Incremented to focus the find field or step through matches. */
+  findRequest: { serial: number; action: 'open' | 'next' | 'previous' };
   receiveSnapshot(snapshot: BrowserSnapshot): void;
   toggleSidebar(): void;
   focusAddressBar(): void;
@@ -20,6 +24,8 @@ interface ShellState {
   finishRename(): void;
   editNote(pageId: PageId | null): void;
   setRenamingWorkspace(renaming: boolean): void;
+  requestFind(action: 'open' | 'next' | 'previous'): void;
+  closeFind(): void;
 }
 
 export const useShell = create<ShellState>()((set) => ({
@@ -29,6 +35,8 @@ export const useShell = create<ShellState>()((set) => ({
   renamingPageId: null,
   editingNotePageId: null,
   renamingWorkspace: false,
+  findOpen: false,
+  findRequest: { serial: 0, action: 'open' },
   receiveSnapshot: (snapshot) => set({ snapshot }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   focusAddressBar: () =>
@@ -40,6 +48,12 @@ export const useShell = create<ShellState>()((set) => ({
       editingNotePageId: pageId,
       ...(pageId ? { sidebarOpen: true } : {}),
     }),
+  requestFind: (action) =>
+    set((state) => ({
+      findOpen: true,
+      findRequest: { serial: state.findRequest.serial + 1, action },
+    })),
+  closeFind: () => set({ findOpen: false }),
   setRenamingWorkspace: (renaming) =>
     set({
       renamingWorkspace: renaming,
@@ -58,12 +72,37 @@ export function connectShell(splash: SplashApi): () => void {
   const unsubscribeSnapshot = splash.onSnapshot(store.receiveSnapshot);
   const unsubscribeCommands = splash.onUiCommand((command) => {
     const shell = useShell.getState();
-    if (command.type === 'focus-address-bar') shell.focusAddressBar();
-    else if (command.type === 'toggle-sidebar') shell.toggleSidebar();
-    else if (command.type === 'rename-page') shell.startRename(command.pageId);
-    else if (command.type === 'edit-note') shell.editNote(command.pageId);
-    else if (command.type === 'rename-workspace')
-      shell.setRenamingWorkspace(true);
+    const overlay = useOverlay.getState();
+    switch (command.type) {
+      case 'focus-address-bar':
+        return shell.focusAddressBar();
+      case 'toggle-sidebar':
+        return shell.toggleSidebar();
+      case 'rename-page':
+        return shell.startRename(command.pageId);
+      case 'edit-note':
+        return shell.editNote(command.pageId);
+      case 'rename-workspace':
+        return shell.setRenamingWorkspace(true);
+      case 'find':
+        return shell.requestFind(command.action);
+      case 'open-palette':
+        return void overlay.open({ kind: 'palette' });
+      case 'site-info':
+        return void overlay.open({ kind: 'site-info' });
+      case 'create-workspace':
+        return void overlay.open({
+          kind: 'workspace-editor',
+          workspaceId: null,
+        });
+      case 'customize-workspace': {
+        const workspaceId = shell.snapshot?.activeWorkspaceId;
+        if (workspaceId) {
+          void overlay.open({ kind: 'workspace-editor', workspaceId });
+        }
+        return;
+      }
+    }
   });
   // Subscribe first so no update is missed; a pushed snapshot is never older
   // than the one we asked for, so it wins if it arrives first.

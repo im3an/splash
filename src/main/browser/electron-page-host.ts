@@ -7,6 +7,7 @@ import {
   type WebContents,
 } from 'electron';
 import { LINK_ACTIVATED } from '../../shared/page-bridge';
+import type { SitePermission } from '../../shared/types';
 import { webContextMenu } from '../menus/web-context-menu';
 import { isSameDocumentUrl, LinkActivations } from './link-activations';
 import type {
@@ -17,6 +18,7 @@ import type {
   PageHostFactory,
 } from './page-host';
 import { isNavigableUrl } from './url';
+import { stepZoom } from './zoom';
 
 /** Must match `--radius-content` in the renderer's design tokens. */
 const CONTENT_RADIUS = 10;
@@ -29,6 +31,23 @@ export interface PageHostEnvironment {
   session: Session;
   /** The isolated-world script that reports link clicks. */
   preload: string;
+  /** Whether the user turned sound off for a site. */
+  isSoundBlocked(origin: string): boolean;
+}
+
+/** Where a page's permission requests go: its own trail row and prompt. */
+export interface PermissionTarget {
+  request(origin: string, permissions: SitePermission[]): Promise<boolean>;
+  blocked(permissions: SitePermission[]): void;
+}
+
+const permissionTargets = new Map<number, PermissionTarget>();
+
+/** The page a permission request came from, if it is one of ours. */
+export function permissionTargetFor(
+  contents: WebContents | null,
+): PermissionTarget | undefined {
+  return contents ? permissionTargets.get(contents.id) : undefined;
 }
 
 function isFaviconUrl(url: string): boolean {
@@ -47,6 +66,7 @@ function originOf(url: string): string | null {
 class ElectronPageHost implements PageHost {
   private readonly view: WebContentsView;
   private readonly window: BaseWindow;
+  private readonly environment: PageHostEnvironment;
   private readonly links = new LinkActivations();
   private attached = false;
   private origin: string | null = null;
@@ -56,6 +76,7 @@ class ElectronPageHost implements PageHost {
     private readonly events: PageHostEvents,
   ) {
     this.window = environment.window;
+    this.environment = environment;
     this.view = new WebContentsView({
       webPreferences: {
         session: environment.session,
@@ -74,6 +95,13 @@ class ElectronPageHost implements PageHost {
     this.view.setBorderRadius(CONTENT_RADIUS);
     this.view.setBackgroundColor('#ffffff');
     this.wire(this.view.webContents);
+    const id = this.view.webContents.id;
+    permissionTargets.set(id, {
+      request: (origin, permissions) =>
+        this.events.onPermissionRequest(origin, permissions),
+      blocked: (permissions) => this.events.onPermissionBlocked(permissions),
+    });
+    this.view.webContents.once('destroyed', () => permissionTargets.delete(id));
   }
 
   private get contents(): WebContents {
@@ -156,6 +184,40 @@ class ElectronPageHost implements PageHost {
     return this.contents.isCurrentlyAudible();
   }
 
+  setMuted(muted: boolean): void {
+    this.contents.setAudioMuted(muted);
+    this.events.onStateChange({ isMuted: muted });
+  }
+
+  setZoomPercent(percent: number): void {
+    this.contents.setZoomFactor(percent / 100);
+    this.events.onStateChange({ zoomPercent: percent });
+  }
+
+  find(text: string, options: { forward: boolean; findNext: boolean }): void {
+    if (text === '') {
+      this.stopFind();
+      this.events.onStateChange({ find: { activeMatch: 0, matches: 0 } });
+      return;
+    }
+    this.contents.findInPage(text, options);
+  }
+
+  stopFind(): void {
+    this.contents.stopFindInPage('keepSelection');
+    this.events.onStateChange({ find: null });
+  }
+
+  async capture(): Promise<string | null> {
+    try {
+      const image = await this.contents.capturePage();
+      if (image.isEmpty()) return null;
+      return `data:image/jpeg;base64,${image.toJPEG(82).toString('base64')}`;
+    } catch {
+      return null;
+    }
+  }
+
   destroy(): void {
     this.hide();
     // A WebContentsView does not destroy its WebContents on its own.
@@ -235,9 +297,14 @@ class ElectronPageHost implements PageHost {
       const origin = originOf(url);
       const leftSite = origin !== this.origin;
       this.origin = origin;
+      if (leftSite && origin && this.environment.isSoundBlocked(origin)) {
+        this.setMuted(true);
+      }
       emit({
         url,
         ...this.navigationState(),
+        zoomPercent: Math.round(contents.getZoomFactor() * 100),
+        find: null,
         // The previous site's icon must not linger on a different site.
         ...(leftSite ? { faviconUrl: null } : {}),
       });
@@ -246,6 +313,22 @@ class ElectronPageHost implements PageHost {
       if (isMainFrame) emit({ url, ...this.navigationState() });
     });
     contents.on('page-title-updated', (_event, title) => emit({ title }));
+    contents.on('audio-state-changed', (event) =>
+      emit({ isAudible: event.audible }),
+    );
+    contents.on('found-in-page', (_event, result) =>
+      emit({
+        find: {
+          activeMatch: result.activeMatchOrdinal,
+          matches: result.matches,
+        },
+      }),
+    );
+    // Pinch and ⌘-scroll only ask for a zoom; applying it is up to us.
+    contents.on('zoom-changed', (_event, direction) => {
+      const current = Math.round(contents.getZoomFactor() * 100);
+      this.setZoomPercent(stepZoom(current, direction));
+    });
     contents.on('page-favicon-updated', (_event, favicons) => {
       emit({ faviconUrl: favicons.find(isFaviconUrl) ?? null });
     });

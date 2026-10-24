@@ -23,7 +23,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { ChevronRight, StickyNote, X } from 'lucide-react';
+import { ChevronRight, StickyNote, Volume2, VolumeX, X } from 'lucide-react';
 import type { PageId } from '../../shared/types';
 import {
   projectDrop,
@@ -232,7 +232,7 @@ const TrailRow = memo(function TrailRow({
             setCollapsed(!page.collapsed);
           }}
           onPointerDown={(event) => event.stopPropagation()}
-          className="grid size-4 shrink-0 place-items-center rounded-[4px] text-fg-subtle hover:bg-pressed hover:text-fg"
+          className="-mx-1 grid size-6 shrink-0 place-items-center rounded-[5px] text-fg-subtle hover:bg-pressed hover:text-fg"
         >
           <ChevronRight
             size={12}
@@ -258,6 +258,27 @@ const TrailRow = memo(function TrailRow({
           {label}
         </span>
       )}
+      {(page.isAudible || page.isMuted) && !renaming && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={page.isMuted ? `Unmute ${label}` : `Mute ${label}`}
+          title={page.isMuted ? 'Unmute page' : 'Mute page'}
+          onClick={(event) => {
+            event.stopPropagation();
+            void api().setMuted(row.id, !page.isMuted);
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          className="-my-1 grid size-6 shrink-0 place-items-center rounded-[5px] text-fg-subtle hover:bg-pressed hover:text-fg data-[playing=true]:text-accent"
+          data-playing={page.isAudible && !page.isMuted}
+        >
+          {page.isMuted ? (
+            <VolumeX size={13} strokeWidth={2} />
+          ) : (
+            <Volume2 size={13} strokeWidth={2} />
+          )}
+        </button>
+      )}
       {page.note && !renaming && (
         <StickyNote
           size={11}
@@ -274,7 +295,7 @@ const TrailRow = memo(function TrailRow({
           title="Close page (⌘W)"
           onClick={close}
           onPointerDown={(event) => event.stopPropagation()}
-          className="grid size-5 shrink-0 place-items-center rounded-[5px] text-fg-subtle opacity-0 transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 group-data-[active=true]:opacity-100 hover:bg-pressed hover:text-fg"
+          className="-my-1 grid size-6 shrink-0 place-items-center rounded-[5px] text-fg-subtle opacity-0 transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 group-data-[active=true]:opacity-100 hover:bg-pressed hover:text-fg"
         >
           <X size={12} strokeWidth={2} />
         </button>

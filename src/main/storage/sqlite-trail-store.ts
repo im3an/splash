@@ -1,6 +1,12 @@
 import { existsSync, renameSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import type { PageId } from '../../shared/types';
+import { DEFAULT_APPEARANCE } from '../../shared/appearance';
+import { workspaceAppearanceSchema } from '../../shared/ipc';
+import type {
+  PageId,
+  SitePermission,
+  WorkspaceAppearance,
+} from '../../shared/types';
 import { isClosedRecord, type ClosedRecord } from '../browser/closed-records';
 import type { PageHistory } from '../browser/page-host';
 import { isNavigableUrl } from '../browser/url';
@@ -18,6 +24,7 @@ const ACTIVE_WORKSPACE_KEY = 'session.activeWorkspaceId';
 interface WorkspaceRow {
   id: string;
   name: string;
+  appearance: string | null;
   active_page_id: string | null;
   created_at: number;
 }
@@ -62,6 +69,17 @@ function parseHistory(value: string | null): PageHistory | null {
   }
 }
 
+/** A saved look, or the default when it is missing or no longer valid. */
+function parseAppearance(value: string | null): WorkspaceAppearance {
+  if (!value) return DEFAULT_APPEARANCE;
+  try {
+    const parsed = workspaceAppearanceSchema.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : DEFAULT_APPEARANCE;
+  } catch {
+    return DEFAULT_APPEARANCE;
+  }
+}
+
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
@@ -76,7 +94,7 @@ export class SqliteTrailStore implements TrailStore {
   loadSession(): StoredSession | null {
     const workspaceRows = this.db
       .prepare(
-        'SELECT id, name, active_page_id, created_at FROM workspaces ORDER BY position',
+        'SELECT id, name, appearance, active_page_id, created_at FROM workspaces ORDER BY position',
       )
       .all() as unknown as WorkspaceRow[];
     if (workspaceRows.length === 0) return null;
@@ -127,6 +145,7 @@ export class SqliteTrailStore implements TrailStore {
       workspaces.push({
         id: workspace.id,
         name: workspace.name,
+        appearance: parseAppearance(workspace.appearance),
         activePageId: activeExists ? workspace.active_page_id : null,
         createdAt: workspace.created_at,
       });
@@ -161,8 +180,8 @@ export class SqliteTrailStore implements TrailStore {
 
   saveSession(session: StoredSession): void {
     const insertWorkspace = this.db.prepare(
-      `INSERT INTO workspaces (id, name, position, active_page_id, created_at)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO workspaces (id, name, appearance, position, active_page_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     );
     const insertPage = this.db.prepare(
       `INSERT INTO pages (id, workspace_id, parent_id, position, url, title,
@@ -175,6 +194,7 @@ export class SqliteTrailStore implements TrailStore {
         insertWorkspace.run(
           workspace.id,
           workspace.name,
+          workspace.appearance ? JSON.stringify(workspace.appearance) : null,
           position,
           workspace.activePageId,
           workspace.createdAt,
@@ -279,6 +299,48 @@ export class SqliteTrailStore implements TrailStore {
          ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
       )
       .run(key, value);
+  }
+
+  getPermission(origin: string, permission: SitePermission): boolean | null {
+    const row = this.db
+      .prepare(
+        'SELECT granted FROM permission_decisions WHERE origin = ? AND permission = ?',
+      )
+      .get(origin, permission) as { granted: number } | undefined;
+    return row ? row.granted === 1 : null;
+  }
+
+  setPermission(
+    origin: string,
+    permission: SitePermission,
+    granted: boolean | null,
+  ): void {
+    if (granted === null) {
+      this.db
+        .prepare(
+          'DELETE FROM permission_decisions WHERE origin = ? AND permission = ?',
+        )
+        .run(origin, permission);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO permission_decisions (origin, permission, granted, decided_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (origin, permission) DO UPDATE SET
+           granted = excluded.granted, decided_at = excluded.decided_at`,
+      )
+      .run(origin, permission, granted ? 1 : 0, Date.now());
+  }
+
+  clearPermissions(origin?: string): void {
+    if (origin === undefined) {
+      this.db.exec('DELETE FROM permission_decisions');
+    } else {
+      this.db
+        .prepare('DELETE FROM permission_decisions WHERE origin = ?')
+        .run(origin);
+    }
   }
 
   close(): void {

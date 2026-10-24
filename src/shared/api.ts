@@ -2,7 +2,12 @@ import type {
   BrowserSnapshot,
   ContentInsets,
   PageId,
+  PaletteItem,
+  PermissionDecision,
+  SiteInfo,
+  SitePermission,
   UiCommand,
+  WorkspaceAppearance,
   WorkspaceId,
 } from './types';
 
@@ -29,6 +34,17 @@ export interface InvokeOutputs {
   'workspace:rename': void;
   'workspace:show-menu': void;
   'workspace:create': WorkspaceId;
+  'workspace:customize': void;
+  'page:set-muted': void;
+  'page:zoom': void;
+  'page:find': void;
+  'page:stop-find': void;
+  'page:respond-permission': void;
+  'site:get-info': SiteInfo | null;
+  'site:set-permission': void;
+  'site:reset': void;
+  'view:freeze': string | null;
+  'palette:query': PaletteItem[];
   'workspace:move': void;
 }
 
@@ -67,7 +83,43 @@ export interface SplashApi {
   switchWorkspace(workspaceId: WorkspaceId): Promise<void>;
   renameWorkspace(workspaceId: WorkspaceId, name: string): Promise<void>;
   showWorkspaceMenu(): Promise<void>;
-  createWorkspace(): Promise<WorkspaceId>;
+  createWorkspace(
+    name: string,
+    appearance: WorkspaceAppearance,
+  ): Promise<WorkspaceId>;
+  customizeWorkspace(
+    workspaceId: WorkspaceId,
+    name: string,
+    appearance: WorkspaceAppearance,
+  ): Promise<void>;
+  setMuted(pageId: PageId, muted: boolean): Promise<void>;
+  zoom(pageId: PageId, direction: 'in' | 'out' | 'reset'): Promise<void>;
+  find(
+    pageId: PageId,
+    text: string,
+    options: { forward: boolean; findNext: boolean },
+  ): Promise<void>;
+  stopFind(pageId: PageId): Promise<void>;
+  respondToPermission(
+    pageId: PageId,
+    requestId: string,
+    granted: boolean,
+  ): Promise<void>;
+  getSiteInfo(pageId: PageId): Promise<SiteInfo | null>;
+  setSitePermission(
+    origin: string,
+    permission: SitePermission,
+    decision: PermissionDecision,
+  ): Promise<void>;
+  resetSite(origin: string): Promise<void>;
+  /** A still image of the active page, to show under a popover. */
+  freezePage(): Promise<string | null>;
+  /** While true, the live page steps aside so shell popovers are visible. */
+  setOverlayActive(active: boolean): void;
+  queryPalette(
+    query: string,
+    scope: 'palette' | 'address',
+  ): Promise<PaletteItem[]>;
   moveWorkspace(workspaceId: WorkspaceId, index: number): Promise<void>;
   setContentInsets(insets: ContentInsets): void;
   focusPage(): void;

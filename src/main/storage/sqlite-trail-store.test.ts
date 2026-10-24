@@ -2,6 +2,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { DEFAULT_APPEARANCE } from '../../shared/appearance';
 import { migrate, MIGRATIONS, schemaVersion } from './migrations';
 import { openTrailStore, SqliteTrailStore } from './sqlite-trail-store';
 import type { StoredPage, StoredSession } from './trail-store';
@@ -26,8 +27,25 @@ function page(id: string, overrides: Partial<StoredPage> = {}): StoredPage {
 
 const SESSION: StoredSession = {
   workspaces: [
-    { id: 'w1', name: 'Personal', activePageId: 'b', createdAt: 1 },
-    { id: 'w2', name: 'Work', activePageId: null, createdAt: 2 },
+    {
+      id: 'w1',
+      name: 'Personal',
+      activePageId: 'b',
+      createdAt: 1,
+      appearance: {
+        icon: { kind: 'symbol', name: 'leaf' },
+        accent: '#336699',
+        frame: 'sage',
+        mode: 'dark',
+      },
+    },
+    {
+      id: 'w2',
+      name: 'Work',
+      activePageId: null,
+      createdAt: 2,
+      appearance: DEFAULT_APPEARANCE,
+    },
   ],
   pages: [
     page('a', { collapsed: true, note: 'read later' }),
@@ -67,6 +85,10 @@ const SESSION: StoredSession = {
             canGoBack: false,
             canGoForward: false,
             error: null,
+            isAudible: false,
+            isMuted: false,
+            zoomPercent: 100,
+            find: null,
           },
           history: null,
           createdAt: 1,
@@ -140,6 +162,21 @@ describe('SqliteTrailStore sessions', () => {
     expect(loaded.workspaces[0]?.activePageId).toBeNull();
   });
 
+  it('falls back to the default look for missing or invalid appearances', () => {
+    const db = new DatabaseSync(':memory:');
+    const store = new SqliteTrailStore(db);
+    store.saveSession(SESSION);
+    db.exec(`
+      UPDATE workspaces SET appearance = NULL WHERE id = 'w1';
+      UPDATE workspaces SET appearance = '{"icon":{"kind":"script"}}' WHERE id = 'w2';
+    `);
+    const loaded = store.loadSession()!;
+    expect(loaded.workspaces.map((w) => w.appearance)).toEqual([
+      DEFAULT_APPEARANCE,
+      DEFAULT_APPEARANCE,
+    ]);
+  });
+
   it('turns orphans into roots and drops unsafe or broken values', () => {
     const db = new DatabaseSync(':memory:');
     const store = new SqliteTrailStore(db);
@@ -182,6 +219,25 @@ describe('SqliteTrailStore history and preferences', () => {
     expect(store.searchHistory('example', 10)).toHaveLength(1);
     expect(store.searchHistory('nope', 10)).toHaveLength(0);
     expect(store.searchHistory('100%', 10)).toHaveLength(0);
+  });
+
+  it('remembers, changes and forgets permission decisions', () => {
+    const store = memoryStore();
+    const site = 'https://meet.example';
+    expect(store.getPermission(site, 'camera')).toBeNull();
+    store.setPermission(site, 'camera', true);
+    store.setPermission(site, 'microphone', false);
+    store.setPermission('https://other.example', 'camera', false);
+    expect(store.getPermission(site, 'camera')).toBe(true);
+    expect(store.getPermission(site, 'microphone')).toBe(false);
+
+    store.setPermission(site, 'camera', null);
+    expect(store.getPermission(site, 'camera')).toBeNull();
+    store.clearPermissions(site);
+    expect(store.getPermission(site, 'microphone')).toBeNull();
+    expect(store.getPermission('https://other.example', 'camera')).toBe(false);
+    store.clearPermissions();
+    expect(store.getPermission('https://other.example', 'camera')).toBeNull();
   });
 
   it('stores preferences', () => {

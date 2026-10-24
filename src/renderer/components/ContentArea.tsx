@@ -4,7 +4,12 @@ import type { ContentInsets, PageSnapshot } from '../../shared/types';
 import { useContentInsets } from '../hooks/use-content-insets';
 import { describeError, hostOf } from '../lib/format';
 import { api } from '../splash-api';
+import { useOverlay } from '../stores/overlay-store';
 import { selectActivePage, useShell } from '../stores/shell-store';
+import { AddressSuggestions } from './AddressSuggestions';
+import { CommandPalette } from './CommandPalette';
+import { SiteInfoPopover } from './SiteInfoPopover';
+import { WorkspaceEditor } from './WorkspaceEditor';
 
 /**
  * The frame the active page's Chromium view is placed over. When there is no
@@ -25,9 +30,42 @@ export function ContentArea() {
         className="relative h-full overflow-hidden rounded-[var(--radius-content)] bg-surface shadow-[var(--shadow-content)]"
       >
         <Surface />
+        <FrozenPage />
+        <OverlayHost />
       </div>
     </div>
   );
+}
+
+/** A still of the page, standing in while the live view steps aside. */
+function FrozenPage() {
+  const still = useOverlay((state) => state.frozenPage);
+  if (!still) return null;
+  return (
+    <img
+      src={still}
+      alt=""
+      aria-hidden
+      draggable={false}
+      className="absolute inset-0 size-full object-cover object-top-left"
+    />
+  );
+}
+
+function OverlayHost() {
+  const overlay = useOverlay((state) => state.overlay);
+  switch (overlay?.kind) {
+    case 'palette':
+      return <CommandPalette />;
+    case 'suggestions':
+      return <AddressSuggestions />;
+    case 'site-info':
+      return <SiteInfoPopover />;
+    case 'workspace-editor':
+      return <WorkspaceEditor workspaceId={overlay.workspaceId} />;
+    default:
+      return null;
+  }
 }
 
 function Surface() {

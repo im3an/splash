@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';
+import { WorkspaceIcon } from './WorkspaceIcon';
 
 /** The current workspace's name; opens the workspace menu, renames in place. */
 export function WorkspaceButton() {
@@ -56,6 +57,13 @@ export function WorkspaceButton() {
       title="Workspaces (⌃1–9 to switch)"
       className="flex h-7 min-w-0 items-center gap-1 rounded-[var(--radius-control)] px-2 font-medium text-fg transition-colors duration-[var(--duration-fast)] hover:bg-hover"
     >
+      <span className="grid size-4 shrink-0 place-items-center text-[12px] text-accent">
+        <WorkspaceIcon
+          icon={workspace.appearance.icon}
+          name={workspace.name}
+          size={13}
+        />
+      </span>
       <span className="truncate">{workspace.name}</span>
       <ChevronDown
         size={12}

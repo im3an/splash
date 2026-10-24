@@ -107,10 +107,53 @@ export function installApplicationMenu(actions: MenuActions): void {
         { role: 'close', accelerator: 'CmdOrCtrl+Shift+W' },
       ],
     },
-    { role: 'editMenu' },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'selectAll' },
+        { type: 'separator' },
+        {
+          label: 'Find…',
+          accelerator: 'CmdOrCtrl+F',
+          click: withActivePage((w) =>
+            w.sendUiCommand({ type: 'find', action: 'open' }),
+          ),
+        },
+        {
+          label: 'Find Next',
+          accelerator: 'CmdOrCtrl+G',
+          click: withActivePage((w) =>
+            w.sendUiCommand({ type: 'find', action: 'next' }),
+          ),
+        },
+        {
+          label: 'Find Previous',
+          accelerator: 'Shift+CmdOrCtrl+G',
+          click: withActivePage((w) =>
+            w.sendUiCommand({ type: 'find', action: 'previous' }),
+          ),
+        },
+        { type: 'separator' },
+        { role: 'startSpeaking' },
+        { role: 'stopSpeaking' },
+      ],
+    },
     {
       label: 'View',
       submenu: [
+        {
+          label: 'Command Palette…',
+          accelerator: 'CmdOrCtrl+K',
+          click: () =>
+            actions.currentWindow()?.sendUiCommand({ type: 'open-palette' }),
+        },
         {
           label: 'Toggle Sidebar',
           accelerator: 'CmdOrCtrl+S',
@@ -127,6 +170,42 @@ export function installApplicationMenu(actions: MenuActions): void {
           label: 'Stop',
           accelerator: 'CmdOrCtrl+.',
           click: withActivePage((w, id) => w.controller.stop(id)),
+        },
+        { type: 'separator' },
+        {
+          label: 'Zoom In',
+          accelerator: 'CmdOrCtrl+Plus',
+          click: withActivePage((w, id) => w.controller.zoom(id, 'in')),
+        },
+        {
+          label: 'Zoom In',
+          accelerator: 'CmdOrCtrl+=',
+          visible: false,
+          acceleratorWorksWhenHidden: true,
+          click: withActivePage((w, id) => w.controller.zoom(id, 'in')),
+        },
+        {
+          label: 'Zoom Out',
+          accelerator: 'CmdOrCtrl+-',
+          click: withActivePage((w, id) => w.controller.zoom(id, 'out')),
+        },
+        {
+          label: 'Actual Size',
+          accelerator: 'CmdOrCtrl+0',
+          click: withActivePage((w, id) => w.controller.zoom(id, 'reset')),
+        },
+        { type: 'separator' },
+        {
+          label: 'Site Settings…',
+          click: withActivePage((w) => w.sendUiCommand({ type: 'site-info' })),
+        },
+        {
+          label: 'Mute Page',
+          accelerator: 'Ctrl+CmdOrCtrl+M',
+          click: withActivePage((w, id) => {
+            const page = w.controller.snapshot().pages[id];
+            if (page) w.controller.setMuted(id, !page.isMuted);
+          }),
         },
         { type: 'separator' },
         {

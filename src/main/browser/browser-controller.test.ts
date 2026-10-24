@@ -36,6 +36,26 @@ class FakeHost implements PageHost {
   isAudible() {
     return this.audible;
   }
+  muted = false;
+  zoomPercent = 100;
+  findQueries: string[] = [];
+  setMuted(muted: boolean) {
+    this.muted = muted;
+    this.events.onStateChange({ isMuted: muted });
+  }
+  setZoomPercent(percent: number) {
+    this.zoomPercent = percent;
+    this.events.onStateChange({ zoomPercent: percent });
+  }
+  find(text: string) {
+    this.findQueries.push(text);
+  }
+  stopFind() {
+    this.events.onStateChange({ find: null });
+  }
+  async capture() {
+    return 'data:image/jpeg;base64,AAAA';
+  }
   goBack() {
     this.calls.push('back');
   }
@@ -675,6 +695,132 @@ describe('BrowserController', () => {
         activeWorkspaceId: null,
       });
       expect(latest().rootIds).toHaveLength(1);
+    });
+  });
+
+  describe('page status and tools', () => {
+    it('mutes, zooms and finds through the page’s view', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      controller.setMuted(id, true);
+      expect(latest().pages[id]?.isMuted).toBe(true);
+
+      controller.zoom(id, 'in');
+      controller.zoom(id, 'in');
+      expect(latest().pages[id]?.zoomPercent).toBe(125);
+      controller.zoom(id, 'reset');
+      expect(hosts[0]?.zoomPercent).toBe(100);
+
+      controller.find(id, 'trail', { forward: true, findNext: false });
+      expect(hosts[0]?.findQueries).toEqual(['trail']);
+    });
+
+    it('steps the page aside while the shell shows a popover', async () => {
+      const { controller, hosts } = setup();
+      controller.createPage({ input: 'a.com' });
+      await expect(controller.captureActivePage()).resolves.toMatch(/^data:/);
+      controller.setOverlayActive(true);
+      expect(hosts[0]?.visible).toBe(false);
+      controller.setOverlayActive(false);
+      expect(hosts[0]?.visible).toBe(true);
+    });
+
+    it('lists pages from every workspace for search', () => {
+      const { controller } = setup();
+      controller.createPage({ input: 'a.com' });
+      controller.createWorkspace('Work');
+      const work = controller.createPage({ input: 'b.com' });
+      controller.renamePage(work, 'Quarterly plan');
+      expect(
+        controller.listPages().map((page) => [page.title, page.workspaceName]),
+      ).toEqual([
+        ['', 'Personal'],
+        ['Quarterly plan', 'Work'],
+      ]);
+    });
+
+    it('mutes live pages on a site when its sound is blocked', () => {
+      const { controller, hosts } = setup();
+      controller.createPage({ input: 'a.com' });
+      controller.createPage({ input: 'b.com' });
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+      hosts[1]!.events.onStateChange({ url: 'https://b.com/' });
+      controller.applySoundPolicy('https://a.com', true);
+      expect(hosts.map((h) => h.muted)).toEqual([true, false]);
+    });
+  });
+
+  describe('permission requests', () => {
+    it('queues a request on the page until the user answers', async () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'meet.example' });
+      const answer = hosts[0]!.events.onPermissionRequest(
+        'https://meet.example',
+        ['camera', 'microphone'],
+      );
+      const request = latest().pages[id]?.permissionRequest;
+      expect(request).toMatchObject({
+        origin: 'https://meet.example',
+        permissions: ['camera', 'microphone'],
+      });
+
+      controller.respondToPermission(id, request!.id, true);
+      await expect(answer).resolves.toBe(true);
+      expect(latest().pages[id]?.permissionRequest).toBeNull();
+    });
+
+    it('shows refused permissions until the page leaves the site', async () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'meet.example' });
+      hosts[0]!.events.onStateChange({ url: 'https://meet.example/' });
+      const answer = hosts[0]!.events.onPermissionRequest(
+        'https://meet.example',
+        ['location'],
+      );
+      controller.respondToPermission(
+        id,
+        latest().pages[id]!.permissionRequest!.id,
+        false,
+      );
+      await expect(answer).resolves.toBe(false);
+      expect(latest().pages[id]?.blockedPermissions).toEqual(['location']);
+
+      hosts[0]!.events.onPermissionBlocked(['midi']);
+      expect(latest().pages[id]?.blockedPermissions).toEqual([
+        'location',
+        'midi',
+      ]);
+      hosts[0]!.events.onStateChange({ url: 'https://meet.example/other' });
+      expect(latest().pages[id]?.blockedPermissions).toHaveLength(2);
+      hosts[0]!.events.onStateChange({ url: 'https://elsewhere.example/' });
+      expect(latest().pages[id]?.blockedPermissions).toEqual([]);
+    });
+
+    it('refuses pending requests when the page leaves or closes', async () => {
+      const { controller, hosts } = setup();
+      const id = controller.createPage({ input: 'meet.example' });
+      hosts[0]!.events.onStateChange({ url: 'https://meet.example/' });
+      const leaving = hosts[0]!.events.onPermissionRequest(
+        'https://meet.example',
+        ['camera'],
+      );
+      hosts[0]!.events.onStateChange({ url: 'https://elsewhere.example/' });
+      await expect(leaving).resolves.toBe(false);
+
+      const closing = hosts[0]!.events.onPermissionRequest(
+        'https://elsewhere.example',
+        ['camera'],
+      );
+      controller.closePage(id);
+      await expect(closing).resolves.toBe(false);
+    });
+
+    it('ignores answers to requests that are gone', () => {
+      const { controller } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      expect(() =>
+        controller.respondToPermission(id, 'stale', true),
+      ).not.toThrow();
     });
   });
 });

@@ -30,15 +30,16 @@ export function workspaceMenuItems(
     ...switchItems,
     { type: 'separator' },
     {
-      label: 'New Workspace',
+      label: 'New Workspace…',
       accelerator: options.accelerators ? 'Shift+CmdOrCtrl+N' : undefined,
-      click: () => {
-        controller.createWorkspace();
-        trailWindow.sendUiCommand({ type: 'rename-workspace' });
-      },
+      click: () => trailWindow.sendUiCommand({ type: 'create-workspace' }),
     },
     {
-      label: 'Rename Workspace…',
+      label: 'Customize Workspace…',
+      click: () => trailWindow.sendUiCommand({ type: 'customize-workspace' }),
+    },
+    {
+      label: 'Rename Workspace',
       click: () => trailWindow.sendUiCommand({ type: 'rename-workspace' }),
     },
     {

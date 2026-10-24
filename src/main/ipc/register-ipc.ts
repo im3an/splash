@@ -16,7 +16,7 @@ import {
 export type InvokeHandlers = {
   [C in InvokeChannel]: (
     input: z.output<(typeof invokeContract)[C]>,
-  ) => InvokeOutputs[C];
+  ) => InvokeOutputs[C] | Promise<InvokeOutputs[C]>;
 };
 
 export type SendHandlers = {
