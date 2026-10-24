@@ -40,6 +40,7 @@ export interface WorkspaceSummary {
 
 /** The most recent close that can be undone. */
 export interface ClosedSummary {
+  kind: 'pages' | 'workspace';
   label: string;
   pageCount: number;
   /** Changes with every close, so the shell can tell a new one apart. */

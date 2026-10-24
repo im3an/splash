@@ -58,6 +58,9 @@ const api: SplashApi = {
   renameWorkspace: (workspaceId, name) =>
     invoke('workspace:rename', { workspaceId, name }),
   showWorkspaceMenu: () => invoke('workspace:show-menu'),
+  createWorkspace: () => invoke('workspace:create'),
+  moveWorkspace: (workspaceId, index) =>
+    invoke('workspace:move', { workspaceId, index }),
   setContentInsets: (insets) => send('view:set-content-insets', insets),
   focusPage: () => send('view:focus-page'),
   onSnapshot: (listener) => subscribe(eventChannels.snapshot, listener),

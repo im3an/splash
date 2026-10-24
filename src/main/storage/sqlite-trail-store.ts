@@ -1,6 +1,7 @@
 import { existsSync, renameSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import type { PageId } from '../../shared/types';
+import { isClosedRecord, type ClosedRecord } from '../browser/closed-records';
 import type { PageHistory } from '../browser/page-host';
 import { isNavigableUrl } from '../browser/url';
 import { migrate, SchemaTooNewError } from './migrations';
@@ -67,7 +68,8 @@ function escapeLike(value: string): string {
 
 export class SqliteTrailStore implements TrailStore {
   constructor(private readonly db: DatabaseSync) {
-    db.exec('PRAGMA foreign_keys = ON');
+    // Wait briefly instead of failing if another process holds a lock.
+    db.exec('PRAGMA busy_timeout = 3000; PRAGMA foreign_keys = ON;');
     migrate(db);
   }
 
@@ -137,7 +139,24 @@ export class SqliteTrailStore implements TrailStore {
       activeWorkspaceId: workspaces.some((w) => w.id === activeWorkspaceId)
         ? activeWorkspaceId
         : (workspaces[0]?.id ?? null),
+      closed: this.loadClosedRecords(),
     };
+  }
+
+  private loadClosedRecords(): ClosedRecord[] {
+    const rows = this.db
+      .prepare('SELECT record FROM closed_records ORDER BY position')
+      .all() as unknown as { record: string }[];
+    const records: ClosedRecord[] = [];
+    for (const row of rows) {
+      try {
+        const record: unknown = JSON.parse(row.record);
+        if (isClosedRecord(record)) records.push(record);
+      } catch {
+        // A damaged record only costs that one undo step.
+      }
+    }
+    return records;
   }
 
   saveSession(session: StoredSession): void {
@@ -185,6 +204,13 @@ export class SqliteTrailStore implements TrailStore {
       if (session.activeWorkspaceId) {
         this.setPreference(ACTIVE_WORKSPACE_KEY, session.activeWorkspaceId);
       }
+      this.db.exec('DELETE FROM closed_records');
+      const insertClosed = this.db.prepare(
+        'INSERT INTO closed_records (position, record) VALUES (?, ?)',
+      );
+      (session.closed ?? []).forEach((record, position) => {
+        insertClosed.run(position, JSON.stringify(record));
+      });
     });
   }
 

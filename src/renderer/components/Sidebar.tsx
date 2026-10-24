@@ -1,14 +1,30 @@
+import { useLayoutEffect, useRef } from 'react';
 import { PanelLeft, Plus } from 'lucide-react';
 import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';
 import { TrailTree } from './TrailTree';
 import { UndoToast } from './UndoToast';
+import { WorkspaceBar } from './WorkspaceBar';
 import { WorkspaceButton } from './WorkspaceButton';
 
 export function Sidebar() {
   const open = useShell((state) => state.sidebarOpen);
   const toggleSidebar = useShell((state) => state.toggleSidebar);
   const focusAddressBar = useShell((state) => state.focusAddressBar);
+  const workspaceId = useShell((state) => state.snapshot?.activeWorkspaceId);
+  const listRef = useRef<HTMLElement>(null);
+  const scrollPositions = useRef(new Map<string, number>());
+
+  // Each workspace keeps its own scroll position in the trail.
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list || !workspaceId) return;
+    list.scrollTop = scrollPositions.current.get(workspaceId) ?? 0;
+    const positions = scrollPositions.current;
+    return () => {
+      positions.set(workspaceId, list.scrollTop);
+    };
+  }, [workspaceId]);
 
   const newPage = async () => {
     await api().createPage();
@@ -50,10 +66,14 @@ export function Sidebar() {
 
         <div className="mx-2 mb-1 h-px shrink-0 bg-divider" />
 
-        <nav className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pb-2">
+        <nav
+          ref={listRef}
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pb-2"
+        >
           <TrailTree />
         </nav>
         <UndoToast />
+        <WorkspaceBar />
       </div>
     </aside>
   );

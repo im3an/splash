@@ -2,12 +2,16 @@ import { randomUUID } from 'node:crypto';
 import type { Rectangle } from 'electron';
 import type {
   BrowserSnapshot,
-  ClosedSummary,
   PageId,
   PageSnapshot,
   WorkspaceId,
 } from '../../shared/types';
 import type { StoredPage, StoredSession } from '../storage/trail-store';
+import type {
+  ClosedPage,
+  ClosedRecord,
+  ClosedWorkspace,
+} from './closed-records';
 import { isSameDocumentUrl } from './link-activations';
 import type {
   PageHistory,
@@ -40,28 +44,6 @@ interface Page {
   /** A name the user gave the page, shown instead of its title. */
   customTitle: string | null;
   note: string | null;
-}
-
-/** Everything needed to put a closed page back where it was. */
-interface ClosedPage {
-  id: PageId;
-  parentId: PageId | null;
-  index: number;
-  collapsed: boolean;
-  customTitle: string | null;
-  note: string | null;
-  state: PageRuntimeState;
-  history: PageHistory | null;
-  createdAt: number;
-}
-
-interface ClosedRecord {
-  workspaceId: WorkspaceId;
-  /** The closed page first, then (for a branch) its descendants in order. */
-  pages: ClosedPage[];
-  /** Children promoted when only the page itself was closed. */
-  promotedChildIds: PageId[];
-  summary: ClosedSummary;
 }
 
 export interface BrowserControllerOptions {
@@ -120,7 +102,7 @@ export class BrowserController {
   private bounds: Rectangle | null = null;
   private flushPending = false;
   private disposed = false;
-  private readonly closed: ClosedRecord[] = [];
+  private closed: ClosedRecord[] = [];
   private closedSerial = 0;
 
   private readonly schedule: (flush: () => void) => void;
@@ -219,12 +201,23 @@ export class BrowserController {
     this.afterRemoval(workspace, successor);
   }
 
-  /** Puts the most recently closed page or branch back where it was. */
+  /**
+   * Puts the most recently closed page, branch or workspace back where it
+   * was. Returns the page that becomes active, if any.
+   */
   reopenClosed(): PageId | null {
     const record = this.closed.pop();
-    const root = record?.pages[0];
-    if (!record || !root) return null;
-    const workspace = this.workspaces.get(record.workspaceId) ?? this.workspace;
+    if (!record) return null;
+    let workspace = this.workspaces.get(record.workspaceId);
+    if (!workspace && record.workspace) {
+      workspace = this.addWorkspace(
+        record.workspace.name,
+        record.workspace.id,
+        record.workspace.index,
+      );
+      workspace.createdAt = record.workspace.createdAt;
+    }
+    workspace ??= this.workspace;
     const { tree } = workspace;
     for (const closed of record.pages) {
       const parentId =
@@ -242,16 +235,26 @@ export class BrowserController {
         state: { ...closed.state, isLoading: false },
       });
     }
-    // Children that were promoted when the page closed go back under it,
-    // unless they have been moved somewhere else since.
-    const rootParent = tree.get(root.id)?.parentId ?? null;
-    for (const childId of record.promotedChildIds) {
-      if (tree.get(childId)?.parentId === rootParent) {
-        tree.move(childId, root.id, Number.MAX_SAFE_INTEGER);
+    const root = record.pages[0];
+    if (root && !record.workspace) {
+      // Children that were promoted when the page closed go back under it,
+      // unless they have been moved somewhere else since.
+      const rootParent = tree.get(root.id)?.parentId ?? null;
+      for (const childId of record.promotedChildIds) {
+        if (tree.get(childId)?.parentId === rootParent) {
+          tree.move(childId, root.id, Number.MAX_SAFE_INTEGER);
+        }
       }
+      this.activatePage(root.id);
+      return root.id;
     }
-    this.activatePage(root.id);
-    return root.id;
+    const remembered = record.workspace?.activePageId ?? null;
+    workspace.activePageId =
+      remembered !== null && tree.has(remembered)
+        ? remembered
+        : (tree.rootIds[0] ?? null);
+    this.switchWorkspace(workspace.id);
+    return workspace.activePageId;
   }
 
   /**
@@ -418,14 +421,25 @@ export class BrowserController {
     }
   }
 
-  /** Deletes a workspace with all its pages. The last one cannot go. */
+  /**
+   * Deletes a workspace with all its pages; reopening closed pages brings
+   * it back. The last workspace cannot go.
+   */
   deleteWorkspace(id: WorkspaceId): void {
     const workspace = this.requireWorkspace(id);
     if (this.workspaces.size === 1) {
       throw new Error('The last workspace cannot be deleted');
     }
     const index = this.workspaceOrder.indexOf(id);
-    for (const pageId of workspace.tree.order()) this.release(pageId);
+    const pageIds = workspace.tree.order();
+    this.remember(workspace, pageIds, [], {
+      id,
+      name: workspace.name,
+      createdAt: workspace.createdAt,
+      activePageId: workspace.activePageId,
+      index,
+    });
+    for (const pageId of pageIds) this.release(pageId);
     this.workspaces.delete(id);
     this.workspaceOrder = this.workspaceOrder.filter((other) => other !== id);
     if (this.activeWorkspaceId === id) {
@@ -435,6 +449,16 @@ export class BrowserController {
     } else {
       this.changed();
     }
+  }
+
+  /** Moves a workspace to `index` in the workspace list. */
+  moveWorkspace(id: WorkspaceId, index: number): void {
+    this.requireWorkspace(id);
+    const order = this.workspaceOrder.filter((other) => other !== id);
+    const target = Math.max(0, Math.min(order.length, Math.trunc(index)));
+    order.splice(target, 0, id);
+    this.workspaceOrder = order;
+    this.changed();
   }
 
   /** Moves a page with its branch to the end of another workspace. */
@@ -500,6 +524,7 @@ export class BrowserController {
       }),
       pages,
       activeWorkspaceId: this.activeWorkspaceId,
+      closed: [...this.closed],
     };
   }
 
@@ -548,6 +573,11 @@ export class BrowserController {
           ? stored.activePageId
           : (workspace.tree.rootIds[0] ?? null);
     }
+    this.closed = [...(session.closed ?? [])].slice(-MAX_CLOSED_RECORDS);
+    this.closedSerial = Math.max(
+      0,
+      ...this.closed.map((record) => record.summary.serial),
+    );
     const activeId =
       session.activeWorkspaceId !== null &&
       this.workspaces.has(session.activeWorkspaceId)
@@ -601,7 +631,11 @@ export class BrowserController {
     return this.requireWorkspace(this.activeWorkspaceId);
   }
 
-  private addWorkspace(name: string, id: WorkspaceId = this.createId()) {
+  private addWorkspace(
+    name: string,
+    id: WorkspaceId = this.createId(),
+    index = this.workspaceOrder.length,
+  ) {
     const workspace: Workspace = {
       id,
       name,
@@ -610,7 +644,7 @@ export class BrowserController {
       createdAt: this.now(),
     };
     this.workspaces.set(id, workspace);
-    this.workspaceOrder.push(id);
+    this.workspaceOrder.splice(index, 0, id);
     return workspace;
   }
 
@@ -667,6 +701,7 @@ export class BrowserController {
     workspace: Workspace,
     ids: PageId[],
     promotedChildIds: PageId[],
+    deletedWorkspace: ClosedWorkspace | null = null,
   ): void {
     const pages = ids.map((id): ClosedPage => {
       const node = workspace.tree.get(id);
@@ -684,16 +719,23 @@ export class BrowserController {
       };
     });
     const [first] = pages;
-    if (!first) return;
-    const label =
-      first.customTitle ||
-      first.state.title ||
-      (first.state.url ? new URL(first.state.url).host : 'New page');
+    if (!first && !deletedWorkspace) return;
+    const label = deletedWorkspace
+      ? deletedWorkspace.name
+      : first!.customTitle ||
+        first!.state.title ||
+        (first!.state.url ? new URL(first!.state.url).host : 'New page');
     this.closed.push({
       workspaceId: workspace.id,
+      workspace: deletedWorkspace,
       pages,
       promotedChildIds,
-      summary: { label, pageCount: pages.length, serial: ++this.closedSerial },
+      summary: {
+        kind: deletedWorkspace ? 'workspace' : 'pages',
+        label,
+        pageCount: pages.length,
+        serial: ++this.closedSerial,
+      },
     });
     if (this.closed.length > MAX_CLOSED_RECORDS) this.closed.shift();
   }

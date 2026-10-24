@@ -47,6 +47,35 @@ const SESSION: StoredSession = {
     page('w', { workspaceId: 'w2' }),
   ],
   activeWorkspaceId: 'w2',
+  closed: [
+    {
+      workspaceId: 'w1',
+      workspace: null,
+      pages: [
+        {
+          id: 'x',
+          parentId: null,
+          index: 0,
+          collapsed: false,
+          customTitle: null,
+          note: null,
+          state: {
+            url: 'https://x.example/',
+            title: 'x',
+            faviconUrl: null,
+            isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
+            error: null,
+          },
+          history: null,
+          createdAt: 1,
+        },
+      ],
+      promotedChildIds: [],
+      summary: { kind: 'pages', label: 'x', pageCount: 1, serial: 4 },
+    },
+  ],
 };
 
 function memoryStore() {
@@ -107,6 +136,7 @@ describe('SqliteTrailStore sessions', () => {
     });
     const loaded = store.loadSession()!;
     expect(loaded.pages.map((p) => p.id)).toEqual(['d']);
+    expect(loaded.closed).toEqual([]);
     expect(loaded.workspaces[0]?.activePageId).toBeNull();
   });
 
@@ -118,11 +148,14 @@ describe('SqliteTrailStore sessions', () => {
       UPDATE pages SET parent_id = 'gone' WHERE id = 'd';
       UPDATE pages SET url = 'file:///etc/passwd' WHERE id = 'w';
       UPDATE pages SET history = '{not json' WHERE id = 'b';
+      INSERT INTO closed_records (position, record) VALUES (9, '{"nope": 1}');
+      INSERT INTO closed_records (position, record) VALUES (10, 'broken');
     `);
     const loaded = store.loadSession()!;
     expect(loaded.pages.find((p) => p.id === 'd')?.parentId).toBeNull();
     expect(loaded.pages.find((p) => p.id === 'w')?.url).toBeNull();
     expect(loaded.pages.find((p) => p.id === 'b')?.history).toBeNull();
+    expect(loaded.closed).toHaveLength(1);
   });
 });
 

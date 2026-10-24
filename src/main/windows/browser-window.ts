@@ -181,6 +181,9 @@ export class TrailWindow {
         'workspace:rename': ({ workspaceId, name }) =>
           this.controller.renameWorkspace(workspaceId, name),
         'workspace:show-menu': () => showWorkspaceMenu(this),
+        'workspace:create': () => this.controller.createWorkspace(),
+        'workspace:move': ({ workspaceId, index }) =>
+          this.controller.moveWorkspace(workspaceId, index),
       },
       send: {
         'view:set-content-insets': (insets) => {

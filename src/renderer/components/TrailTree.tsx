@@ -345,11 +345,19 @@ function TrailSkeleton() {
 }
 
 function TrailEmpty() {
+  const workspaces = useShell((state) => state.snapshot?.workspaces ?? []);
+  const activeId = useShell((state) => state.snapshot?.activeWorkspaceId);
+  const name = workspaces.find((w) => w.id === activeId)?.name;
+  const several = workspaces.length > 1;
   return (
     <div className="px-3 pt-3 pb-2">
-      <p className="text-fg-muted">No pages yet</p>
+      <p className="text-fg-muted">
+        {several && name ? `“${name}” is empty` : 'No pages yet'}
+      </p>
       <p className="mt-1 text-[12px] leading-[1.45] text-fg-subtle">
-        Pages you open appear here, nested under the page they came from.
+        {several
+          ? 'Pages you open here stay in this workspace, nested under the page they came from.'
+          : 'Pages you open appear here, nested under the page they came from.'}
       </p>
     </div>
   );

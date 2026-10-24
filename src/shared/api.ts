@@ -28,6 +28,8 @@ export interface InvokeOutputs {
   'workspace:switch': void;
   'workspace:rename': void;
   'workspace:show-menu': void;
+  'workspace:create': WorkspaceId;
+  'workspace:move': void;
 }
 
 export const eventChannels = {
@@ -65,6 +67,8 @@ export interface SplashApi {
   switchWorkspace(workspaceId: WorkspaceId): Promise<void>;
   renameWorkspace(workspaceId: WorkspaceId, name: string): Promise<void>;
   showWorkspaceMenu(): Promise<void>;
+  createWorkspace(): Promise<WorkspaceId>;
+  moveWorkspace(workspaceId: WorkspaceId, index: number): Promise<void>;
   setContentInsets(insets: ContentInsets): void;
   focusPage(): void;
   onSnapshot(listener: (snapshot: BrowserSnapshot) => void): () => void;

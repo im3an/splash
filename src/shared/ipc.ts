@@ -45,6 +45,11 @@ export const invokeContract = {
     name: z.string().trim().min(1).max(80),
   }),
   'workspace:show-menu': z.undefined(),
+  'workspace:create': z.undefined(),
+  'workspace:move': z.strictObject({
+    workspaceId,
+    index: z.number().int().min(0).max(1000),
+  }),
 } as const;
 
 export const sendContract = {

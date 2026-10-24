@@ -52,6 +52,13 @@ export const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (origin, permission)
   );
   `,
+  // 3 — recently closed pages and workspaces, so undo survives a restart.
+  `
+  CREATE TABLE closed_records (
+    position INTEGER PRIMARY KEY,
+    record TEXT NOT NULL
+  );
+  `,
 ];
 
 export class SchemaTooNewError extends Error {}

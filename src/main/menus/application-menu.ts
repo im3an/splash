@@ -83,7 +83,7 @@ export function installApplicationMenu(actions: MenuActions): void {
         },
         { type: 'separator' },
         {
-          label: 'Reopen Closed Page',
+          label: 'Reopen Closed',
           accelerator: 'Shift+CmdOrCtrl+T',
           click: () => actions.currentWindow()?.controller.reopenClosed(),
         },

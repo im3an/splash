@@ -1,4 +1,5 @@
 import type { PageId, WorkspaceId } from '../../shared/types';
+import type { ClosedRecord } from '../browser/closed-records';
 import type { PageHistory } from '../browser/page-host';
 
 /**
@@ -37,6 +38,8 @@ export interface StoredSession {
   workspaces: StoredWorkspace[];
   pages: StoredPage[];
   activeWorkspaceId: WorkspaceId | null;
+  /** Undo history for closed pages and workspaces, oldest first. */
+  closed?: ClosedRecord[];
 }
 
 export interface HistoryMatch {

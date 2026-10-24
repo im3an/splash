@@ -22,24 +22,26 @@ export function UndoToast() {
   const visible = lastClosed !== null && shownSerial === lastClosed.serial;
   if (!visible) return null;
 
-  const what =
-    lastClosed.pageCount > 1
-      ? `${lastClosed.pageCount} pages`
-      : `“${lastClosed.label}”`;
+  const message =
+    lastClosed.kind === 'workspace'
+      ? `Deleted workspace “${lastClosed.label}”`
+      : lastClosed.pageCount > 1
+        ? `Closed ${lastClosed.pageCount} pages`
+        : `Closed “${lastClosed.label}”`;
 
   return (
     <div
       role="status"
       className="toast-in mx-1 mb-2 flex items-center gap-2 rounded-[var(--radius-control)] bg-elevated py-1.5 pr-1 pl-3 text-[12px] text-fg-muted shadow-[var(--shadow-row)]"
     >
-      <span className="min-w-0 flex-1 truncate">Closed {what}</span>
+      <span className="min-w-0 flex-1 truncate">{message}</span>
       <button
         type="button"
         onClick={() => {
           setShownSerial(null);
           void api().reopenClosed();
         }}
-        title="Reopen closed page (⇧⌘T)"
+        title="Reopen closed (⇧⌘T)"
         className="flex h-6 shrink-0 items-center gap-1 rounded-[5px] px-2 text-fg transition-colors duration-[var(--duration-fast)] hover:bg-hover"
       >
         <RotateCcw size={12} strokeWidth={2} />

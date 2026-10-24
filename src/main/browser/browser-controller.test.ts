@@ -526,6 +526,50 @@ describe('BrowserController', () => {
       expect(() => controller.deleteWorkspace(home)).toThrow();
     });
 
+    it('brings a deleted workspace back with its trail', () => {
+      const { controller, latest } = setup();
+      const home = latest()?.activeWorkspaceId ?? controller.currentWorkspaceId;
+      const work = controller.createWorkspace('Work');
+      const root = controller.createPage({ input: 'a.com' });
+      const child = controller.createPage({ input: 'b.com', parentId: root });
+      controller.createWorkspace('Later');
+      controller.deleteWorkspace(work);
+      expect(latest().workspaces.map((w) => w.name)).toEqual([
+        'Personal',
+        'Later',
+      ]);
+      expect(latest().lastClosed).toMatchObject({
+        kind: 'workspace',
+        label: 'Work',
+        pageCount: 2,
+      });
+
+      controller.reopenClosed();
+      expect(latest().workspaces.map((w) => w.name)).toEqual([
+        'Personal',
+        'Work',
+        'Later',
+      ]);
+      expect(latest().activeWorkspaceId).toBe(work);
+      expect(latest().pages[root]?.childIds).toEqual([child]);
+      expect(latest().activePageId).toBe(child);
+      expect(home).not.toBe(work);
+    });
+
+    it('reorders workspaces', () => {
+      const { controller, latest } = setup();
+      controller.createWorkspace('Work');
+      const later = controller.createWorkspace('Later');
+      controller.moveWorkspace(later, 0);
+      expect(latest().workspaces.map((w) => w.name)).toEqual([
+        'Later',
+        'Personal',
+        'Work',
+      ]);
+      controller.moveWorkspace(later, 99);
+      expect(latest().workspaces.at(-1)?.name).toBe('Later');
+    });
+
     it('reopens a closed page into the workspace it came from', () => {
       const { controller, latest } = setup();
       const page = controller.createPage({ input: 'a.com' });
@@ -606,6 +650,20 @@ describe('BrowserController', () => {
       expect(restored.hosts[0]?.restored?.entries[0]?.url).toBe(
         'https://b.com/',
       );
+    });
+
+    it('keeps undo history across a restart', () => {
+      const original = setup();
+      const page = original.controller.createPage({ input: 'a.com' });
+      original.controller.closePage(page);
+      const session = original.controller.exportSession();
+      expect(session.closed).toHaveLength(1);
+
+      const restored = setup();
+      restored.controller.restoreSession(session);
+      expect(restored.latest().lastClosed?.label).toBe('a.com');
+      expect(restored.controller.reopenClosed()).toBe(page);
+      expect(restored.latest().pages[page]?.url).toBe('https://a.com/');
     });
 
     it('ignores an empty session', () => {
