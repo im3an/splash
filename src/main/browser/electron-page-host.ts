@@ -5,13 +5,29 @@ import {
   type Session,
   type WebContents,
 } from 'electron';
-import type { PageHost, PageHostEvents, PageHostFactory } from './page-host';
+import { LINK_ACTIVATED } from '../../shared/page-bridge';
+import { isSameDocumentUrl, LinkActivations } from './link-activations';
+import type {
+  LoadOptions,
+  PageHistory,
+  PageHost,
+  PageHostEvents,
+  PageHostFactory,
+} from './page-host';
 import { isNavigableUrl } from './url';
 
 /** Must match `--radius-content` in the renderer's design tokens. */
 const CONTENT_RADIUS = 10;
 /** Chromium's ERR_ABORTED: a load was superseded by another navigation. */
 const ERR_ABORTED = -3;
+const MAX_URL_LENGTH = 8192;
+
+export interface PageHostEnvironment {
+  window: BaseWindow;
+  session: Session;
+  /** The isolated-world script that reports link clicks. */
+  preload: string;
+}
 
 function isFaviconUrl(url: string): boolean {
   return isNavigableUrl(url) || url.startsWith('data:image/');
@@ -28,18 +44,22 @@ function originOf(url: string): string | null {
 /** A page rendered by Chromium in a `WebContentsView` inside the window. */
 class ElectronPageHost implements PageHost {
   private readonly view: WebContentsView;
+  private readonly window: BaseWindow;
+  private readonly links = new LinkActivations();
   private attached = false;
   private origin: string | null = null;
 
   constructor(
-    private readonly window: BaseWindow,
-    session: Session,
+    environment: PageHostEnvironment,
     private readonly events: PageHostEvents,
   ) {
+    this.window = environment.window;
     this.view = new WebContentsView({
       webPreferences: {
-        session,
-        // Web content never gets Node.js or a preload bridge.
+        session: environment.session,
+        // Web content never gets Node.js. Its preload runs in an isolated
+        // world and can only report link clicks.
+        preload: environment.preload,
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
@@ -58,9 +78,15 @@ class ElectronPageHost implements PageHost {
     return this.view.webContents;
   }
 
-  load(url: string): void {
+  load(url: string, options: LoadOptions = {}): void {
+    const httpReferrer = options.referrer
+      ? {
+          url: options.referrer,
+          policy: 'strict-origin-when-cross-origin' as const,
+        }
+      : undefined;
     // Failures surface through `did-fail-load`; the promise only duplicates them.
-    this.contents.loadURL(url).catch(() => undefined);
+    this.contents.loadURL(url, { httpReferrer }).catch(() => undefined);
   }
 
   goBack(): void {
@@ -108,6 +134,26 @@ class ElectronPageHost implements PageHost {
     this.contents.toggleDevTools();
   }
 
+  captureHistory(): PageHistory | null {
+    const history = this.contents.navigationHistory;
+    const entries = history
+      .getAllEntries()
+      .filter((entry) => isNavigableUrl(entry.url));
+    if (entries.length === 0) return null;
+    const index = Math.min(history.getActiveIndex(), entries.length - 1);
+    return { entries, index: Math.max(0, index) };
+  }
+
+  restoreHistory(history: PageHistory): void {
+    this.contents.navigationHistory
+      .restore({ entries: history.entries, index: history.index })
+      .catch(() => undefined);
+  }
+
+  isAudible(): boolean {
+    return this.contents.isCurrentlyAudible();
+  }
+
   destroy(): void {
     this.hide();
     // A WebContentsView does not destroy its WebContents on its own.
@@ -135,11 +181,33 @@ class ElectronPageHost implements PageHost {
       return { action: 'deny' };
     });
 
-    const blockUnsafeNavigation = (event: Electron.Event<{ url: string }>) => {
+    contents.ipc.on(LINK_ACTIVATED, (event, href: unknown) => {
+      if (event.senderFrame?.parent !== null) return;
+      if (typeof href !== 'string' || href.length > MAX_URL_LENGTH) return;
+      if (isNavigableUrl(href)) this.links.record(href);
+    });
+
+    contents.on('will-navigate', (event) => {
+      if (!isNavigableUrl(event.url)) {
+        event.preventDefault();
+        return;
+      }
+      if (!event.isMainFrame || event.isSameDocument) return;
+      const current = contents.getURL();
+      // Only a link the user just clicked, leading to another document,
+      // grows the trail. Everything else navigates in place.
+      if (
+        !this.links.take(event.url) ||
+        isSameDocumentUrl(event.url, current)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      this.events.onBranchRequest(event.url, current);
+    });
+    contents.on('will-redirect', (event) => {
       if (!isNavigableUrl(event.url)) event.preventDefault();
-    };
-    contents.on('will-navigate', blockUnsafeNavigation);
-    contents.on('will-redirect', blockUnsafeNavigation);
+    });
 
     contents.on('did-start-navigation', (details) => {
       if (details.isMainFrame && !details.isSameDocument) emit({ error: null });
@@ -192,8 +260,7 @@ class ElectronPageHost implements PageHost {
 }
 
 export function createElectronPageHostFactory(
-  window: BaseWindow,
-  session: Session,
+  environment: PageHostEnvironment,
 ): PageHostFactory {
-  return (events) => new ElectronPageHost(window, session, events);
+  return (events) => new ElectronPageHost(environment, events);
 }

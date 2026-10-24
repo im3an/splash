@@ -73,10 +73,11 @@ export class TrailWindow {
     });
 
     this.controller = new BrowserController({
-      createHost: createElectronPageHostFactory(
-        this.window,
-        session.fromPartition(WEB_PARTITION),
-      ),
+      createHost: createElectronPageHostFactory({
+        window: this.window,
+        session: session.fromPartition(WEB_PARTITION),
+        preload: path.join(__dirname, 'page-preload.cjs'),
+      }),
       onSnapshot: (snapshot) => this.send(eventChannels.snapshot, snapshot),
     });
 

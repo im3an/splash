@@ -1,19 +1,40 @@
 import type { Rectangle } from 'electron';
 import type { BrowserSnapshot } from '../../shared/types';
 import { BrowserController } from './browser-controller';
-import type { PageHost, PageHostEvents } from './page-host';
+import type {
+  LoadOptions,
+  PageHistory,
+  PageHost,
+  PageHostEvents,
+} from './page-host';
 
 class FakeHost implements PageHost {
   loaded: string[] = [];
+  referrers: (string | undefined)[] = [];
   bounds: Rectangle | null = null;
   visible = false;
   destroyed = false;
+  audible = false;
+  restored: PageHistory | null = null;
+  history: PageHistory | null = null;
   calls: string[] = [];
 
   constructor(readonly events: PageHostEvents) {}
 
-  load(url: string) {
+  load(url: string, options?: LoadOptions) {
     this.loaded.push(url);
+    this.referrers.push(options?.referrer);
+    this.history = { entries: [{ url, title: '' }], index: 0 };
+  }
+  captureHistory() {
+    return this.history;
+  }
+  restoreHistory(history: PageHistory) {
+    this.restored = history;
+    this.history = history;
+  }
+  isAudible() {
+    return this.audible;
   }
   goBack() {
     this.calls.push('back');
@@ -48,11 +69,14 @@ class FakeHost implements PageHost {
 
 const BOUNDS = { x: 260, y: 48, width: 900, height: 700 };
 
-function setup() {
+function setup(options: { maxLiveViews?: number } = {}) {
   const hosts: FakeHost[] = [];
   const snapshots: BrowserSnapshot[] = [];
   let next = 0;
+  let clock = 0;
   const controller = new BrowserController({
+    ...options,
+    now: () => ++clock,
     createHost: (events) => {
       const host = new FakeHost(events);
       hosts.push(host);
@@ -73,8 +97,7 @@ describe('BrowserController', () => {
     const id = controller.createPage();
     expect(latest().activePageId).toBe(id);
     expect(latest().pages[id]?.url).toBeNull();
-    expect(hosts[0]?.loaded).toEqual([]);
-    expect(hosts[0]?.visible).toBe(false);
+    expect(hosts).toHaveLength(0);
   });
 
   it('resolves address input, loads it and shows the view', () => {
@@ -209,5 +232,124 @@ describe('BrowserController', () => {
     const { controller } = setup();
     expect(() => controller.activatePage('missing')).toThrow();
     expect(() => controller.navigate('missing', 'a.com')).toThrow();
+  });
+
+  describe('trail branching', () => {
+    it('turns a link click into an active child page with a referrer', () => {
+      const { controller, hosts, latest } = setup();
+      const parent = controller.createPage({ input: 'a.com' });
+      hosts[0]!.events.onBranchRequest('https://b.com/', 'https://a.com/');
+      const child = latest().activePageId!;
+      expect(child).not.toBe(parent);
+      expect(latest().pages[child]).toMatchObject({
+        parentId: parent,
+        url: 'https://b.com/',
+      });
+      expect(hosts[1]?.referrers).toEqual(['https://a.com/']);
+      // The parent's view survives, just hidden.
+      expect(hosts[0]?.destroyed).toBe(false);
+      expect(hosts.map((h) => h.visible)).toEqual([false, true]);
+    });
+
+    it('goes back up the trail once a page has no history of its own', () => {
+      const { controller, hosts, latest } = setup();
+      const parent = controller.createPage({ input: 'a.com' });
+      hosts[0]!.events.onBranchRequest('https://b.com/', 'https://a.com/');
+      const child = latest().activePageId!;
+      expect(latest().pages[child]?.canGoBack).toBe(true);
+
+      controller.goBack(child);
+      expect(latest().activePageId).toBe(parent);
+      expect(hosts[1]?.calls).not.toContain('back');
+    });
+
+    it('prefers the page’s own history when it has one', () => {
+      const { controller, hosts, latest } = setup();
+      controller.createPage({ input: 'a.com' });
+      hosts[0]!.events.onBranchRequest('https://b.com/', 'https://a.com/');
+      const child = latest().activePageId!;
+      hosts[1]!.events.onStateChange({ canGoBack: true });
+      controller.goBack(child);
+      expect(hosts[1]?.calls).toContain('back');
+      expect(latest().activePageId).toBe(child);
+    });
+
+    it('goes forward to the child visited last', () => {
+      const { controller, hosts, latest } = setup();
+      const parent = controller.createPage({ input: 'a.com' });
+      hosts[0]!.events.onBranchRequest('https://b.com/', 'https://a.com/');
+      const first = latest().activePageId!;
+      controller.activatePage(parent);
+      hosts[0]!.events.onBranchRequest('https://c.com/', 'https://a.com/');
+      const second = latest().activePageId!;
+      controller.activatePage(first);
+      controller.activatePage(parent);
+      expect(latest().pages[parent]?.canGoForward).toBe(true);
+
+      controller.goForward(parent);
+      expect(latest().activePageId).toBe(first);
+      expect(second).not.toBe(first);
+    });
+
+    it('ignores branch requests from closed pages', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      controller.closePage(id);
+      hosts[0]!.events.onBranchRequest('https://b.com/', 'https://a.com/');
+      expect(latest().rootIds).toEqual([]);
+    });
+  });
+
+  describe('view lifecycle', () => {
+    it('discards the least recently used views beyond the budget', () => {
+      const { controller, hosts, latest } = setup({ maxLiveViews: 2 });
+      const a = controller.createPage({ input: 'a.com' });
+      const b = controller.createPage({ input: 'b.com' });
+      controller.createPage({ input: 'c.com' });
+      expect(hosts.map((h) => h.destroyed)).toEqual([true, false, false]);
+      expect(latest().pages[a]?.isDiscarded).toBe(true);
+      expect(latest().pages[a]?.url).toBe('https://a.com/');
+      expect(latest().pages[b]?.isDiscarded).toBe(false);
+    });
+
+    it('restores a discarded page with its history when activated', () => {
+      const { controller, hosts, latest } = setup({ maxLiveViews: 1 });
+      const a = controller.createPage({ input: 'a.com' });
+      controller.createPage({ input: 'b.com' });
+      expect(hosts[0]?.destroyed).toBe(true);
+
+      controller.activatePage(a);
+      const revived = hosts[2]!;
+      expect(revived.restored?.entries[0]?.url).toBe('https://a.com/');
+      expect(revived.loaded).toEqual([]);
+      expect(revived.visible).toBe(true);
+      expect(latest().pages[a]?.isDiscarded).toBe(false);
+      // The budget now discards the other page instead.
+      expect(hosts[1]?.destroyed).toBe(true);
+    });
+
+    it('never discards the active page or one playing sound', () => {
+      const { controller, hosts } = setup({ maxLiveViews: 1 });
+      controller.createPage({ input: 'a.com' });
+      hosts[0]!.audible = true;
+      controller.createPage({ input: 'b.com' });
+      expect(hosts.map((h) => h.destroyed)).toEqual([false, false]);
+    });
+
+    it('ignores late events from a discarded view', () => {
+      const { controller, hosts, latest } = setup({ maxLiveViews: 1 });
+      const a = controller.createPage({ input: 'a.com' });
+      controller.createPage({ input: 'b.com' });
+      hosts[0]!.events.onStateChange({ title: 'stale' });
+      expect(latest().pages[a]?.title).toBe('');
+    });
+
+    it('reloading a discarded page brings it back', () => {
+      const { controller, hosts } = setup({ maxLiveViews: 1 });
+      const a = controller.createPage({ input: 'a.com' });
+      controller.createPage({ input: 'b.com' });
+      controller.reload(a);
+      expect(hosts[2]?.restored).not.toBeNull();
+    });
   });
 });

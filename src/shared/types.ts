@@ -24,6 +24,8 @@ export interface PageSnapshot {
   canGoForward: boolean;
   collapsed: boolean;
   error: PageError | null;
+  /** The page's view was freed to save memory; it reloads when activated. */
+  isDiscarded: boolean;
 }
 
 export interface BrowserSnapshot {

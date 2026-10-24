@@ -16,6 +16,7 @@ export function page(
     canGoForward: false,
     collapsed: false,
     error: null,
+    isDiscarded: false,
     ...overrides,
   };
 }
