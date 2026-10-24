@@ -7,6 +7,7 @@ import { BrowserController } from '../browser/browser-controller';
 import { createElectronPageHostFactory } from '../browser/electron-page-host';
 import { contentBounds } from '../browser/layout';
 import type { IpcTarget } from '../ipc/register-ipc';
+import { showPageMenu } from '../menus/page-menu';
 import { WEB_PARTITION } from '../security/web-security';
 
 /** Must match `--color-chrome` in the renderer's design tokens. */
@@ -96,6 +97,17 @@ export class TrailWindow {
         'page:stop': ({ pageId }) => this.controller.stop(pageId),
         'page:set-collapsed': ({ pageId, collapsed }) =>
           this.controller.setCollapsed(pageId, collapsed),
+        'page:create-child': ({ pageId }) =>
+          this.controller.createChildPage(pageId),
+        'page:close-branch': ({ pageId }) =>
+          this.controller.closeBranch(pageId),
+        'page:reopen-closed': () => this.controller.reopenClosed(),
+        'page:move': ({ pageId, parentId, afterId }) =>
+          this.controller.movePage(pageId, parentId, afterId),
+        'page:rename': ({ pageId, title }) =>
+          this.controller.renamePage(pageId, title),
+        'page:duplicate': ({ pageId }) => this.controller.duplicatePage(pageId),
+        'page:show-menu': ({ pageId }) => showPageMenu(this, pageId),
       },
       send: {
         'view:set-content-insets': (insets) => {

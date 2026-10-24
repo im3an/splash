@@ -124,6 +124,19 @@
   }
 }
 
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@layer components {
+  .toast-in {
+    animation: toast-in var(--duration-base) var(--ease-out);
+  }
+}
+
 @keyframes skeleton-pulse {
   50% {
     opacity: 0.45;

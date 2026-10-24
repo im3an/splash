@@ -10,6 +10,7 @@ import { z } from 'zod';
 const pageId = z.uuid();
 const addressInput = z.string().trim().min(1).max(8192);
 const inset = z.number().finite().min(0).max(10_000);
+const pageTitle = z.string().max(300).nullable();
 
 export const invokeContract = {
   'browser:get-snapshot': z.undefined(),
@@ -22,6 +23,17 @@ export const invokeContract = {
   'page:reload': z.strictObject({ pageId }),
   'page:stop': z.strictObject({ pageId }),
   'page:set-collapsed': z.strictObject({ pageId, collapsed: z.boolean() }),
+  'page:create-child': z.strictObject({ pageId }),
+  'page:close-branch': z.strictObject({ pageId }),
+  'page:reopen-closed': z.undefined(),
+  'page:move': z.strictObject({
+    pageId,
+    parentId: pageId.nullable(),
+    afterId: pageId.nullable(),
+  }),
+  'page:rename': z.strictObject({ pageId, title: pageTitle }),
+  'page:duplicate': z.strictObject({ pageId }),
+  'page:show-menu': z.strictObject({ pageId }),
 } as const;
 
 export const sendContract = {

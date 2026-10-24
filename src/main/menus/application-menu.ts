@@ -4,7 +4,7 @@ import {
   nativeTheme,
   type MenuItemConstructorOptions,
 } from 'electron';
-import type { TrailWindow } from './windows/browser-window';
+import type { TrailWindow } from '../windows/browser-window';
 
 export interface MenuActions {
   /** The window menu commands act on, creating one if none is open. */
@@ -50,14 +50,34 @@ export function installApplicationMenu(actions: MenuActions): void {
           click: () => {
             const window = actions.currentWindow() ?? actions.openWindow();
             window.controller.createPage();
-            window.sendUiCommand('focus-address-bar');
+            window.sendUiCommand({ type: 'focus-address-bar' });
           },
+        },
+        {
+          label: 'New Child Page',
+          accelerator: 'Alt+CmdOrCtrl+T',
+          click: withActivePage((w, id) => {
+            w.controller.createChildPage(id);
+            w.sendUiCommand({ type: 'focus-address-bar' });
+          }),
+        },
+        {
+          label: 'Duplicate Page',
+          click: withActivePage((w, id) => w.controller.duplicatePage(id)),
         },
         {
           label: 'Open Location…',
           accelerator: 'CmdOrCtrl+L',
           click: () =>
-            actions.currentWindow()?.sendUiCommand('focus-address-bar'),
+            actions
+              .currentWindow()
+              ?.sendUiCommand({ type: 'focus-address-bar' }),
+        },
+        { type: 'separator' },
+        {
+          label: 'Reopen Closed Page',
+          accelerator: 'Shift+CmdOrCtrl+T',
+          click: () => actions.currentWindow()?.controller.reopenClosed(),
         },
         { type: 'separator' },
         {
@@ -71,6 +91,11 @@ export function installApplicationMenu(actions: MenuActions): void {
             else window.window.close();
           },
         },
+        {
+          label: 'Close Branch',
+          accelerator: 'Alt+CmdOrCtrl+W',
+          click: withActivePage((w, id) => w.controller.closeBranch(id)),
+        },
         { role: 'close', accelerator: 'CmdOrCtrl+Shift+W' },
       ],
     },
@@ -81,7 +106,8 @@ export function installApplicationMenu(actions: MenuActions): void {
         {
           label: 'Toggle Sidebar',
           accelerator: 'CmdOrCtrl+S',
-          click: () => actions.currentWindow()?.sendUiCommand('toggle-sidebar'),
+          click: () =>
+            actions.currentWindow()?.sendUiCommand({ type: 'toggle-sidebar' }),
         },
         { type: 'separator' },
         {

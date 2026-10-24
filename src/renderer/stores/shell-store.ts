@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { SplashApi } from '../../shared/api';
-import type { BrowserSnapshot, PageSnapshot } from '../../shared/types';
+import type { BrowserSnapshot, PageId, PageSnapshot } from '../../shared/types';
 
 interface ShellState {
   /** `null` until the main process has sent the first snapshot. */
@@ -8,19 +8,26 @@ interface ShellState {
   sidebarOpen: boolean;
   /** Incremented to ask the address bar to take focus. */
   addressFocusRequest: number;
+  /** The sidebar row currently being renamed in place. */
+  renamingPageId: PageId | null;
   receiveSnapshot(snapshot: BrowserSnapshot): void;
   toggleSidebar(): void;
   focusAddressBar(): void;
+  startRename(pageId: PageId): void;
+  finishRename(): void;
 }
 
 export const useShell = create<ShellState>()((set) => ({
   snapshot: null,
   sidebarOpen: true,
   addressFocusRequest: 0,
+  renamingPageId: null,
   receiveSnapshot: (snapshot) => set({ snapshot }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   focusAddressBar: () =>
     set((state) => ({ addressFocusRequest: state.addressFocusRequest + 1 })),
+  startRename: (pageId) => set({ renamingPageId: pageId, sidebarOpen: true }),
+  finishRename: () => set({ renamingPageId: null }),
 }));
 
 export function selectActivePage(state: ShellState): PageSnapshot | null {
@@ -33,8 +40,10 @@ export function connectShell(splash: SplashApi): () => void {
   const store = useShell.getState();
   const unsubscribeSnapshot = splash.onSnapshot(store.receiveSnapshot);
   const unsubscribeCommands = splash.onUiCommand((command) => {
-    if (command === 'focus-address-bar') useShell.getState().focusAddressBar();
-    if (command === 'toggle-sidebar') useShell.getState().toggleSidebar();
+    const shell = useShell.getState();
+    if (command.type === 'focus-address-bar') shell.focusAddressBar();
+    else if (command.type === 'toggle-sidebar') shell.toggleSidebar();
+    else if (command.type === 'rename-page') shell.startRename(command.pageId);
   });
   // Subscribe first so no update is missed; a pushed snapshot is never older
   // than the one we asked for, so it wins if it arrives first.

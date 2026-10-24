@@ -10,6 +10,8 @@ function stubApi() {
     activatePage: vi.fn(async () => undefined),
     closePage: vi.fn(async () => undefined),
     setCollapsed: vi.fn(async () => undefined),
+    showPageMenu: vi.fn(async () => undefined),
+    renamePage: vi.fn(async () => undefined),
   };
   window.splash = splash as unknown as SplashApi;
   return splash;
@@ -30,9 +32,12 @@ describe('TrailTree', () => {
     stubApi();
     render(<TrailTree />);
     act(() =>
-      useShell
-        .getState()
-        .receiveSnapshot({ pages: {}, rootIds: [], activePageId: null }),
+      useShell.getState().receiveSnapshot({
+        pages: {},
+        rootIds: [],
+        activePageId: null,
+        lastClosed: null,
+      }),
     );
     expect(screen.getByText('No pages yet')).toBeTruthy();
   });
@@ -75,5 +80,36 @@ describe('TrailTree', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close e' }));
     expect(splash.closePage).toHaveBeenCalledWith('e');
     expect(splash.activatePage).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the page menu on right click', () => {
+    const splash = stubApi();
+    useShell.setState({ snapshot: sampleSnapshot() });
+    render(<TrailTree />);
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'c' }));
+    expect(splash.showPageMenu).toHaveBeenCalledWith('c');
+  });
+
+  it('renames a page in place', () => {
+    const splash = stubApi();
+    useShell.setState({ snapshot: sampleSnapshot(), renamingPageId: 'c' });
+    render(<TrailTree />);
+    const field = screen.getByLabelText('Page name') as HTMLInputElement;
+    expect(field.value).toBe('c');
+    fireEvent.change(field, { target: { value: 'Reading list' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(splash.renamePage).toHaveBeenCalledWith('c', 'Reading list');
+    expect(splash.renamePage).toHaveBeenCalledTimes(1);
+    expect(useShell.getState().renamingPageId).toBeNull();
+  });
+
+  it('shows custom names instead of titles', () => {
+    stubApi();
+    useShell.setState({
+      snapshot: sampleSnapshot({ e: { customTitle: 'Later' } }),
+      renamingPageId: null,
+    });
+    render(<TrailTree />);
+    expect(screen.getByRole('treeitem', { name: 'Later' })).toBeTruthy();
   });
 });

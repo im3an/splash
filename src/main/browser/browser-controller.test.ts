@@ -176,7 +176,12 @@ describe('BrowserController', () => {
     expect(hosts[0]?.visible).toBe(true);
 
     controller.closePage(parent);
-    expect(latest()).toEqual({ pages: {}, rootIds: [], activePageId: null });
+    expect(latest()).toMatchObject({
+      pages: {},
+      rootIds: [],
+      activePageId: null,
+    });
+    expect(latest().lastClosed?.pageCount).toBe(1);
   });
 
   it('ignores events from a page after it is closed', () => {
@@ -350,6 +355,114 @@ describe('BrowserController', () => {
       controller.createPage({ input: 'b.com' });
       controller.reload(a);
       expect(hosts[2]?.restored).not.toBeNull();
+    });
+  });
+
+  describe('tree interaction', () => {
+    /** root → (a → a1), b */
+    function trail() {
+      const ctx = setup();
+      const { controller } = ctx;
+      const root = controller.createPage({ input: 'root.com' });
+      const a = controller.createPage({ input: 'a.com', parentId: root });
+      const a1 = controller.createPage({ input: 'a1.com', parentId: a });
+      const b = controller.createPage({ input: 'b.com', parentId: root });
+      return { ...ctx, root, a, a1, b };
+    }
+
+    it('closes a whole branch and reopens it in place with its history', () => {
+      const { controller, latest, root, a, a1, b } = trail();
+      controller.activatePage(a1);
+      controller.closeBranch(a);
+      expect(latest().pages[root]?.childIds).toEqual([b]);
+      expect(latest().pages[a1]).toBeUndefined();
+      expect(latest().activePageId).toBe(b);
+      expect(latest().lastClosed).toMatchObject({ pageCount: 2 });
+
+      expect(controller.reopenClosed()).toBe(a);
+      expect(latest().pages[root]?.childIds).toEqual([a, b]);
+      expect(latest().pages[a]?.childIds).toEqual([a1]);
+      expect(latest().pages[a1]?.isDiscarded).toBe(true);
+      expect(latest().activePageId).toBe(a);
+      expect(latest().lastClosed).toBeNull();
+    });
+
+    it('reopening a single closed page takes its children back', () => {
+      const { controller, latest, root, a, a1 } = trail();
+      controller.closePage(a);
+      expect(latest().pages[a1]?.parentId).toBe(root);
+      controller.reopenClosed();
+      expect(latest().pages[a]?.childIds).toEqual([a1]);
+      expect(latest().pages[a1]?.parentId).toBe(a);
+    });
+
+    it('leaves promoted children alone if they were moved meanwhile', () => {
+      const { controller, latest, a, a1, b } = trail();
+      controller.closePage(a);
+      controller.movePage(a1, b, null);
+      controller.reopenClosed();
+      expect(latest().pages[a]?.childIds).toEqual([]);
+      expect(latest().pages[a1]?.parentId).toBe(b);
+    });
+
+    it('restores a closed page under the root when its parent is gone', () => {
+      const { controller, latest, root, a } = trail();
+      controller.closePage(a);
+      controller.closeBranch(root);
+      controller.reopenClosed(); // root's branch
+      controller.reopenClosed(); // a
+      expect(latest().pages[a]).toBeDefined();
+    });
+
+    it('moves a page after a sibling, or first', () => {
+      const { controller, latest, root, a, b } = trail();
+      controller.movePage(a, root, b);
+      expect(latest().pages[root]?.childIds).toEqual([b, a]);
+      controller.movePage(a, root, null);
+      expect(latest().pages[root]?.childIds).toEqual([a, b]);
+      controller.movePage(b, null, root);
+      expect(latest().rootIds).toEqual([root, b]);
+    });
+
+    it('expands the new parent and rejects moves into the own branch', () => {
+      const { controller, latest, a, a1, b } = trail();
+      controller.setCollapsed(b, true);
+      controller.movePage(a, b, null);
+      expect(latest().pages[b]?.collapsed).toBe(false);
+      expect(() => controller.movePage(a, a1, null)).toThrow();
+      expect(() => controller.movePage(b, a, 'missing')).toThrow();
+    });
+
+    it('renames a page and falls back to its title', () => {
+      const { controller, latest, a } = trail();
+      controller.renamePage(a, '  Research  ');
+      expect(latest().pages[a]?.customTitle).toBe('Research');
+      controller.renamePage(a, '   ');
+      expect(latest().pages[a]?.customTitle).toBeNull();
+    });
+
+    it('duplicates a page right after it with the same history', () => {
+      const { controller, hosts, latest, root, a, b } = trail();
+      const copy = controller.duplicatePage(a);
+      expect(latest().pages[root]?.childIds).toEqual([a, copy, b]);
+      expect(latest().activePageId).toBe(copy);
+      expect(hosts.at(-1)?.restored?.entries[0]?.url).toBe('https://a.com/');
+    });
+
+    it('creates an empty child page', () => {
+      const { controller, latest, b } = trail();
+      const child = controller.createChildPage(b);
+      expect(latest().pages[b]?.childIds).toEqual([child]);
+      expect(latest().pages[child]?.url).toBeNull();
+    });
+
+    it('routes in-page navigation commands through the trail', () => {
+      const { controller, hosts, latest, a, a1 } = trail();
+      controller.activatePage(a1);
+      const a1Host = hosts[2]!;
+      expect(a1Host.events.navigationAvailability().canGoBack).toBe(true);
+      a1Host.events.onNavigationCommand('back');
+      expect(latest().activePageId).toBe(a);
     });
   });
 });

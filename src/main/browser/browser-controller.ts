@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { Rectangle } from 'electron';
-import type { BrowserSnapshot, PageId, PageSnapshot } from '../../shared/types';
+import type {
+  BrowserSnapshot,
+  ClosedSummary,
+  PageId,
+  PageSnapshot,
+} from '../../shared/types';
 import type {
   PageHistory,
   PageHost,
@@ -19,6 +24,27 @@ interface Page {
   lastActiveAt: number;
   /** Where "forward" leads once this page's own history runs out. */
   lastVisitedChildId: PageId | null;
+  /** A name the user gave the page, shown instead of its title. */
+  customTitle: string | null;
+}
+
+/** Everything needed to put a closed page back where it was. */
+interface ClosedPage {
+  id: PageId;
+  parentId: PageId | null;
+  index: number;
+  collapsed: boolean;
+  customTitle: string | null;
+  state: PageRuntimeState;
+  history: PageHistory | null;
+}
+
+interface ClosedRecord {
+  /** The closed page first, then (for a branch) its descendants in order. */
+  pages: ClosedPage[];
+  /** Children promoted when only the page itself was closed. */
+  promotedChildIds: PageId[];
+  summary: ClosedSummary;
 }
 
 export interface BrowserControllerOptions {
@@ -38,11 +64,14 @@ export interface CreatePageOptions {
   /** An already-validated http(s) URL. */
   url?: string;
   parentId?: PageId | null;
+  /** Position among siblings; defaults to after the last one. */
+  index?: number;
   activate?: boolean;
   referrer?: string;
 }
 
 const DEFAULT_MAX_LIVE_VIEWS = 12;
+const MAX_CLOSED_RECORDS = 25;
 
 const EMPTY_STATE: PageRuntimeState = {
   url: null,
@@ -68,6 +97,8 @@ export class BrowserController {
   private bounds: Rectangle | null = null;
   private flushPending = false;
   private disposed = false;
+  private readonly closed: ClosedRecord[] = [];
+  private closedSerial = 0;
 
   private readonly schedule: (flush: () => void) => void;
   private readonly createId: () => PageId;
@@ -91,14 +122,8 @@ export class BrowserController {
   createPage(options: CreatePageOptions = {}): PageId {
     const { parentId = null, activate = true } = options;
     const id = this.createId();
-    this.tree.add(id, parentId);
-    this.pages.set(id, {
-      host: null,
-      state: { ...EMPTY_STATE },
-      history: null,
-      lastActiveAt: this.now(),
-      lastVisitedChildId: null,
-    });
+    this.tree.add(id, parentId, options.index);
+    this.pages.set(id, this.newPage());
 
     const url =
       options.url !== undefined
@@ -129,20 +154,118 @@ export class BrowserController {
     this.changed();
   }
 
+  /** Closes a page; its children move up to take its place. */
   closePage(id: PageId): void {
-    const page = this.require(id);
-    if (this.activeId === id) {
-      this.activeId = this.tree.successorOf(id);
-    }
-    if (this.visibleId === id) this.visibleId = null;
+    const node = this.tree.get(id);
+    if (!node) throw new Error(`Page ${id} does not exist`);
+    this.remember([id], [...node.childIds]);
+    const successor =
+      this.activeId === id ? this.tree.successorOf(id) : this.activeId;
     this.tree.remove(id);
-    this.pages.delete(id);
-    page.host?.destroy();
-    if (this.activeId !== null) this.activatePage(this.activeId);
-    else {
-      this.syncVisibleHost();
-      this.changed();
+    this.release(id);
+    this.afterRemoval(successor);
+  }
+
+  /** Closes a page together with every page beneath it. */
+  closeBranch(id: PageId): void {
+    this.require(id);
+    const branch = this.tree.branch(id);
+    this.remember(branch, []);
+    const successor =
+      this.activeId !== null && branch.includes(this.activeId)
+        ? this.tree.branchSuccessorOf(id)
+        : this.activeId;
+    this.tree.removeBranch(id);
+    for (const pageId of branch) this.release(pageId);
+    this.afterRemoval(successor);
+  }
+
+  /** Puts the most recently closed page or branch back where it was. */
+  reopenClosed(): PageId | null {
+    const record = this.closed.pop();
+    if (!record) return null;
+    const [root] = record.pages;
+    if (!root) return null;
+    for (const closed of record.pages) {
+      const parentId =
+        closed.parentId !== null && this.tree.has(closed.parentId)
+          ? closed.parentId
+          : null;
+      this.tree.add(closed.id, parentId, closed.index);
+      this.tree.setCollapsed(closed.id, closed.collapsed);
+      this.pages.set(closed.id, {
+        ...this.newPage(),
+        customTitle: closed.customTitle,
+        history: closed.history,
+        state: { ...closed.state, isLoading: false },
+      });
     }
+    // Children that were promoted when the page closed go back under it,
+    // unless they have been moved somewhere else since.
+    const rootParent = this.tree.get(root.id)?.parentId ?? null;
+    for (const childId of record.promotedChildIds) {
+      if (this.tree.get(childId)?.parentId === rootParent) {
+        this.tree.move(childId, root.id, Number.MAX_SAFE_INTEGER);
+      }
+    }
+    this.activatePage(root.id);
+    return root.id;
+  }
+
+  /**
+   * Moves a page and its branch under `parentId`, right after the sibling
+   * `afterId` (or first, when `afterId` is null).
+   */
+  movePage(id: PageId, parentId: PageId | null, afterId: PageId | null): void {
+    this.require(id);
+    if (parentId !== null) this.require(parentId);
+    if (parentId !== null && this.tree.isWithin(parentId, id)) {
+      throw new Error('A page cannot move into its own branch');
+    }
+    const siblings = (
+      parentId === null
+        ? this.tree.rootIds
+        : (this.tree.get(parentId)?.childIds ?? [])
+    ).filter((sibling) => sibling !== id);
+    let index = 0;
+    if (afterId !== null) {
+      const position = siblings.indexOf(afterId);
+      if (position === -1) throw new Error(`${afterId} is not a sibling there`);
+      index = position + 1;
+    }
+    this.tree.move(id, parentId, index);
+    if (parentId !== null) this.tree.setCollapsed(parentId, false);
+    this.changed();
+  }
+
+  /** Opens an empty page beneath `parentId`, ready for an address. */
+  createChildPage(parentId: PageId): PageId {
+    this.require(parentId);
+    return this.createPage({ parentId });
+  }
+
+  /** A copy of a page, right after it, with the same history. */
+  duplicatePage(id: PageId): PageId {
+    const page = this.require(id);
+    const node = this.tree.get(id);
+    const history = page.host?.captureHistory() ?? page.history;
+    const copyId = this.createId();
+    this.tree.add(copyId, node?.parentId ?? null, this.tree.indexOf(id) + 1);
+    this.pages.set(copyId, {
+      ...this.newPage(),
+      customTitle: page.customTitle,
+      history,
+      state: { ...page.state, isLoading: false, error: null },
+    });
+    this.activatePage(copyId);
+    return copyId;
+  }
+
+  /** Gives a page its own name; `null` goes back to the page's title. */
+  renamePage(id: PageId, title: string | null): void {
+    const name = title?.trim() ?? '';
+    this.require(id).customTitle = name === '' ? null : name;
+    this.changed();
   }
 
   navigate(id: PageId, input: string): void {
@@ -227,28 +350,22 @@ export class BrowserController {
       const node = this.tree.get(id);
       const page = this.pages.get(id);
       if (!node || !page) continue;
-      const historyBack = page.host
-        ? page.state.canGoBack
-        : (page.history?.index ?? 0) > 0;
-      const historyForward = page.host
-        ? page.state.canGoForward
-        : page.history !== null &&
-          page.history.index < page.history.entries.length - 1;
       pages[id] = {
         id,
         parentId: node.parentId,
         childIds: [...node.childIds],
         collapsed: node.collapsed,
         ...page.state,
-        canGoBack: historyBack || node.parentId !== null,
-        canGoForward: historyForward || this.forwardChildOf(id) !== null,
+        ...this.trailNavigation(id),
         isDiscarded: page.host === null && page.state.url !== null,
+        customTitle: page.customTitle,
       };
     }
     return {
       pages,
       rootIds: [...this.tree.rootIds],
       activePageId: this.activeId,
+      lastClosed: this.closed.at(-1)?.summary ?? null,
     };
   }
 
@@ -257,6 +374,85 @@ export class BrowserController {
     for (const page of this.pages.values()) page.host?.destroy();
     this.pages.clear();
     this.visibleId = null;
+  }
+
+  /** Back/forward availability, counting steps along the trail. */
+  private trailNavigation(id: PageId): {
+    canGoBack: boolean;
+    canGoForward: boolean;
+  } {
+    const page = this.pages.get(id);
+    const node = this.tree.get(id);
+    if (!page || !node) return { canGoBack: false, canGoForward: false };
+    const historyBack = page.host
+      ? page.state.canGoBack
+      : (page.history?.index ?? 0) > 0;
+    const historyForward = page.host
+      ? page.state.canGoForward
+      : page.history !== null &&
+        page.history.index < page.history.entries.length - 1;
+    return {
+      canGoBack: historyBack || node.parentId !== null,
+      canGoForward: historyForward || this.forwardChildOf(id) !== null,
+    };
+  }
+
+  private newPage(): Page {
+    return {
+      host: null,
+      state: { ...EMPTY_STATE },
+      history: null,
+      lastActiveAt: this.now(),
+      lastVisitedChildId: null,
+      customTitle: null,
+    };
+  }
+
+  /** Records pages about to be closed so they can be reopened. */
+  private remember(ids: PageId[], promotedChildIds: PageId[]): void {
+    const pages = ids.map((id): ClosedPage => {
+      const node = this.tree.get(id);
+      const page = this.require(id);
+      return {
+        id,
+        parentId: node?.parentId ?? null,
+        index: this.tree.indexOf(id),
+        collapsed: node?.collapsed ?? false,
+        customTitle: page.customTitle,
+        state: page.state,
+        history: page.host?.captureHistory() ?? page.history,
+      };
+    });
+    const [first] = pages;
+    if (!first) return;
+    const label =
+      first.customTitle ||
+      first.state.title ||
+      (first.state.url ? new URL(first.state.url).host : 'New page');
+    this.closed.push({
+      pages,
+      promotedChildIds,
+      summary: { label, pageCount: pages.length, serial: ++this.closedSerial },
+    });
+    if (this.closed.length > MAX_CLOSED_RECORDS) this.closed.shift();
+  }
+
+  /** Destroys a page's view and forgets it. The tree is updated separately. */
+  private release(id: PageId): void {
+    const page = this.pages.get(id);
+    if (this.visibleId === id) this.visibleId = null;
+    this.pages.delete(id);
+    page?.host?.destroy();
+  }
+
+  private afterRemoval(successor: PageId | null): void {
+    this.activeId =
+      successor !== null && this.pages.has(successor) ? successor : null;
+    if (this.activeId !== null) this.activatePage(this.activeId);
+    else {
+      this.syncVisibleHost();
+      this.changed();
+    }
   }
 
   private forwardChildOf(id: PageId): PageId | null {
@@ -283,6 +479,13 @@ export class BrowserController {
       onBranchRequest: (url, referrer) => {
         if (isCurrent()) this.createPage({ url, parentId: id, referrer });
       },
+      onNavigationCommand: (command) => {
+        if (!isCurrent()) return;
+        if (command === 'back') this.goBack(id);
+        else if (command === 'forward') this.goForward(id);
+        else this.reload(id);
+      },
+      navigationAvailability: () => this.trailNavigation(id),
     });
     return host;
   }

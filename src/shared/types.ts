@@ -26,12 +26,23 @@ export interface PageSnapshot {
   error: PageError | null;
   /** The page's view was freed to save memory; it reloads when activated. */
   isDiscarded: boolean;
+  /** A name the user gave the page, shown instead of its title. */
+  customTitle: string | null;
+}
+
+/** The most recent close that can be undone. */
+export interface ClosedSummary {
+  label: string;
+  pageCount: number;
+  /** Changes with every close, so the shell can tell a new one apart. */
+  serial: number;
 }
 
 export interface BrowserSnapshot {
   pages: Record<PageId, PageSnapshot>;
   rootIds: PageId[];
   activePageId: PageId | null;
+  lastClosed: ClosedSummary | null;
 }
 
 /** Distance from each window edge to the page content area, in CSS pixels. */
@@ -42,5 +53,8 @@ export interface ContentInsets {
   left: number;
 }
 
-/** Commands the main process asks the shell UI to perform (usually from the app menu). */
-export type UiCommand = 'focus-address-bar' | 'toggle-sidebar';
+/** Commands the main process asks the shell UI to perform (usually from a menu). */
+export type UiCommand =
+  | { type: 'focus-address-bar' }
+  | { type: 'toggle-sidebar' }
+  | { type: 'rename-page'; pageId: PageId };

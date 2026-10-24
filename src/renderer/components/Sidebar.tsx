@@ -2,6 +2,7 @@ import { PanelLeft, Plus } from 'lucide-react';
 import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';
 import { TrailTree } from './TrailTree';
+import { UndoToast } from './UndoToast';
 
 export function Sidebar() {
   const open = useShell((state) => state.sidebarOpen);
@@ -46,9 +47,10 @@ export function Sidebar() {
 
         <div className="mx-2 mb-1 h-px shrink-0 bg-divider" />
 
-        <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2">
+        <nav className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pb-2">
           <TrailTree />
         </nav>
+        <UndoToast />
       </div>
     </aside>
   );

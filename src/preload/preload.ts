@@ -45,6 +45,14 @@ const api: SplashApi = {
   stop: (pageId) => invoke('page:stop', { pageId }),
   setCollapsed: (pageId, collapsed) =>
     invoke('page:set-collapsed', { pageId, collapsed }),
+  createChildPage: (pageId) => invoke('page:create-child', { pageId }),
+  closeBranch: (pageId) => invoke('page:close-branch', { pageId }),
+  reopenClosed: () => invoke('page:reopen-closed'),
+  movePage: (pageId, parentId, afterId) =>
+    invoke('page:move', { pageId, parentId, afterId }),
+  renamePage: (pageId, title) => invoke('page:rename', { pageId, title }),
+  duplicatePage: (pageId) => invoke('page:duplicate', { pageId }),
+  showPageMenu: (pageId) => invoke('page:show-menu', { pageId }),
   setContentInsets: (insets) => send('view:set-content-insets', insets),
   focusPage: () => send('view:focus-page'),
   onSnapshot: (listener) => subscribe(eventChannels.snapshot, listener),

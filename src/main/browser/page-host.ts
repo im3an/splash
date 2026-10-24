@@ -37,6 +37,10 @@ export interface PageHostEvents {
   onOpenRequest(url: string, options: { background: boolean }): void;
   /** The user clicked a link; the trail grows a child page instead. */
   onBranchRequest(url: string, referrer: string): void;
+  /** Back/forward/reload from inside the page (its context menu). */
+  onNavigationCommand(command: 'back' | 'forward' | 'reload'): void;
+  /** Whether back/forward lead anywhere, counting the trail. */
+  navigationAvailability(): { canGoBack: boolean; canGoForward: boolean };
 }
 
 /**

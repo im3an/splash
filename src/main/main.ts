@@ -1,6 +1,6 @@
 import { app, BrowserWindow, session } from 'electron';
 import { registerIpc } from './ipc/register-ipc';
-import { installApplicationMenu } from './menu';
+import { installApplicationMenu } from './menus/application-menu';
 import {
   configureAppSession,
   configureWebSession,

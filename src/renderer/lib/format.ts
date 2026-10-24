@@ -21,6 +21,7 @@ export function displayUrl(url: string): string {
 }
 
 export function pageLabel(page: PageSnapshot): string {
+  if (page.customTitle) return page.customTitle;
   const title = page.title.trim();
   if (title) return title;
   if (page.url) return hostOf(page.url);

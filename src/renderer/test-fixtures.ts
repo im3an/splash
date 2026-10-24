@@ -17,6 +17,7 @@ export function page(
     collapsed: false,
     error: null,
     isDiscarded: false,
+    customTitle: null,
     ...overrides,
   };
 }
@@ -36,5 +37,6 @@ export function sampleSnapshot(
     pages: Object.fromEntries(pages.map((p) => [p.id, p])),
     rootIds: ['a', 'e'],
     activePageId: 'a',
+    lastClosed: null,
   };
 }

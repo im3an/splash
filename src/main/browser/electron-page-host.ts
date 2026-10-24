@@ -1,4 +1,5 @@
 import {
+  Menu,
   WebContentsView,
   type BaseWindow,
   type Rectangle,
@@ -6,6 +7,7 @@ import {
   type WebContents,
 } from 'electron';
 import { LINK_ACTIVATED } from '../../shared/page-bridge';
+import { webContextMenu } from '../menus/web-context-menu';
 import { isSameDocumentUrl, LinkActivations } from './link-activations';
 import type {
   LoadOptions,
@@ -204,6 +206,19 @@ class ElectronPageHost implements PageHost {
       }
       event.preventDefault();
       this.events.onBranchRequest(event.url, current);
+    });
+    contents.on('context-menu', (_event, params) => {
+      const template = webContextMenu(contents, params, {
+        ...this.events.navigationAvailability(),
+        openChild: (url, options) => this.events.onOpenRequest(url, options),
+        back: () => this.events.onNavigationCommand('back'),
+        forward: () => this.events.onNavigationCommand('forward'),
+        reload: () => this.events.onNavigationCommand('reload'),
+      });
+      Menu.buildFromTemplate(template).popup({
+        window: this.window,
+        frame: params.frame ?? undefined,
+      });
     });
     contents.on('will-redirect', (event) => {
       if (!isNavigableUrl(event.url)) event.preventDefault();
