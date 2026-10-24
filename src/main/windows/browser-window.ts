@@ -1,6 +1,12 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { BrowserWindow, nativeTheme, session } from 'electron';
+import {
+  BrowserWindow,
+  nativeTheme,
+  screen,
+  session,
+  type Rectangle,
+} from 'electron';
 import { eventChannels } from '../../shared/api';
 import type { ContentInsets, UiCommand } from '../../shared/types';
 import { BrowserController } from '../browser/browser-controller';
@@ -8,7 +14,41 @@ import { createElectronPageHostFactory } from '../browser/electron-page-host';
 import { contentBounds } from '../browser/layout';
 import type { IpcTarget } from '../ipc/register-ipc';
 import { showPageMenu } from '../menus/page-menu';
+import { showWorkspaceMenu } from '../menus/workspace-menu';
 import { WEB_PARTITION } from '../security/web-security';
+import { SessionPersister } from '../storage/session-persister';
+import type { TrailStore } from '../storage/trail-store';
+
+const BOUNDS_KEY = 'window.bounds';
+
+export interface TrailWindowOptions {
+  store: TrailStore;
+  /** Called when the list of workspaces, their names or the active one changes. */
+  onWorkspacesChanged(): void;
+}
+
+/** The last window position, if it still fits on a connected display. */
+function savedBounds(store: TrailStore): Rectangle | null {
+  try {
+    const value = store.getPreference(BOUNDS_KEY);
+    if (!value) return null;
+    const bounds = JSON.parse(value) as Rectangle;
+    if (
+      ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)
+    ) {
+      return null;
+    }
+    const area = screen.getDisplayMatching(bounds).workArea;
+    const visible =
+      bounds.x < area.x + area.width - 100 &&
+      bounds.y < area.y + area.height - 100 &&
+      bounds.x + bounds.width > area.x + 100 &&
+      bounds.y >= area.y - 10;
+    return visible ? bounds : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Must match `--color-chrome` in the renderer's design tokens. */
 const CHROME_BACKGROUND = { light: '#f3efe9', dark: '#1c1c1e' };
@@ -49,13 +89,16 @@ export class TrailWindow {
   readonly controller: BrowserController;
   readonly ipc: IpcTarget;
   private insets: ContentInsets | null = null;
+  private readonly persister: SessionPersister;
+  private workspaceKey = '';
 
-  constructor() {
+  constructor(private readonly options: TrailWindowOptions) {
     const url = shellUrl();
+    const { store } = options;
+    const bounds = savedBounds(store);
 
     this.window = new BrowserWindow({
-      width: 1320,
-      height: 860,
+      ...(bounds ?? { width: 1320, height: 860 }),
       minWidth: 720,
       minHeight: 480,
       show: false,
@@ -79,8 +122,31 @@ export class TrailWindow {
         session: session.fromPartition(WEB_PARTITION),
         preload: path.join(__dirname, 'page-preload.cjs'),
       }),
-      onSnapshot: (snapshot) => this.send(eventChannels.snapshot, snapshot),
+      onSnapshot: (snapshot) => {
+        this.send(eventChannels.snapshot, snapshot);
+        this.persister.schedule();
+        const key = JSON.stringify([
+          snapshot.activeWorkspaceId,
+          snapshot.workspaces.map((w) => [w.id, w.name]),
+        ]);
+        if (key !== this.workspaceKey) {
+          this.workspaceKey = key;
+          this.options.onWorkspacesChanged();
+        }
+      },
+      onVisit: (visited) =>
+        this.safely(() => store.recordVisit(visited, Date.now())),
+      onTitle: (visited, title) =>
+        this.safely(() => store.recordTitle(visited, title)),
     });
+
+    this.persister = new SessionPersister({
+      store,
+      exportSession: () => this.controller.exportSession(),
+      onError: (error) => console.error('Could not save the session', error),
+    });
+    const stored = this.safely(() => store.loadSession());
+    if (stored) this.controller.restoreSession(stored);
 
     this.ipc = {
       isShellUrl: (candidate) => isSameDocument(candidate, url),
@@ -108,6 +174,13 @@ export class TrailWindow {
           this.controller.renamePage(pageId, title),
         'page:duplicate': ({ pageId }) => this.controller.duplicatePage(pageId),
         'page:show-menu': ({ pageId }) => showPageMenu(this, pageId),
+        'page:set-note': ({ pageId, note }) =>
+          this.controller.setNote(pageId, note),
+        'workspace:switch': ({ workspaceId }) =>
+          this.controller.switchWorkspace(workspaceId),
+        'workspace:rename': ({ workspaceId, name }) =>
+          this.controller.renameWorkspace(workspaceId, name),
+        'workspace:show-menu': () => showWorkspaceMenu(this),
       },
       send: {
         'view:set-content-insets': (insets) => {
@@ -128,6 +201,16 @@ export class TrailWindow {
     // without waiting for a round trip through the shell UI.
     this.window.on('resize', () => this.layout());
     this.window.once('ready-to-show', () => this.window.show());
+    // Save while every page view still exists, so their history is current.
+    this.window.on('close', () => {
+      this.safely(() =>
+        store.setPreference(
+          BOUNDS_KEY,
+          JSON.stringify(this.window.getNormalBounds()),
+        ),
+      );
+      this.persister.dispose();
+    });
     this.window.on('closed', () => {
       nativeTheme.off('updated', syncBackground);
       this.controller.dispose();
@@ -136,9 +219,24 @@ export class TrailWindow {
     void this.window.loadURL(url);
   }
 
+  /** Writes any pending session changes now. */
+  flush(): void {
+    this.persister.flush();
+  }
+
   sendUiCommand(command: UiCommand): void {
     this.window.webContents.focus();
     this.send(eventChannels.uiCommand, command);
+  }
+
+  /** Storage problems are logged; they never take the browser down. */
+  private safely<T>(run: () => T): T | null {
+    try {
+      return run();
+    } catch (error) {
+      console.error('Storage error', error);
+      return null;
+    }
   }
 
   private layout(): void {

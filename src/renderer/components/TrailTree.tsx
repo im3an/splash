@@ -1,4 +1,5 @@
 import {
+  Fragment,
   memo,
   useMemo,
   useRef,
@@ -22,7 +23,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { ChevronRight, X } from 'lucide-react';
+import { ChevronRight, StickyNote, X } from 'lucide-react';
 import type { PageId } from '../../shared/types';
 import {
   projectDrop,
@@ -34,6 +35,7 @@ import { visibleRows, type TrailRow as Row } from '../lib/trail';
 import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';
 import { Favicon } from './Favicon';
+import { PageNote } from './PageNote';
 
 const INDENT = 14;
 
@@ -110,17 +112,21 @@ export function TrailTree() {
       >
         <div role="tree" aria-label="Pages" className="flex flex-col gap-px">
           {rows.map((row) => (
-            <TrailRow
-              key={row.id}
-              row={row}
-              depth={
-                row.id === drag?.activeId && projection
-                  ? projection.depth
-                  : row.depth
-              }
-              active={row.id === snapshot.activePageId}
-              dragging={row.id === drag?.activeId}
-            />
+            <Fragment key={row.id}>
+              <TrailRow
+                row={row}
+                depth={
+                  row.id === drag?.activeId && projection
+                    ? projection.depth
+                    : row.depth
+                }
+                active={row.id === snapshot.activePageId}
+                dragging={row.id === drag?.activeId}
+              />
+              {!drag && (
+                <PageNote pageId={row.id} depth={row.depth} indent={INDENT} />
+              )}
+            </Fragment>
           ))}
         </div>
       </SortableContext>
@@ -251,6 +257,14 @@ const TrailRow = memo(function TrailRow({
         >
           {label}
         </span>
+      )}
+      {page.note && !renaming && (
+        <StickyNote
+          size={11}
+          strokeWidth={2}
+          className="shrink-0 text-fg-subtle group-hover:hidden"
+          aria-label="Has a note"
+        />
       )}
       {!renaming && (
         <button

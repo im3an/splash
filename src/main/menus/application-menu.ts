@@ -4,12 +4,15 @@ import {
   nativeTheme,
   type MenuItemConstructorOptions,
 } from 'electron';
+import type { TrailStore } from '../storage/trail-store';
 import type { TrailWindow } from '../windows/browser-window';
+import { workspaceMenuItems } from './workspace-menu';
 
 export interface MenuActions {
   /** The window menu commands act on, creating one if none is open. */
   currentWindow(): TrailWindow | null;
   openWindow(): TrailWindow;
+  store: TrailStore;
 }
 
 type Appearance = typeof nativeTheme.themeSource;
@@ -36,6 +39,11 @@ export function installApplicationMenu(actions: MenuActions): void {
       checked: nativeTheme.themeSource === source,
       click: () => {
         nativeTheme.themeSource = source;
+        try {
+          actions.store.setPreference('appearance', source);
+        } catch (error) {
+          console.error('Could not save appearance', error);
+        }
       },
     }) satisfies MenuItemConstructorOptions;
 
@@ -163,6 +171,12 @@ export function installApplicationMenu(actions: MenuActions): void {
           click: withActivePage((w, id) => w.controller.goForward(id)),
         },
       ],
+    },
+    {
+      label: 'Workspaces',
+      submenu: workspaceMenuItems(actions.currentWindow(), {
+        accelerators: true,
+      }),
     },
     { role: 'windowMenu' },
   ];

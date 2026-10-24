@@ -37,6 +37,8 @@ describe('TrailTree', () => {
         rootIds: [],
         activePageId: null,
         lastClosed: null,
+        workspaces: [],
+        activeWorkspaceId: 'w1',
       }),
     );
     expect(screen.getByText('No pages yet')).toBeTruthy();

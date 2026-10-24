@@ -72,11 +72,15 @@ const BOUNDS = { x: 260, y: 48, width: 900, height: 700 };
 function setup(options: { maxLiveViews?: number } = {}) {
   const hosts: FakeHost[] = [];
   const snapshots: BrowserSnapshot[] = [];
+  const visits: string[] = [];
+  const titles: [string, string][] = [];
   let next = 0;
   let clock = 0;
   const controller = new BrowserController({
     ...options,
     now: () => ++clock,
+    onVisit: (url) => visits.push(url),
+    onTitle: (url, title) => titles.push([url, title]),
     createHost: (events) => {
       const host = new FakeHost(events);
       hosts.push(host);
@@ -88,7 +92,7 @@ function setup(options: { maxLiveViews?: number } = {}) {
   });
   controller.setContentBounds(BOUNDS);
   const latest = () => snapshots.at(-1)!;
-  return { controller, hosts, latest };
+  return { controller, hosts, latest, visits, titles };
 }
 
 describe('BrowserController', () => {
@@ -463,6 +467,156 @@ describe('BrowserController', () => {
       expect(a1Host.events.navigationAvailability().canGoBack).toBe(true);
       a1Host.events.onNavigationCommand('back');
       expect(latest().activePageId).toBe(a);
+    });
+  });
+
+  describe('workspaces', () => {
+    it('starts with one workspace and switches between trails', () => {
+      const { controller, hosts, latest } = setup();
+      const first = controller.createPage({ input: 'a.com' });
+      expect(latest().workspaces).toHaveLength(1);
+
+      const work = controller.createWorkspace('Work');
+      expect(latest().activeWorkspaceId).toBe(work);
+      expect(latest().rootIds).toEqual([]);
+      expect(hosts[0]?.visible).toBe(false);
+
+      const second = controller.createPage({ input: 'b.com' });
+      expect(latest().rootIds).toEqual([second]);
+
+      controller.activatePage(first);
+      expect(latest().activeWorkspaceId).not.toBe(work);
+      expect(latest().rootIds).toEqual([first]);
+      expect(hosts.map((h) => h.visible)).toEqual([true, false]);
+      expect(latest().workspaces.map((w) => [w.name, w.pageCount])).toEqual([
+        ['Personal', 1],
+        ['Work', 1],
+      ]);
+    });
+
+    it('moves a branch to another workspace', () => {
+      const { controller, latest } = setup();
+      const root = controller.createPage({ input: 'a.com' });
+      const child = controller.createPage({ input: 'b.com', parentId: root });
+      const home = latest().activeWorkspaceId;
+      const work = controller.createWorkspace('Work');
+      controller.switchWorkspace(home);
+
+      controller.movePageToWorkspace(root, work);
+      expect(latest().rootIds).toEqual([]);
+      expect(latest().activePageId).toBeNull();
+
+      controller.switchWorkspace(work);
+      expect(latest().rootIds).toEqual([root]);
+      expect(latest().pages[root]?.childIds).toEqual([child]);
+      expect(latest().activePageId).toBe(root);
+    });
+
+    it('renames and deletes workspaces, but never the last one', () => {
+      const { controller, hosts, latest } = setup();
+      const home = latest()?.activeWorkspaceId ?? controller.currentWorkspaceId;
+      const work = controller.createWorkspace();
+      controller.createPage({ input: 'a.com' });
+      controller.renameWorkspace(work, '  Deep work ');
+      expect(latest().workspaces[1]?.name).toBe('Deep work');
+
+      controller.deleteWorkspace(work);
+      expect(hosts[0]?.destroyed).toBe(true);
+      expect(latest().activeWorkspaceId).toBe(home);
+      expect(() => controller.deleteWorkspace(home)).toThrow();
+    });
+
+    it('reopens a closed page into the workspace it came from', () => {
+      const { controller, latest } = setup();
+      const page = controller.createPage({ input: 'a.com' });
+      const home = latest().activeWorkspaceId;
+      controller.closePage(page);
+      controller.createWorkspace('Work');
+      controller.reopenClosed();
+      expect(latest().activeWorkspaceId).toBe(home);
+      expect(latest().rootIds).toEqual([page]);
+    });
+  });
+
+  describe('notes and history events', () => {
+    it('keeps a trimmed note per page', () => {
+      const { controller, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      controller.setNote(id, '  compare prices  ');
+      expect(latest().pages[id]?.note).toBe('compare prices');
+      controller.setNote(id, '');
+      expect(latest().pages[id]?.note).toBeNull();
+    });
+
+    it('reports new documents and their titles, not fragment changes', () => {
+      const { controller, hosts, visits, titles } = setup();
+      controller.createPage({ input: 'a.com' });
+      const host = hosts[0]!;
+      host.events.onStateChange({ url: 'https://a.com/' });
+      host.events.onStateChange({ url: 'https://a.com/#section' });
+      host.events.onStateChange({ url: 'https://a.com/next' });
+      host.events.onStateChange({ title: 'Next' });
+      expect(visits).toEqual(['https://a.com/next']);
+      expect(titles).toEqual([['https://a.com/next', 'Next']]);
+    });
+  });
+
+  describe('sessions', () => {
+    it('exports and restores workspaces, trails and history', () => {
+      const original = setup();
+      const root = original.controller.createPage({ input: 'a.com' });
+      const child = original.controller.createPage({
+        input: 'b.com',
+        parentId: root,
+      });
+      original.controller.renamePage(root, 'Trip');
+      original.controller.setNote(child, 'book it');
+      original.controller.setCollapsed(root, true);
+      original.controller.createWorkspace('Work');
+      original.controller.createPage({ input: 'c.com' });
+      original.controller.activatePage(child);
+      const session = original.controller.exportSession();
+
+      expect(session.workspaces.map((w) => w.name)).toEqual([
+        'Personal',
+        'Work',
+      ]);
+      expect(session.pages.find((p) => p.id === child)?.history).toEqual({
+        entries: [{ url: 'https://b.com/', title: '' }],
+        index: 0,
+      });
+
+      const restored = setup();
+      restored.controller.restoreSession(session);
+      const snapshot = restored.latest();
+      expect(snapshot.workspaces.map((w) => [w.name, w.pageCount])).toEqual([
+        ['Personal', 2],
+        ['Work', 1],
+      ]);
+      expect(snapshot.activePageId).toBe(child);
+      expect(snapshot.pages[root]).toMatchObject({
+        customTitle: 'Trip',
+        childIds: [child],
+        isDiscarded: true,
+        url: 'https://a.com/',
+      });
+      expect(snapshot.pages[child]?.note).toBe('book it');
+      // Only the active page gets a view, restored from its history.
+      expect(restored.hosts).toHaveLength(1);
+      expect(restored.hosts[0]?.restored?.entries[0]?.url).toBe(
+        'https://b.com/',
+      );
+    });
+
+    it('ignores an empty session', () => {
+      const { controller, latest } = setup();
+      controller.createPage({ input: 'a.com' });
+      controller.restoreSession({
+        workspaces: [],
+        pages: [],
+        activeWorkspaceId: null,
+      });
+      expect(latest().rootIds).toHaveLength(1);
     });
   });
 });

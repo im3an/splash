@@ -3,6 +3,7 @@ import type {
   ContentInsets,
   PageId,
   UiCommand,
+  WorkspaceId,
 } from './types';
 
 export interface InvokeOutputs {
@@ -23,6 +24,10 @@ export interface InvokeOutputs {
   'page:rename': void;
   'page:duplicate': PageId;
   'page:show-menu': void;
+  'page:set-note': void;
+  'workspace:switch': void;
+  'workspace:rename': void;
+  'workspace:show-menu': void;
 }
 
 export const eventChannels = {
@@ -56,6 +61,10 @@ export interface SplashApi {
   duplicatePage(pageId: PageId): Promise<PageId>;
   /** Opens the native context menu for a page in the sidebar. */
   showPageMenu(pageId: PageId): Promise<void>;
+  setNote(pageId: PageId, note: string | null): Promise<void>;
+  switchWorkspace(workspaceId: WorkspaceId): Promise<void>;
+  renameWorkspace(workspaceId: WorkspaceId, name: string): Promise<void>;
+  showWorkspaceMenu(): Promise<void>;
   setContentInsets(insets: ContentInsets): void;
   focusPage(): void;
   onSnapshot(listener: (snapshot: BrowserSnapshot) => void): () => void;

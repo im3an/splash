@@ -10,11 +10,16 @@ interface ShellState {
   addressFocusRequest: number;
   /** The sidebar row currently being renamed in place. */
   renamingPageId: PageId | null;
+  /** The page whose note is open for editing. */
+  editingNotePageId: PageId | null;
+  renamingWorkspace: boolean;
   receiveSnapshot(snapshot: BrowserSnapshot): void;
   toggleSidebar(): void;
   focusAddressBar(): void;
   startRename(pageId: PageId): void;
   finishRename(): void;
+  editNote(pageId: PageId | null): void;
+  setRenamingWorkspace(renaming: boolean): void;
 }
 
 export const useShell = create<ShellState>()((set) => ({
@@ -22,12 +27,24 @@ export const useShell = create<ShellState>()((set) => ({
   sidebarOpen: true,
   addressFocusRequest: 0,
   renamingPageId: null,
+  editingNotePageId: null,
+  renamingWorkspace: false,
   receiveSnapshot: (snapshot) => set({ snapshot }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   focusAddressBar: () =>
     set((state) => ({ addressFocusRequest: state.addressFocusRequest + 1 })),
   startRename: (pageId) => set({ renamingPageId: pageId, sidebarOpen: true }),
   finishRename: () => set({ renamingPageId: null }),
+  editNote: (pageId) =>
+    set({
+      editingNotePageId: pageId,
+      ...(pageId ? { sidebarOpen: true } : {}),
+    }),
+  setRenamingWorkspace: (renaming) =>
+    set({
+      renamingWorkspace: renaming,
+      ...(renaming ? { sidebarOpen: true } : {}),
+    }),
 }));
 
 export function selectActivePage(state: ShellState): PageSnapshot | null {
@@ -44,6 +61,9 @@ export function connectShell(splash: SplashApi): () => void {
     if (command.type === 'focus-address-bar') shell.focusAddressBar();
     else if (command.type === 'toggle-sidebar') shell.toggleSidebar();
     else if (command.type === 'rename-page') shell.startRename(command.pageId);
+    else if (command.type === 'edit-note') shell.editNote(command.pageId);
+    else if (command.type === 'rename-workspace')
+      shell.setRenamingWorkspace(true);
   });
   // Subscribe first so no update is missed; a pushed snapshot is never older
   // than the one we asked for, so it wins if it arrives first.

@@ -46,10 +46,30 @@ export function showPageMenu(trailWindow: TrailWindow, pageId: PageId): void {
         ]
       : []),
     {
+      label: page.note ? 'Edit Note…' : 'Add Note…',
+      click: () => trailWindow.sendUiCommand({ type: 'edit-note', pageId }),
+    },
+    {
       label: 'Copy Link',
       enabled: url !== null,
       click: () => url && clipboard.writeText(url),
     },
+    ...(snapshot.workspaces.length > 1
+      ? ([
+          {
+            label: 'Move to Workspace',
+            submenu: snapshot.workspaces
+              .filter(
+                (workspace) => workspace.id !== snapshot.activeWorkspaceId,
+              )
+              .map((workspace) => ({
+                label: workspace.name,
+                click: () =>
+                  controller.movePageToWorkspace(pageId, workspace.id),
+              })),
+          },
+        ] satisfies MenuItemConstructorOptions[])
+      : []),
     { type: 'separator' },
     ...(hasChildren
       ? ([

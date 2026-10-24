@@ -3,6 +3,7 @@ import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';
 import { TrailTree } from './TrailTree';
 import { UndoToast } from './UndoToast';
+import { WorkspaceButton } from './WorkspaceButton';
 
 export function Sidebar() {
   const open = useShell((state) => state.sidebarOpen);
@@ -23,7 +24,9 @@ export function Sidebar() {
       style={{ width: open ? 'var(--sidebar-width)' : 0 }}
     >
       <div className="flex h-full w-[var(--sidebar-width)] flex-col pl-2">
-        <div className="drag flex h-[var(--toolbar-height)] shrink-0 items-center justify-end pr-1">
+        <div className="drag flex h-[var(--toolbar-height)] shrink-0 items-center gap-1 pr-1 pl-[calc(var(--traffic-lights)-8px)]">
+          <WorkspaceButton />
+          <span className="flex-1" />
           <button
             type="button"
             className="icon-button"

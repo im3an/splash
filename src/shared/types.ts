@@ -1,4 +1,5 @@
 export type PageId = string;
+export type WorkspaceId = string;
 
 export type PageErrorKind = 'load-failed' | 'crashed';
 
@@ -28,6 +29,13 @@ export interface PageSnapshot {
   isDiscarded: boolean;
   /** A name the user gave the page, shown instead of its title. */
   customTitle: string | null;
+  note: string | null;
+}
+
+export interface WorkspaceSummary {
+  id: WorkspaceId;
+  name: string;
+  pageCount: number;
 }
 
 /** The most recent close that can be undone. */
@@ -38,11 +46,14 @@ export interface ClosedSummary {
   serial: number;
 }
 
+/** The window's state as the shell renders it: the active workspace's trail. */
 export interface BrowserSnapshot {
   pages: Record<PageId, PageSnapshot>;
   rootIds: PageId[];
   activePageId: PageId | null;
   lastClosed: ClosedSummary | null;
+  workspaces: WorkspaceSummary[];
+  activeWorkspaceId: WorkspaceId;
 }
 
 /** Distance from each window edge to the page content area, in CSS pixels. */
@@ -57,4 +68,6 @@ export interface ContentInsets {
 export type UiCommand =
   | { type: 'focus-address-bar' }
   | { type: 'toggle-sidebar' }
-  | { type: 'rename-page'; pageId: PageId };
+  | { type: 'rename-page'; pageId: PageId }
+  | { type: 'edit-note'; pageId: PageId }
+  | { type: 'rename-workspace' };

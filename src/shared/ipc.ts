@@ -11,6 +11,7 @@ const pageId = z.uuid();
 const addressInput = z.string().trim().min(1).max(8192);
 const inset = z.number().finite().min(0).max(10_000);
 const pageTitle = z.string().max(300).nullable();
+const workspaceId = z.uuid();
 
 export const invokeContract = {
   'browser:get-snapshot': z.undefined(),
@@ -34,6 +35,16 @@ export const invokeContract = {
   'page:rename': z.strictObject({ pageId, title: pageTitle }),
   'page:duplicate': z.strictObject({ pageId }),
   'page:show-menu': z.strictObject({ pageId }),
+  'page:set-note': z.strictObject({
+    pageId,
+    note: z.string().max(4000).nullable(),
+  }),
+  'workspace:switch': z.strictObject({ workspaceId }),
+  'workspace:rename': z.strictObject({
+    workspaceId,
+    name: z.string().trim().min(1).max(80),
+  }),
+  'workspace:show-menu': z.undefined(),
 } as const;
 
 export const sendContract = {

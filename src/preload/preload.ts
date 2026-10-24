@@ -53,6 +53,11 @@ const api: SplashApi = {
   renamePage: (pageId, title) => invoke('page:rename', { pageId, title }),
   duplicatePage: (pageId) => invoke('page:duplicate', { pageId }),
   showPageMenu: (pageId) => invoke('page:show-menu', { pageId }),
+  setNote: (pageId, note) => invoke('page:set-note', { pageId, note }),
+  switchWorkspace: (workspaceId) => invoke('workspace:switch', { workspaceId }),
+  renameWorkspace: (workspaceId, name) =>
+    invoke('workspace:rename', { workspaceId, name }),
+  showWorkspaceMenu: () => invoke('workspace:show-menu'),
   setContentInsets: (insets) => send('view:set-content-insets', insets),
   focusPage: () => send('view:focus-page'),
   onSnapshot: (listener) => subscribe(eventChannels.snapshot, listener),

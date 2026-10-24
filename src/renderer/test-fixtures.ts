@@ -18,6 +18,7 @@ export function page(
     error: null,
     isDiscarded: false,
     customTitle: null,
+    note: null,
     ...overrides,
   };
 }
@@ -38,5 +39,7 @@ export function sampleSnapshot(
     rootIds: ['a', 'e'],
     activePageId: 'a',
     lastClosed: null,
+    workspaces: [{ id: 'w1', name: 'Personal', pageCount: pages.length }],
+    activeWorkspaceId: 'w1',
   };
 }
