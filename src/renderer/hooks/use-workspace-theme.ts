@@ -1,0 +1,66 @@
+import { useEffect, useState } from 'react';
+import { accentColors, framePreset } from '../../shared/appearance';
+import type { WorkspaceAppearance } from '../../shared/types';
+import { useShell } from '../stores/shell-store';
+
+const DARK = '(prefers-color-scheme: dark)';
+
+function usePrefersDark(): boolean {
+  const [dark, setDark] = useState(() => matchMedia(DARK).matches);
+  useEffect(() => {
+    const query = matchMedia(DARK);
+    const update = () => setDark(query.matches);
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+  return dark;
+}
+
+/** Design-token overrides for a workspace's look in the current scheme. */
+export function themeVariables(
+  appearance: WorkspaceAppearance,
+  dark: boolean,
+): Record<string, string> {
+  const frame = framePreset(appearance.frame);
+  const accent = accentColors(appearance.accent);
+  const accentColor = dark ? accent.dark : accent.light;
+  const colors = dark ? frame.dark : frame.light;
+  return {
+    '--chrome': colors.chrome,
+    '--surface': colors.surface,
+    '--elevated': colors.elevated,
+    '--field-focus': dark
+      ? `color-mix(in oklab, ${colors.elevated} 85%, ${colors.chrome})`
+      : colors.elevated,
+    ...(dark ? {} : { '--ink': frame.light.ink }),
+    '--accent': accentColor,
+    '--accent-soft': `color-mix(in oklab, ${accentColor} ${dark ? 22 : 16}%, transparent)`,
+  };
+}
+
+/**
+ * Applies the active workspace's frame and accent to the shell. Light or
+ * dark itself is set by the main process, so pages follow it too.
+ */
+export function useWorkspaceTheme(): void {
+  const appearance = useShell(
+    (state) =>
+      state.snapshot?.workspaces.find(
+        (workspace) => workspace.id === state.snapshot?.activeWorkspaceId,
+      )?.appearance,
+  );
+  const dark = usePrefersDark();
+
+  useEffect(() => {
+    if (!appearance) return;
+    const root = document.documentElement;
+    const variables = themeVariables(appearance, dark);
+    for (const [name, value] of Object.entries(variables)) {
+      root.style.setProperty(name, value);
+    }
+    return () => {
+      for (const name of Object.keys(variables))
+        root.style.removeProperty(name);
+    };
+  }, [appearance, dark]);
+}

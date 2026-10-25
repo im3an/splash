@@ -65,4 +65,51 @@ describe('TrailTree', () => {
     expect(tree.get('a')?.collapsed).toBe(false);
     expect(tree.get('b')?.collapsed).toBe(false);
   });
+
+  it('inserts at a given position', () => {
+    const tree = build();
+    tree.add('x', 'a', 1);
+    tree.add('y', null, 0);
+    expect(tree.get('a')?.childIds).toEqual(['b', 'x', 'c']);
+    expect(tree.rootIds).toEqual(['y', 'a', 'e']);
+    expect(tree.indexOf('x')).toBe(1);
+  });
+
+  it('moves a branch to a new parent and position', () => {
+    const tree = build();
+    tree.move('b', 'e', 0);
+    expect(tree.get('a')?.childIds).toEqual(['c']);
+    expect(tree.get('e')?.childIds).toEqual(['b']);
+    expect(tree.get('b')?.parentId).toBe('e');
+    expect(tree.order()).toEqual(['a', 'c', 'e', 'b', 'd']);
+  });
+
+  it('reorders among siblings using post-removal indices', () => {
+    const tree = build();
+    tree.move('b', 'a', 1);
+    expect(tree.get('a')?.childIds).toEqual(['c', 'b']);
+    tree.move('e', null, 0);
+    expect(tree.rootIds).toEqual(['e', 'a']);
+  });
+
+  it('refuses to move a node into its own branch', () => {
+    const tree = build();
+    expect(() => tree.move('a', 'd', 0)).toThrow();
+    expect(() => tree.move('b', 'b', 0)).toThrow();
+    expect(tree.order()).toEqual(['a', 'b', 'd', 'c', 'e']);
+  });
+
+  it('removes a whole branch', () => {
+    const tree = build();
+    expect(tree.removeBranch('b')).toEqual(['b', 'd']);
+    expect(tree.has('d')).toBe(false);
+    expect(tree.order()).toEqual(['a', 'c', 'e']);
+  });
+
+  it('chooses a successor for a removed branch', () => {
+    const tree = build();
+    expect(tree.branchSuccessorOf('b')).toBe('c');
+    expect(tree.branchSuccessorOf('c')).toBe('b');
+    expect(tree.branchSuccessorOf('d')).toBe('b');
+  });
 });

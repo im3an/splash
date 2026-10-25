@@ -7,15 +7,18 @@
 :root {
   color-scheme: light;
 
+  /* Frame colours; a workspace's frame preset overrides these. */
   --chrome: #f3efe9;
   --surface: #faf8f5;
   --elevated: #ffffff;
-  --field: rgb(70 52 32 / 0.065);
+  /* The frame's ink as "r g b", used for tints in light mode. */
+  --ink: 70 52 32;
+  --field: rgb(var(--ink) / 0.065);
   --field-focus: #ffffff;
-  --hover: rgb(70 52 32 / 0.06);
-  --pressed: rgb(70 52 32 / 0.1);
-  --divider: rgb(70 52 32 / 0.1);
-  --hairline: rgb(70 52 32 / 0.14);
+  --hover: rgb(var(--ink) / 0.06);
+  --pressed: rgb(var(--ink) / 0.1);
+  --divider: rgb(var(--ink) / 0.1);
+  --hairline: rgb(var(--ink) / 0.14);
 
   --fg: #221d17;
   --fg-muted: #6c6359;
@@ -26,10 +29,10 @@
   --danger: #b03a2e;
 
   --shadow-row:
-    0 0 0 0.5px rgb(70 52 32 / 0.12), 0 1px 2px rgb(70 52 32 / 0.08);
+    0 0 0 0.5px rgb(var(--ink) / 0.12), 0 1px 2px rgb(var(--ink) / 0.08);
   --shadow-content:
-    0 0 0 0.5px rgb(70 52 32 / 0.14), 0 1px 3px rgb(70 52 32 / 0.06);
-  --skeleton: rgb(70 52 32 / 0.07);
+    0 0 0 0.5px rgb(var(--ink) / 0.14), 0 1px 3px rgb(var(--ink) / 0.06);
+  --skeleton: rgb(var(--ink) / 0.07);
 
   --font-ui:
     -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
@@ -40,6 +43,7 @@
   --radius-row: 6px;
 
   --sidebar-width: 252px;
+  --row-height: 30px;
   --toolbar-height: 48px;
   --gutter: 8px;
   --traffic-lights: 80px;
@@ -84,4 +88,8 @@
     --duration-fast: 0ms;
     --duration-base: 0ms;
   }
+}
+
+:root[data-density='compact'] {
+  --row-height: 26px;
 }

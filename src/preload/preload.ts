@@ -45,10 +45,64 @@ const api: SplashApi = {
   stop: (pageId) => invoke('page:stop', { pageId }),
   setCollapsed: (pageId, collapsed) =>
     invoke('page:set-collapsed', { pageId, collapsed }),
+  createChildPage: (pageId) => invoke('page:create-child', { pageId }),
+  closeBranch: (pageId) => invoke('page:close-branch', { pageId }),
+  reopenClosed: () => invoke('page:reopen-closed'),
+  movePage: (pageId, parentId, afterId) =>
+    invoke('page:move', { pageId, parentId, afterId }),
+  renamePage: (pageId, title) => invoke('page:rename', { pageId, title }),
+  duplicatePage: (pageId) => invoke('page:duplicate', { pageId }),
+  showPageMenu: (pageId) => invoke('page:show-menu', { pageId }),
+  setNote: (pageId, note) => invoke('page:set-note', { pageId, note }),
+  switchWorkspace: (workspaceId) => invoke('workspace:switch', { workspaceId }),
+  renameWorkspace: (workspaceId, name) =>
+    invoke('workspace:rename', { workspaceId, name }),
+  showWorkspaceMenu: () => invoke('workspace:show-menu'),
+  createWorkspace: (name, appearance) =>
+    invoke('workspace:create', { name, appearance }),
+  customizeWorkspace: (workspaceId, name, appearance) =>
+    invoke('workspace:customize', { workspaceId, name, appearance }),
+  setMuted: (pageId, muted) => invoke('page:set-muted', { pageId, muted }),
+  zoom: (pageId, direction) => invoke('page:zoom', { pageId, direction }),
+  find: (pageId, text, { forward, findNext }) =>
+    invoke('page:find', { pageId, text, forward, findNext }),
+  stopFind: (pageId) => invoke('page:stop-find', { pageId }),
+  respondToPermission: (pageId, requestId, granted) =>
+    invoke('page:respond-permission', { pageId, requestId, granted }),
+  getSiteInfo: (pageId) => invoke('site:get-info', { pageId }),
+  setSitePermission: (origin, permission, decision) =>
+    invoke('site:set-permission', { origin, permission, decision }),
+  resetSite: (origin) => invoke('site:reset', { origin }),
+  freezePage: () => invoke('view:freeze'),
+  setOverlayActive: (active) => send('view:set-overlay', { active }),
+  queryPalette: (query, scope) => invoke('palette:query', { query, scope }),
+  moveWorkspace: (workspaceId, index) =>
+    invoke('workspace:move', { workspaceId, index }),
   setContentInsets: (insets) => send('view:set-content-insets', insets),
   focusPage: () => send('view:focus-page'),
   onSnapshot: (listener) => subscribe(eventChannels.snapshot, listener),
   onUiCommand: (listener) => subscribe(eventChannels.uiCommand, listener),
+  listDownloads: () => invoke('downloads:list'),
+  actOnDownload: (id, action) => invoke('downloads:act', { id, action }),
+  clearDownloads: () => invoke('downloads:clear'),
+  openDownloadsFolder: () => invoke('downloads:open-folder'),
+  onDownloads: (listener) => subscribe(eventChannels.downloads, listener),
+  listSiteSettings: () => invoke('settings:sites'),
+  clearBrowsingData: (request) => invoke('settings:clear-data', request),
+  undoClearBrowsingData: (token) => invoke('settings:undo-clear', { token }),
+  defaultBrowserStatus: () => invoke('settings:default-browser'),
+  makeDefaultBrowser: () => invoke('settings:make-default-browser'),
+  openDataFolder: () => invoke('settings:open-data-folder'),
+  about: () => invoke('settings:about'),
+  editWorkspace: (workspaceId) =>
+    invoke('settings:edit-workspace', { workspaceId }),
+  deleteWorkspace: (workspaceId) =>
+    invoke('settings:delete-workspace', { workspaceId }),
+  storageStatus: () => invoke('storage:status'),
+  onStorageStatus: (listener) => subscribe(eventChannels.storage, listener),
+  getPreferences: () => invoke('preferences:get'),
+  updatePreferences: (patch) => invoke('preferences:update', { patch }),
+  onPreferences: (listener) => subscribe(eventChannels.preferences, listener),
 };
 
 contextBridge.exposeInMainWorld('splash', api);

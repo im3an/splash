@@ -47,3 +47,14 @@ describe('isNavigableUrl', () => {
     expect(isNavigableUrl('not a url')).toBe(false);
   });
 });
+
+describe('search engines', () => {
+  it('searches with the chosen engine', () => {
+    expect(resolveAddressInput('trail maps', 'google')).toBe(
+      'https://www.google.com/search?q=trail%20maps',
+    );
+    expect(searchUrl('a&b', 'brave')).toBe(
+      'https://search.brave.com/search?q=a%26b',
+    );
+  });
+});

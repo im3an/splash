@@ -1,5 +1,14 @@
 import { page } from '../test-fixtures';
-import { describeError, displayUrl, pageLabel, securityOf } from './format';
+import {
+  addressParts,
+  describeError,
+  displayUrl,
+  formatBytes,
+  pageLabel,
+  pageParts,
+  permissionNames,
+  securityOf,
+} from './format';
 
 describe('displayUrl', () => {
   it('drops the scheme and bare root path of secure URLs', () => {
@@ -24,6 +33,83 @@ describe('pageLabel', () => {
   });
 });
 
+describe('pageParts', () => {
+  const parts = (title: string, url: string | null, customTitle?: string) =>
+    pageParts(page('a', { title, url, customTitle: customTitle ?? null }));
+
+  it('splits a trailing site name off the title', () => {
+    expect(
+      parts('Matcha - Wikipedia', 'https://en.wikipedia.org/wiki/Matcha'),
+    ).toEqual({ title: 'Matcha', site: 'Wikipedia' });
+    expect(
+      parts('tokyo tower - Google Search', 'https://www.google.de/search'),
+    ).toEqual({ title: 'tokyo tower', site: 'Google Search' });
+    expect(
+      parts(
+        'Taylor Swift - Patient Zero (Official Music Video) - YouTube',
+        'https://www.youtube.com/watch?v=1',
+      ),
+    ).toEqual({
+      title: 'Taylor Swift - Patient Zero (Official Music Video)',
+      site: 'YouTube',
+    });
+    expect(parts('Front page | BBC News', 'https://www.bbc.co.uk/')).toEqual({
+      title: 'Front page',
+      site: 'BBC News',
+    });
+  });
+
+  it('splits a leading site name off the title', () => {
+    expect(
+      parts('GitHub - im3an/splash: A browser', 'https://github.com/im3an'),
+    ).toEqual({ title: 'im3an/splash: A browser', site: 'GitHub' });
+  });
+
+  it('falls back to the short host', () => {
+    expect(parts('Pricing', 'https://www.example.com/p')).toEqual({
+      title: 'Pricing',
+      site: 'example.com',
+    });
+    expect(parts('Mine', 'https://x.com/', 'Renamed')).toEqual({
+      title: 'Renamed',
+      site: 'x.com',
+    });
+  });
+
+  it('adds nothing when the title is only the site name or there is no site', () => {
+    expect(parts('(12) YouTube', 'https://www.youtube.com/')).toEqual({
+      title: '(12) YouTube',
+      site: null,
+    });
+    expect(parts('', 'https://x.dev/p')).toEqual({
+      title: 'x.dev',
+      site: null,
+    });
+    expect(parts('', null)).toEqual({ title: 'New page', site: null });
+  });
+});
+
+describe('addressParts', () => {
+  it('pairs the short host with the page title', () => {
+    expect(
+      addressParts(
+        page('a', {
+          title: 'Patient Zero - YouTube',
+          url: 'https://www.youtube.com/watch?v=1',
+        }),
+      ),
+    ).toEqual({ host: 'youtube.com', title: 'Patient Zero' });
+    expect(
+      addressParts(page('a', { title: '', url: 'https://x.dev/' })),
+    ).toEqual({ host: 'x.dev', title: null });
+  });
+
+  it('leaves non-web addresses as they are', () => {
+    expect(addressParts(page('a', { url: 'file:///tmp/a.html' }))).toBeNull();
+    expect(addressParts(page('a', { url: null }))).toBeNull();
+  });
+});
+
 describe('securityOf', () => {
   it('classifies URLs by protocol', () => {
     expect(securityOf('https://a.com')).toBe('secure');
@@ -40,7 +126,25 @@ describe('describeError', () => {
       description: 'ERR_NAME_NOT_RESOLVED',
       url: 'https://nope.invalid/',
     });
-    expect(detail).toMatch(/address couldn’t be found/);
+    expect(detail).toMatch(/Check the spelling/);
+    expect(
+      describeError({
+        kind: 'load-failed',
+        code: -105,
+        description: 'ERR_NAME_NOT_RESOLVED',
+        url: 'https://nope.invalid/',
+      }).title,
+    ).toBe('Couldn’t find nope.invalid');
+    expect(
+      describeError({
+        kind: 'load-failed',
+        code: -106,
+        description: 'ERR_INTERNET_DISCONNECTED',
+        url: 'https://example.com/',
+      }).detail,
+    ).toBe(
+      'Couldn’t reach example.com. Check your connection, then try again.',
+    );
   });
 
   it('treats the -2xx range as certificate errors', () => {
@@ -62,5 +166,26 @@ describe('describeError', () => {
         url: '',
       }).title,
     ).toBe('This page stopped working');
+  });
+});
+
+describe('permissionNames', () => {
+  it('lists permissions in plain language', () => {
+    expect(permissionNames(['camera'])).toBe('camera');
+    expect(permissionNames(['camera', 'microphone'])).toBe(
+      'camera and microphone',
+    );
+    expect(permissionNames(['camera', 'microphone', 'location'])).toBe(
+      'camera, microphone and location',
+    );
+  });
+});
+
+describe('formatBytes', () => {
+  it('formats sizes', () => {
+    expect(formatBytes(512)).toBe('512 B');
+    expect(formatBytes(1_500)).toBe('1.5 KB');
+    expect(formatBytes(12_300_000)).toBe('12 MB');
+    expect(formatBytes(3_200_000_000)).toBe('3.2 GB');
   });
 });

@@ -58,7 +58,7 @@
   .drag {
     -webkit-app-region: drag;
   }
-  .drag :is(button, input, a, [role='treeitem']) {
+  .drag :is(button, input, a, [role='treeitem'], [role='search']) {
     -webkit-app-region: no-drag;
   }
 
@@ -121,6 +121,39 @@
     border: 1.5px solid var(--hairline);
     border-top-color: var(--fg-muted);
     animation: spin 0.8s linear infinite;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.99);
+  }
+}
+
+@keyframes bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@layer components {
+  .toast-in {
+    animation: toast-in var(--duration-base) var(--ease-out);
+  }
+  .overlay-in {
+    animation: overlay-in var(--duration-fast) var(--ease-out);
+  }
+  .bar-in {
+    animation: bar-in var(--duration-base) var(--ease-out);
   }
 }
 

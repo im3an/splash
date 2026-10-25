@@ -10,6 +10,23 @@ const config: ForgeConfig = {
     appBundleId: 'app.splash.browser',
     appCategoryType: 'public.app-category.productivity',
     darwinDarkModeSupport: true,
+    extendInfo: {
+      // Lets macOS offer Splash as the default browser for web links.
+      CFBundleURLTypes: [
+        {
+          CFBundleURLName: 'Web site URL',
+          CFBundleURLSchemes: ['http', 'https'],
+        },
+      ],
+      NSCameraUsageDescription:
+        'Websites you allow can use your camera, for example for video calls.',
+      NSMicrophoneUsageDescription:
+        'Websites you allow can use your microphone, for example for calls.',
+      NSLocationUsageDescription:
+        'Websites you allow can see your approximate location.',
+      NSLocationWhenInUseUsageDescription:
+        'Websites you allow can see your approximate location.',
+    },
   },
   rebuildConfig: {},
   makers: [new MakerZIP({}, ['darwin'])],
@@ -23,6 +40,11 @@ const config: ForgeConfig = {
         },
         {
           entry: 'src/preload/preload.ts',
+          config: 'vite.preload.config.mts',
+          target: 'preload',
+        },
+        {
+          entry: 'src/preload/page-preload.ts',
           config: 'vite.preload.config.mts',
           target: 'preload',
         },
