@@ -2,7 +2,12 @@ import { create } from 'zustand';
 import type { SplashApi } from '../../shared/api';
 import type { Preferences } from '../../shared/preferences';
 import { useOverlay } from './overlay-store';
-import type { BrowserSnapshot, PageId, PageSnapshot } from '../../shared/types';
+import type {
+  BrowserSnapshot,
+  PageId,
+  PageSnapshot,
+  WorkspaceSummary,
+} from '../../shared/types';
 
 interface ShellState {
   /** `null` until the main process has sent the first snapshot. */
@@ -63,6 +68,18 @@ export const useShell = create<ShellState>()((set) => ({
       ...(renaming ? { sidebarOpen: true } : {}),
     }),
 }));
+
+const NO_WORKSPACES: readonly WorkspaceSummary[] = Object.freeze([]);
+
+/**
+ * All workspaces. Selectors must return the same value for the same state:
+ * a fresh `[]` on every call makes React re-render forever.
+ */
+export function selectWorkspaces(
+  state: ShellState,
+): readonly WorkspaceSummary[] {
+  return state.snapshot?.workspaces ?? NO_WORKSPACES;
+}
 
 export function selectActivePage(state: ShellState): PageSnapshot | null {
   const id = state.snapshot?.activePageId;

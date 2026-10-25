@@ -15,12 +15,12 @@ import { Plus } from 'lucide-react';
 import type { WorkspaceSummary } from '../../shared/types';
 import { api } from '../splash-api';
 import { useOverlay } from '../stores/overlay-store';
-import { useShell } from '../stores/shell-store';
+import { selectWorkspaces, useShell } from '../stores/shell-store';
 import { WorkspaceIcon } from './WorkspaceIcon';
 
 /** All workspaces at a glance: click to switch, drag to reorder. */
 export function WorkspaceBar() {
-  const workspaces = useShell((state) => state.snapshot?.workspaces ?? []);
+  const workspaces = useShell(selectWorkspaces);
   const activeId = useShell((state) => state.snapshot?.activeWorkspaceId);
   const openOverlay = useOverlay((state) => state.open);
   const sensors = useSensors(

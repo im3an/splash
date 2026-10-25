@@ -23,7 +23,7 @@ import type {
 import { themeVariables } from '../hooks/use-workspace-theme';
 import { api } from '../splash-api';
 import { useOverlay } from '../stores/overlay-store';
-import { useShell } from '../stores/shell-store';
+import { selectWorkspaces, useShell } from '../stores/shell-store';
 import { SYMBOL_ICONS, WorkspaceIcon } from './WorkspaceIcon';
 
 const ICON_KINDS: { kind: Icon['kind']; label: string }[] = [
@@ -129,10 +129,13 @@ export function WorkspaceEditor({
   const [appearance, setAppearance] = useState<WorkspaceAppearance>(
     () => existing?.appearance ?? newWorkspaceAppearance(count),
   );
-  const otherNames = useShell((state) =>
-    (state.snapshot?.workspaces ?? [])
-      .filter((w) => w.id !== workspaceId)
-      .map((w) => w.name.trim().toLowerCase()),
+  const workspaces = useShell(selectWorkspaces);
+  const otherNames = useMemo(
+    () =>
+      workspaces
+        .filter((w) => w.id !== workspaceId)
+        .map((w) => w.name.trim().toLowerCase()),
+    [workspaces, workspaceId],
   );
   const [imageError, setImageError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);

@@ -14,7 +14,7 @@ import type {
 } from '../../shared/types';
 import { WorkspaceIcon } from '../components/WorkspaceIcon';
 import { api } from '../splash-api';
-import { useShell } from '../stores/shell-store';
+import { selectWorkspaces, useShell } from '../stores/shell-store';
 import { Button, Choice, Row, Section, Toggle } from './controls';
 
 function usePreferences(): [
@@ -148,7 +148,7 @@ export function AppearanceSettings() {
 }
 
 export function WorkspaceSettings() {
-  const workspaces = useShell((state) => state.snapshot?.workspaces ?? []);
+  const workspaces = useShell(selectWorkspaces);
   const activeId = useShell((state) => state.snapshot?.activeWorkspaceId);
   return (
     <Section
