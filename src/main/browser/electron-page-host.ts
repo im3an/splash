@@ -291,6 +291,8 @@ class ElectronPageHost implements PageHost {
       if (!isNavigableUrl(event.url)) event.preventDefault();
     });
 
+    contents.on('focus', () => this.events.onFocus());
+
     contents.on('did-start-navigation', (details) => {
       if (details.isMainFrame && !details.isSameDocument) emit({ error: null });
     });

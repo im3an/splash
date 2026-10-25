@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { WorkspaceId } from '../../shared/types';
+import type { PageId, WorkspaceId } from '../../shared/types';
 import { api } from '../splash-api';
 
 /** Shell surfaces drawn over the page area. */
@@ -12,8 +12,8 @@ export type Overlay =
 
 interface OverlayState {
   overlay: Overlay | null;
-  /** A still of the page, shown in its place while an overlay is open. */
-  frozenPage: string | null;
+  /** Stills of the pages on screen, shown in their place while an overlay is open. */
+  frozenPages: Record<PageId, string> | null;
   open(overlay: Overlay): Promise<void>;
   close(): void;
 }
@@ -28,14 +28,14 @@ const nextFrame = () =>
  */
 export const useOverlay = create<OverlayState>()((set, get) => ({
   overlay: null,
-  frozenPage: null,
+  frozenPages: null,
   open: async (overlay) => {
     if (get().overlay) {
       set({ overlay });
       return;
     }
-    const still = await api().freezePage();
-    set({ overlay, frozenPage: still });
+    const stills = await api().freezePage();
+    set({ overlay, frozenPages: stills });
     // Let the still paint before the live view leaves.
     await nextFrame();
     await nextFrame();
@@ -47,7 +47,7 @@ export const useOverlay = create<OverlayState>()((set, get) => ({
     set({ overlay: null });
     // Keep the still a moment so the returning view covers it seamlessly.
     setTimeout(() => {
-      if (!get().overlay) set({ frozenPage: null });
+      if (!get().overlay) set({ frozenPages: null });
     }, 120);
   },
 }));

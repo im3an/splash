@@ -36,6 +36,7 @@ describe('TrailTree', () => {
         pages: {},
         rootIds: [],
         activePageId: null,
+        split: null,
         lastClosed: null,
         workspaces: [],
         activeWorkspaceId: 'w1',

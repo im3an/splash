@@ -46,6 +46,7 @@ export function sampleSnapshot(
     pages: Object.fromEntries(pages.map((p) => [p.id, p])),
     rootIds: ['a', 'e'],
     activePageId: 'a',
+    split: null,
     lastClosed: null,
     workspaces: [
       {

@@ -1,15 +1,32 @@
 import type { ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, PanelLeft, RotateCw, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Columns2,
+  PanelLeft,
+  RotateCw,
+  X,
+} from 'lucide-react';
 import { api } from '../splash-api';
-import { selectActivePage, useShell } from '../stores/shell-store';
+import {
+  selectActivePage,
+  selectVisibleSplit,
+  useShell,
+} from '../stores/shell-store';
 import { AddressBar } from './AddressBar';
 
 export function Toolbar() {
   const page = useShell(selectActivePage);
   const sidebarOpen = useShell((state) => state.sidebarOpen);
   const toggleSidebar = useShell((state) => state.toggleSidebar);
+  const splitOpen = useShell((state) => selectVisibleSplit(state) !== null);
 
   const hasContent = Boolean(page?.url);
+  const splitLabel = splitOpen
+    ? 'Close split view'
+    : page?.parentId
+      ? 'Compare with parent'
+      : 'Compare with child';
 
   return (
     <header
@@ -59,9 +76,20 @@ export function Toolbar() {
           <RotateCw size={15} strokeWidth={1.75} />
         </ToolbarButton>
       )}
-      <div className="ml-1.5 flex min-w-0 flex-1">
+      <div className="mx-1.5 flex min-w-0 flex-1">
         <AddressBar />
       </div>
+      <ToolbarButton
+        label={splitLabel}
+        shortcut="⌘\\"
+        pressed={splitOpen}
+        disabled={
+          !page || (!splitOpen && !page.parentId && !page.childIds.length)
+        }
+        onClick={() => page && void api().toggleSplit(page.id)}
+      >
+        <Columns2 size={16} strokeWidth={1.75} />
+      </ToolbarButton>
     </header>
   );
 }
@@ -70,12 +98,15 @@ function ToolbarButton({
   label,
   shortcut,
   disabled,
+  pressed,
   onClick,
   children,
 }: {
   label: string;
   shortcut: string;
   disabled?: boolean;
+  /** For toggles: whether the thing it controls is on. */
+  pressed?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -86,6 +117,7 @@ function ToolbarButton({
       aria-label={label}
       title={`${label} (${shortcut})`}
       disabled={disabled}
+      aria-pressed={pressed}
       onClick={onClick}
     >
       {children}

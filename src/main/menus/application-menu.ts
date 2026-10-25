@@ -175,6 +175,11 @@ export function installApplicationMenu(actions: MenuActions): void {
           click: () =>
             actions.currentWindow()?.sendUiCommand({ type: 'toggle-sidebar' }),
         },
+        {
+          label: 'Toggle Split View',
+          accelerator: 'CmdOrCtrl+\\',
+          click: withActivePage((w, id) => w.controller.toggleSplit(id)),
+        },
         { type: 'separator' },
         {
           label: 'Reload Page',

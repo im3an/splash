@@ -479,6 +479,7 @@ const SHORTCUTS: [string, [string, string][]][] = [
     'Window',
     [
       ['Toggle sidebar', '⌘S'],
+      ['Toggle split view', '⌘\\'],
       ['Switch workspace', '⌃1 – ⌃9'],
       ['New workspace', '⇧⌘N'],
       ['Settings', '⌘,'],

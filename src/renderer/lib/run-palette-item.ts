@@ -75,6 +75,9 @@ export async function runPaletteItem(
         case 'mute-page':
           if (active) await splash.setMuted(active.id, !active.isMuted);
           return;
+        case 'toggle-split':
+          if (active) await splash.toggleSplit(active.id);
+          return;
         default:
           return;
       }

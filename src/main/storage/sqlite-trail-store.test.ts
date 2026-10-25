@@ -31,6 +31,7 @@ const SESSION: StoredSession = {
       id: 'w1',
       name: 'Personal',
       activePageId: 'b',
+      split: { leftId: 'a', rightId: 'b' },
       createdAt: 1,
       appearance: {
         icon: { kind: 'symbol', name: 'leaf' },

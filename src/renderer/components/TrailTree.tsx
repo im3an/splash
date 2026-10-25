@@ -25,6 +25,7 @@ import {
 } from '@dnd-kit/sortable';
 import {
   ChevronRight,
+  Columns2,
   Moon,
   StickyNote,
   Volume2,
@@ -40,7 +41,11 @@ import {
 import { pageLabel, pageParts } from '../lib/format';
 import { visibleRows, type TrailRow as Row } from '../lib/trail';
 import { api } from '../splash-api';
-import { selectWorkspaces, useShell } from '../stores/shell-store';
+import {
+  selectVisibleSplit,
+  selectWorkspaces,
+  useShell,
+} from '../stores/shell-store';
 import { useDownloads } from '../stores/downloads-store';
 import { DownloadRing } from './DownloadRing';
 import { Favicon } from './Favicon';
@@ -56,6 +61,7 @@ interface DragState {
 
 export function TrailTree() {
   const snapshot = useShell((state) => state.snapshot);
+  const visibleSplit = useShell(selectVisibleSplit);
   const [drag, setDrag] = useState<DragState | null>(null);
   // A small threshold keeps plain clicks from turning into drags.
   const sensors = useSensors(
@@ -73,6 +79,10 @@ export function TrailTree() {
 
   if (snapshot === null) return <TrailSkeleton />;
   if (allRows.length === 0) return <TrailEmpty />;
+
+  const split = snapshot.split;
+  const isInSplit = (id: PageId) =>
+    split !== null && (split.leftId === id || split.rightId === id);
 
   const onDragStart = ({ active }: DragStartEvent) => {
     const id = String(active.id);
@@ -130,6 +140,12 @@ export function TrailTree() {
                     : row.depth
                 }
                 active={row.id === snapshot.activePageId}
+                inSplit={isInSplit(row.id)}
+                paired={
+                  visibleSplit !== null &&
+                  row.id !== snapshot.activePageId &&
+                  isInSplit(row.id)
+                }
                 dragging={row.id === drag?.activeId}
               />
               {!drag && (
@@ -160,11 +176,17 @@ const TrailRow = memo(function TrailRow({
   row,
   depth,
   active,
+  inSplit,
+  paired,
   dragging,
 }: {
   row: Row;
   depth: number;
   active: boolean;
+  /** One of the two pages of the workspace's split view. */
+  inSplit: boolean;
+  /** On screen beside the active page. */
+  paired: boolean;
   dragging: boolean;
 }) {
   const page = useShell((state) => state.snapshot?.pages[row.id]);
@@ -229,9 +251,10 @@ const TrailRow = memo(function TrailRow({
       }}
       onKeyDown={onKeyDown}
       data-active={active}
+      data-paired={paired}
       data-dragging={dragging}
       data-discarded={page.isDiscarded}
-      className="group relative flex h-[var(--row-height)] items-center gap-2 rounded-[var(--radius-row)] pr-1 text-fg-muted outline-offset-[-2px] transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg data-[active=true]:bg-elevated data-[active=true]:text-fg data-[active=true]:shadow-[var(--shadow-row)] data-[dragging=true]:z-10 data-[dragging=true]:bg-elevated data-[dragging=true]:text-fg data-[dragging=true]:shadow-[var(--shadow-row)]"
+      className="group relative flex h-[var(--row-height)] items-center gap-2 rounded-[var(--radius-row)] pr-1 text-fg-muted outline-offset-[-2px] transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg data-[paired=true]:bg-hover data-[paired=true]:text-fg data-[active=true]:bg-elevated data-[active=true]:text-fg data-[active=true]:shadow-[var(--shadow-row)] data-[dragging=true]:z-10 data-[dragging=true]:bg-elevated data-[dragging=true]:text-fg data-[dragging=true]:shadow-[var(--shadow-row)]"
       style={{
         paddingLeft: 4 + depth * INDENT,
         // Rows only ever slide vertically; depth comes from the projection.
@@ -313,7 +336,15 @@ const TrailRow = memo(function TrailRow({
           )}
         </button>
       )}
-      {page.isDiscarded && !active && !renaming && !page.note && (
+      {inSplit && !renaming && (
+        <Columns2
+          size={11}
+          strokeWidth={2}
+          className="shrink-0 text-fg-subtle group-hover:hidden"
+          aria-label="In split view"
+        />
+      )}
+      {page.isDiscarded && !active && !renaming && !page.note && !inSplit && (
         <Moon
           size={10}
           strokeWidth={2}
@@ -321,7 +352,7 @@ const TrailRow = memo(function TrailRow({
           aria-label="Asleep"
         />
       )}
-      {page.note && !renaming && (
+      {page.note && !renaming && !inSplit && (
         <StickyNote
           size={11}
           strokeWidth={2}

@@ -655,6 +655,205 @@ describe('BrowserController', () => {
     });
   });
 
+  describe('split view', () => {
+    /** parent → child, other */
+    function related() {
+      const ctx = setup();
+      const parent = ctx.controller.createPage({ input: 'a.com' });
+      const child = ctx.controller.createPage({
+        input: 'b.com',
+        parentId: parent,
+      });
+      const other = ctx.controller.createPage({ input: 'c.com' });
+      ctx.controller.activatePage(child);
+      // hosts: 0 parent, 1 child, 2 other
+      return { ...ctx, parent, child, other };
+    }
+
+    it('shows a page beside its parent, parent on the left', () => {
+      const { controller, hosts, latest, parent, child } = related();
+      controller.toggleSplit(child);
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+      expect(latest().activePageId).toBe(child);
+      expect(hosts[0]).toMatchObject({ visible: true });
+      expect(hosts[1]).toMatchObject({ visible: true });
+      expect(hosts[0]!.bounds).toEqual({
+        x: 260,
+        y: 48,
+        width: 446,
+        height: 700,
+      });
+      expect(hosts[1]!.bounds).toEqual({
+        x: 714,
+        y: 48,
+        width: 446,
+        height: 700,
+      });
+      expect(hosts[2]!.visible).toBe(false);
+    });
+
+    it('pairs a top-level page with the child it leads to', () => {
+      const { controller, latest, parent, child } = related();
+      controller.activatePage(parent);
+      controller.toggleSplit(parent);
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+      expect(latest().activePageId).toBe(parent);
+    });
+
+    it('does nothing for a page with no parent or children', () => {
+      const { controller, latest, other } = related();
+      controller.activatePage(other);
+      controller.toggleSplit(other);
+      expect(latest().split).toBeNull();
+    });
+
+    it('puts the ancestor on the left whichever page asks', () => {
+      const { controller, latest, parent, child } = related();
+      controller.openSplit(parent, child);
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+      expect(latest().activePageId).toBe(parent);
+    });
+
+    it('keeps the pair while other pages are shown, and shows it again', () => {
+      const { controller, hosts, latest, parent, child, other } = related();
+      controller.toggleSplit(child);
+      controller.activatePage(other);
+      expect(hosts.map((h) => h.visible)).toEqual([false, false, true]);
+      expect(hosts[2]!.bounds).toEqual(BOUNDS);
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+
+      controller.activatePage(parent);
+      expect(hosts.map((h) => h.visible)).toEqual([true, true, false]);
+      expect(latest().activePageId).toBe(parent);
+    });
+
+    it('closes again with the same toggle, keeping the active page', () => {
+      const { controller, hosts, latest, child } = related();
+      controller.toggleSplit(child);
+      controller.toggleSplit(child);
+      expect(latest().split).toBeNull();
+      expect(hosts.map((h) => h.visible)).toEqual([false, true, false]);
+      expect(hosts[1]!.bounds).toEqual(BOUNDS);
+    });
+
+    it('makes the side the user clicks into active', () => {
+      const { controller, hosts, latest, parent, child } = related();
+      controller.toggleSplit(child);
+      hosts[0]!.events.onFocus();
+      expect(latest().activePageId).toBe(parent);
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+    });
+
+    it('ignores focus from a page that is not on screen', () => {
+      const { controller, hosts, latest, child } = related();
+      controller.toggleSplit(child);
+      hosts[2]!.events.onFocus();
+      expect(latest().activePageId).toBe(child);
+    });
+
+    it('opens links from either side on the right', () => {
+      const { controller, hosts, latest, parent, child } = related();
+      controller.toggleSplit(child);
+      hosts[0]!.events.onBranchRequest('https://a.com/next', 'https://a.com/');
+      const fromLeft = latest().activePageId!;
+      expect(latest().pages[fromLeft]?.parentId).toBe(parent);
+      expect(latest().split).toEqual({ leftId: parent, rightId: fromLeft });
+      expect(hosts[1]!.visible).toBe(false);
+
+      hosts[3]!.events.onBranchRequest(
+        'https://a.com/deeper',
+        'https://a.com/next',
+      );
+      const fromRight = latest().activePageId!;
+      expect(latest().split).toEqual({ leftId: parent, rightId: fromRight });
+      expect(latest().pages[child]).toBeDefined();
+    });
+
+    it('leaves the pair alone for links opened in the background', () => {
+      const { controller, hosts, latest, parent, child } = related();
+      controller.toggleSplit(child);
+      hosts[1]!.events.onOpenRequest('https://b.com/later', {
+        background: true,
+      });
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+      expect(latest().activePageId).toBe(child);
+    });
+
+    it('ends when either page closes or moves away', () => {
+      const closing = related();
+      closing.controller.toggleSplit(closing.child);
+      closing.controller.closePage(closing.parent);
+      expect(closing.latest().split).toBeNull();
+      expect(closing.hosts[1]!.bounds).toEqual(BOUNDS);
+
+      const moving = related();
+      moving.controller.toggleSplit(moving.child);
+      const work = moving.controller.createWorkspace('Work');
+      moving.controller.switchWorkspace(moving.latest().workspaces[0]!.id);
+      moving.controller.movePageToWorkspace(moving.child, work);
+      expect(moving.latest().split).toBeNull();
+    });
+
+    it('never puts a page on screen to sleep', () => {
+      const { controller, hosts } = setup({ maxLiveViews: 2 });
+      const parent = controller.createPage({ input: 'a.com' });
+      const kid = controller.createPage({ input: 'b.com', parentId: parent });
+      controller.toggleSplit(kid);
+      controller.createPage({ input: 'c.com', parentId: kid, activate: false });
+      expect(hosts[0]!.destroyed).toBe(false);
+      expect(hosts[1]!.destroyed).toBe(false);
+    });
+
+    it('wakes the other side when the pair comes back', () => {
+      const { controller, hosts, latest, parent, child, other } = related();
+      controller.toggleSplit(child);
+      controller.activatePage(other);
+      controller.discard(parent);
+      controller.activatePage(child);
+      expect(latest().pages[parent]?.isDiscarded).toBe(false);
+      expect(hosts.at(-1)!.visible).toBe(true);
+    });
+
+    it('captures both sides for the shell to show under a popover', async () => {
+      const { controller, parent, child } = related();
+      controller.toggleSplit(child);
+      const stills = await controller.captureVisiblePages();
+      expect(Object.keys(stills).sort()).toEqual([parent, child].sort());
+      controller.setOverlayActive(true);
+      expect(await controller.captureVisiblePages()).toEqual({});
+    });
+
+    it('survives a restart, unless one of its pages is gone', () => {
+      const original = related();
+      original.controller.toggleSplit(original.child);
+      const session = original.controller.exportSession();
+      expect(session.workspaces[0]?.split).toEqual({
+        leftId: original.parent,
+        rightId: original.child,
+      });
+
+      const restored = setup();
+      restored.controller.restoreSession(session);
+      expect(restored.latest().split).toEqual({
+        leftId: original.parent,
+        rightId: original.child,
+      });
+      expect(restored.hosts.filter((h) => h.visible)).toHaveLength(2);
+
+      const broken = setup();
+      broken.controller.restoreSession({
+        ...session,
+        workspaces: [
+          {
+            ...session.workspaces[0]!,
+            split: { leftId: 'gone', rightId: original.child },
+          },
+        ],
+      });
+      expect(broken.latest().split).toBeNull();
+    });
+  });
+
   describe('sessions', () => {
     it('exports and restores workspaces, trails and history', () => {
       const original = setup();
@@ -747,8 +946,10 @@ describe('BrowserController', () => {
 
     it('steps the page aside while the shell shows a popover', async () => {
       const { controller, hosts } = setup();
-      controller.createPage({ input: 'a.com' });
-      await expect(controller.captureActivePage()).resolves.toMatch(/^data:/);
+      const id = controller.createPage({ input: 'a.com' });
+      await expect(controller.captureVisiblePages()).resolves.toEqual({
+        [id]: expect.stringMatching(/^data:/),
+      });
       controller.setOverlayActive(true);
       expect(hosts[0]?.visible).toBe(false);
       controller.setOverlayActive(false);

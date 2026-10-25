@@ -6,6 +6,7 @@ import type {
   DownloadSummary,
   PageId,
   SitePermission,
+  SplitView,
   WorkspaceAppearance,
 } from '../../shared/types';
 import { isClosedRecord, type ClosedRecord } from '../browser/closed-records';
@@ -32,6 +33,7 @@ interface WorkspaceRow {
   id: string;
   name: string;
   appearance: string | null;
+  split: string | null;
   active_page_id: string | null;
   created_at: number;
 }
@@ -87,6 +89,20 @@ function parseAppearance(value: string | null): WorkspaceAppearance {
   }
 }
 
+/** A saved split view; the controller checks its pages still exist. */
+function parseSplit(value: string | null): SplitView | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<SplitView> | null;
+    return typeof parsed?.leftId === 'string' &&
+      typeof parsed.rightId === 'string'
+      ? { leftId: parsed.leftId, rightId: parsed.rightId }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
@@ -101,7 +117,7 @@ export class SqliteTrailStore implements TrailStore {
   loadSession(): StoredSession | null {
     const workspaceRows = this.db
       .prepare(
-        'SELECT id, name, appearance, active_page_id, created_at FROM workspaces ORDER BY position',
+        'SELECT id, name, appearance, split, active_page_id, created_at FROM workspaces ORDER BY position',
       )
       .all() as unknown as WorkspaceRow[];
     if (workspaceRows.length === 0) return null;
@@ -146,6 +162,7 @@ export class SqliteTrailStore implements TrailStore {
         }
       };
       visit(null);
+      const split = parseSplit(workspace.split);
       const activeExists =
         workspace.active_page_id !== null &&
         byId.get(workspace.active_page_id)?.workspace_id === workspace.id;
@@ -155,6 +172,7 @@ export class SqliteTrailStore implements TrailStore {
         appearance: parseAppearance(workspace.appearance),
         activePageId: activeExists ? workspace.active_page_id : null,
         createdAt: workspace.created_at,
+        ...(split ? { split } : {}),
       });
     }
 
@@ -187,8 +205,8 @@ export class SqliteTrailStore implements TrailStore {
 
   saveSession(session: StoredSession): void {
     const insertWorkspace = this.db.prepare(
-      `INSERT INTO workspaces (id, name, appearance, position, active_page_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO workspaces (id, name, appearance, split, position, active_page_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertPage = this.db.prepare(
       `INSERT INTO pages (id, workspace_id, parent_id, position, url, title,
@@ -202,6 +220,7 @@ export class SqliteTrailStore implements TrailStore {
           workspace.id,
           workspace.name,
           workspace.appearance ? JSON.stringify(workspace.appearance) : null,
+          workspace.split ? JSON.stringify(workspace.split) : null,
           position,
           workspace.activePageId,
           workspace.createdAt,

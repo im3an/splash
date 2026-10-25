@@ -2,6 +2,7 @@ import type {
   DownloadSummary,
   PageId,
   SitePermission,
+  SplitView,
   WorkspaceAppearance,
   WorkspaceId,
 } from '../../shared/types';
@@ -18,6 +19,7 @@ export interface StoredWorkspace {
   name: string;
   appearance?: WorkspaceAppearance;
   activePageId: PageId | null;
+  split?: SplitView | null;
   createdAt: number;
 }
 

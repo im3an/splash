@@ -10,6 +10,7 @@ import type {
   PageSnapshot,
   PermissionRequest,
   SitePermission,
+  SplitView,
   WorkspaceAppearance,
   WorkspaceId,
 } from '../../shared/types';
@@ -26,6 +27,7 @@ import type {
   PageHostFactory,
   PageRuntimeState,
 } from './page-host';
+import { splitBounds } from './layout';
 import { TrailTree } from './trail-tree';
 import { isNavigableUrl, resolveAddressInput } from './url';
 import { stepZoom } from './zoom';
@@ -37,6 +39,8 @@ interface Workspace {
   appearance: WorkspaceAppearance;
   tree: TrailTree;
   activePageId: PageId | null;
+  /** Two pages shown side by side whenever either one is active. */
+  split: SplitView | null;
   createdAt: number;
 }
 
@@ -138,7 +142,8 @@ export class BrowserController {
   private workspaceOrder: WorkspaceId[] = [];
   private activeWorkspaceId: WorkspaceId;
   private readonly pages = new Map<PageId, Page>();
-  private visibleId: PageId | null = null;
+  /** Pages whose views are on screen: the active one, or a split's two. */
+  private visibleIds = new Set<PageId>();
   private bounds: Rectangle | null = null;
   /** The shell is showing something over the page area (a popover). */
   private overlayActive = false;
@@ -189,6 +194,13 @@ export class BrowserController {
           : null;
     if (url !== null) this.load(id, url, options.referrer);
 
+    // Pages opened from either side of a split view open on its right, so
+    // the left keeps its place while you follow links.
+    const split = this.visibleSplit(workspace);
+    if (activate && split && parentId !== null && inSplit(split, parentId)) {
+      workspace.split = { leftId: split.leftId, rightId: id };
+    }
+
     if (activate || workspace.activePageId === null) this.activatePage(id);
     else {
       this.enforceLiveBudget();
@@ -208,6 +220,9 @@ export class BrowserController {
     if (parentId !== null) this.require(parentId).lastVisitedChildId = id;
     workspace.tree.reveal(id);
     this.ensureLive(id);
+    const split = this.visibleSplit(workspace);
+    if (split)
+      this.ensureLive(split.leftId === id ? split.rightId : split.leftId);
     this.syncVisibleHost();
     this.enforceLiveBudget();
     this.changed();
@@ -357,6 +372,51 @@ export class BrowserController {
     return copyId;
   }
 
+  /**
+   * Shows `id` beside `otherId` and makes it the active page. An ancestor
+   * goes on the left, so a parent and its child read in trail order.
+   */
+  openSplit(id: PageId, otherId: PageId): void {
+    const workspace = this.workspaceOf(id);
+    if (id === otherId || !workspace.tree.has(otherId)) {
+      throw new Error('A split view needs two pages of one workspace');
+    }
+    workspace.split = workspace.tree.isWithin(otherId, id)
+      ? { leftId: id, rightId: otherId }
+      : { leftId: otherId, rightId: id };
+    this.activatePage(id);
+  }
+
+  /**
+   * Closes the split view `id` is showing in, or opens one with the page it
+   * is most related to: its parent, or else the child "forward" leads to.
+   */
+  toggleSplit(id: PageId): void {
+    const workspace = this.workspaceOf(id);
+    if (workspace.split && inSplit(workspace.split, id)) {
+      this.closeSplit(workspace.id);
+      return;
+    }
+    const related = this.relatedPageOf(id);
+    if (related !== null) this.openSplit(id, related);
+  }
+
+  /** Ends a workspace's split view; its active page stays on screen. */
+  closeSplit(workspaceId: WorkspaceId = this.activeWorkspaceId): void {
+    const workspace = this.requireWorkspace(workspaceId);
+    if (!workspace.split) return;
+    workspace.split = null;
+    this.syncVisibleHost();
+    this.enforceLiveBudget();
+    this.changed();
+  }
+
+  /** The page a split view would pair `id` with, if it has one. */
+  relatedPageOf(id: PageId): PageId | null {
+    const parentId = this.workspaceOf(id).tree.get(id)?.parentId ?? null;
+    return parentId ?? this.forwardChildOf(id);
+  }
+
   /** Gives a page its own name; `null` goes back to the page's title. */
   renamePage(id: PageId, title: string | null): void {
     this.require(id).customTitle = cleanText(title);
@@ -434,7 +494,7 @@ export class BrowserController {
 
   focusActivePage(): void {
     const activeId = this.activePageId;
-    if (activeId !== null && this.visibleId === activeId) {
+    if (activeId !== null && this.visibleIds.has(activeId)) {
       this.require(activeId).host?.focus();
     }
   }
@@ -454,7 +514,7 @@ export class BrowserController {
       isUnresponsive: false,
       find: null,
     };
-    if (this.visibleId === id) this.visibleId = null;
+    this.visibleIds.delete(id);
     this.changed();
   }
 
@@ -485,12 +545,16 @@ export class BrowserController {
     this.require(id).host?.stopFind();
   }
 
-  /** A still image of the active page, for the shell to show under popovers. */
-  async captureActivePage(): Promise<string | null> {
-    const id = this.visibleId;
-    return id === null
-      ? null
-      : ((await this.pages.get(id)?.host?.capture()) ?? null);
+  /** Stills of the pages on screen, for the shell to show under popovers. */
+  async captureVisiblePages(): Promise<Record<PageId, string>> {
+    const stills: Record<PageId, string> = {};
+    await Promise.all(
+      [...this.visibleIds].map(async (id) => {
+        const still = await this.pages.get(id)?.host?.capture();
+        if (still) stills[id] = still;
+      }),
+    );
+    return stills;
   }
 
   /** While the shell shows a popover over the page area, the page steps aside. */
@@ -650,6 +714,12 @@ export class BrowserController {
       active !== null && branch.includes(active)
         ? source.tree.branchSuccessorOf(id)
         : active;
+    if (
+      source.split &&
+      branch.some((pageId) => inSplit(source.split!, pageId))
+    ) {
+      source.split = null;
+    }
     source.tree.removeBranch(id);
     for (const { pageId, parentId, collapsed } of structure) {
       target.tree.add(pageId, pageId === id ? null : parentId);
@@ -694,6 +764,7 @@ export class BrowserController {
           name: workspace.name,
           appearance: workspace.appearance,
           activePageId: workspace.activePageId,
+          split: workspace.split,
           createdAt: workspace.createdAt,
         };
       }),
@@ -750,6 +821,14 @@ export class BrowserController {
         stored.activePageId !== null && workspace.tree.has(stored.activePageId)
           ? stored.activePageId
           : (workspace.tree.rootIds[0] ?? null);
+      const split = stored.split ?? null;
+      workspace.split =
+        split &&
+        split.leftId !== split.rightId &&
+        workspace.tree.has(split.leftId) &&
+        workspace.tree.has(split.rightId)
+          ? split
+          : null;
     }
     this.closed = [...(session.closed ?? [])].slice(-MAX_CLOSED_RECORDS);
     this.closedSerial = Math.max(
@@ -789,6 +868,7 @@ export class BrowserController {
       pages,
       rootIds: [...workspace.tree.rootIds],
       activePageId: workspace.activePageId,
+      split: workspace.split && { ...workspace.split },
       lastClosed: this.closed.at(-1)?.summary ?? null,
       workspaces: this.workspaceOrder.map((id) => {
         const other = this.requireWorkspace(id);
@@ -807,7 +887,7 @@ export class BrowserController {
     this.disposed = true;
     for (const page of this.pages.values()) page.host?.destroy();
     this.pages.clear();
-    this.visibleId = null;
+    this.visibleIds.clear();
   }
 
   // ── Internals ──────────────────────────────────────────────────────────
@@ -831,6 +911,7 @@ export class BrowserController {
       appearance: DEFAULT_APPEARANCE,
       tree: new TrailTree(),
       activePageId: null,
+      split: null,
       createdAt: this.now(),
     };
     this.workspaces.set(id, workspace);
@@ -943,7 +1024,14 @@ export class BrowserController {
   /** Destroys a page's view and forgets it. The tree is updated separately. */
   private release(id: PageId): void {
     const page = this.pages.get(id);
-    if (this.visibleId === id) this.visibleId = null;
+    if (page) {
+      // A split view ends when either of its pages goes.
+      const workspace = this.workspaces.get(page.workspaceId);
+      if (workspace?.split && inSplit(workspace.split, id)) {
+        workspace.split = null;
+      }
+    }
+    this.visibleIds.delete(id);
     this.pages.delete(id);
     if (page) this.cancelPermissionRequests(page);
     page?.host?.destroy();
@@ -995,6 +1083,16 @@ export class BrowserController {
         else this.reload(id);
       },
       navigationAvailability: () => this.trailNavigation(id),
+      onFocus: () => {
+        // Clicking into the other side of a split view makes it active.
+        if (
+          isCurrent() &&
+          this.activePageId !== id &&
+          this.visibleIds.has(id)
+        ) {
+          this.activatePage(id);
+        }
+      },
       onPermissionRequest: (origin, permissions) => {
         const page = this.pages.get(id);
         if (!isCurrent() || !page) return Promise.resolve(false);
@@ -1054,7 +1152,12 @@ export class BrowserController {
     if (excess <= 0) return;
     const activeId = this.activePageId;
     const candidates = live
-      .filter(([id, page]) => id !== activeId && !page.host?.isAudible())
+      .filter(
+        ([id, page]) =>
+          id !== activeId &&
+          !this.visibleIds.has(id) &&
+          !page.host?.isAudible(),
+      )
       .sort(([, a], [, b]) => a.lastActiveAt - b.lastActiveAt);
     for (const [id] of candidates) {
       if (excess-- <= 0) break;
@@ -1087,29 +1190,48 @@ export class BrowserController {
   }
 
   /**
-   * Shows the active page's view when there is real content to show. A page
-   * with no address or a failed load is hidden so the shell can render its
-   * own surface in that space.
+   * Shows the active page's view, or both views of its split, wherever there
+   * is real content to show. A page with no address or a failed load is
+   * hidden so the shell can render its own surface in that space.
    */
   private syncVisibleHost(): void {
     if (this.disposed) return;
+    const placements = new Map<PageId, Rectangle>();
     const activeId = this.activePageId;
-    const active = activeId === null ? undefined : this.pages.get(activeId);
-    const shouldShow =
-      !this.overlayActive &&
-      active?.host != null &&
-      this.bounds !== null &&
-      active.state.url !== null &&
-      active.state.error === null;
-    const nextId = shouldShow ? activeId : null;
+    if (!this.overlayActive && this.bounds !== null && activeId !== null) {
+      const split = this.visibleSplit(this.workspace);
+      if (split) {
+        const [left, right] = splitBounds(this.bounds);
+        placements.set(split.leftId, left);
+        placements.set(split.rightId, right);
+      } else {
+        placements.set(activeId, this.bounds);
+      }
+    }
+    for (const [id] of placements) {
+      const page = this.pages.get(id);
+      const showable =
+        page?.host != null &&
+        page.state.url !== null &&
+        page.state.error === null;
+      if (!showable) placements.delete(id);
+    }
 
-    if (this.visibleId !== null && this.visibleId !== nextId) {
-      this.pages.get(this.visibleId)?.host?.hide();
+    for (const id of this.visibleIds) {
+      if (!placements.has(id)) this.pages.get(id)?.host?.hide();
     }
-    if (nextId !== null && active?.host && this.bounds) {
-      active.host.show(this.bounds);
+    for (const [id, bounds] of placements) {
+      this.pages.get(id)?.host?.show(bounds);
     }
-    this.visibleId = nextId;
+    this.visibleIds = new Set(placements.keys());
+  }
+
+  /** The workspace's split view, if it is on screen. */
+  private visibleSplit(workspace: Workspace): SplitView | null {
+    const { split, activePageId } = workspace;
+    return split && activePageId !== null && inSplit(split, activePageId)
+      ? split
+      : null;
   }
 
   private changed(): void {
@@ -1126,6 +1248,10 @@ export class BrowserController {
     if (!page) throw new Error(`Page ${id} does not exist`);
     return page;
   }
+}
+
+function inSplit(split: SplitView, id: PageId): boolean {
+  return split.leftId === id || split.rightId === id;
 }
 
 function originOf(url: string | null): string | null {

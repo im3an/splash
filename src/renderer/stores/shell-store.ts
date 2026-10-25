@@ -6,6 +6,7 @@ import type {
   BrowserSnapshot,
   PageId,
   PageSnapshot,
+  SplitView,
   WorkspaceSummary,
 } from '../../shared/types';
 
@@ -84,6 +85,15 @@ export function selectWorkspaces(
 export function selectActivePage(state: ShellState): PageSnapshot | null {
   const id = state.snapshot?.activePageId;
   return (id && state.snapshot?.pages[id]) || null;
+}
+
+/** The split view, while it is on screen (its pages include the active one). */
+export function selectVisibleSplit(state: ShellState): SplitView | null {
+  const split = state.snapshot?.split ?? null;
+  const activeId = state.snapshot?.activePageId;
+  return split && (split.leftId === activeId || split.rightId === activeId)
+    ? split
+    : null;
 }
 
 /** Feeds main-process state and commands into the store. */

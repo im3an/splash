@@ -80,6 +80,11 @@
   .icon-button:active:not(:disabled) {
     background: var(--pressed);
   }
+  /* A toggle that's on, such as split view. */
+  .icon-button[aria-pressed='true'] {
+    background: var(--hover);
+    color: var(--accent);
+  }
   .icon-button:disabled {
     color: var(--fg-subtle);
     opacity: 0.55;

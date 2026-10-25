@@ -57,6 +57,8 @@ export interface PageHostEvents {
   onNavigationCommand(command: 'back' | 'forward' | 'reload'): void;
   /** Whether back/forward lead anywhere, counting the trail. */
   navigationAvailability(): { canGoBack: boolean; canGoForward: boolean };
+  /** The page took keyboard focus, usually because it was clicked. */
+  onFocus(): void;
   /** The page asks for permissions nobody has decided on yet. */
   onPermissionRequest(
     origin: string,

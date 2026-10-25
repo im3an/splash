@@ -116,7 +116,8 @@ export type PaletteCommand =
   | 'find'
   | 'zoom-reset'
   | 'mute-page'
-  | 'site-info';
+  | 'site-info'
+  | 'toggle-split';
 
 export type DownloadState =
   | 'progressing'
@@ -234,11 +235,19 @@ export interface ClosedSummary {
   serial: number;
 }
 
+/** Two pages of one workspace shown side by side. */
+export interface SplitView {
+  leftId: PageId;
+  rightId: PageId;
+}
+
 /** The window's state as the shell renders it: the active workspace's trail. */
 export interface BrowserSnapshot {
   pages: Record<PageId, PageSnapshot>;
   rootIds: PageId[];
   activePageId: PageId | null;
+  /** The workspace's split view; on screen while either of its pages is active. */
+  split: SplitView | null;
   lastClosed: ClosedSummary | null;
   workspaces: WorkspaceSummary[];
   activeWorkspaceId: WorkspaceId;

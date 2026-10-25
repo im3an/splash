@@ -47,6 +47,12 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     shortcut: '⌘W',
   },
   {
+    command: 'toggle-split',
+    title: 'Toggle split view',
+    keywords: 'compare side by side parent child beside',
+    shortcut: '⌘\\',
+  },
+  {
     command: 'find',
     title: 'Find on page',
     keywords: 'search text',

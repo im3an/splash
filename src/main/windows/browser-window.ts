@@ -197,6 +197,11 @@ export class TrailWindow {
         'page:show-menu': ({ pageId }) => showPageMenu(this, pageId),
         'page:set-note': ({ pageId, note }) =>
           this.controller.setNote(pageId, note),
+        'page:open-split': ({ pageId, otherId }) =>
+          this.controller.openSplit(pageId, otherId),
+        'page:toggle-split': ({ pageId }) =>
+          this.controller.toggleSplit(pageId),
+        'split:close': () => this.controller.closeSplit(),
         'workspace:switch': ({ workspaceId }) =>
           this.controller.switchWorkspace(workspaceId),
         'workspace:rename': ({ workspaceId, name }) =>
@@ -230,7 +235,7 @@ export class TrailWindow {
           store.clearPermissions(origin);
           this.controller.applySoundPolicy(origin, false);
         },
-        'view:freeze': () => this.controller.captureActivePage(),
+        'view:freeze': () => this.controller.captureVisiblePages(),
         'downloads:list': () => this.options.downloads.list(),
         'downloads:act': ({ id, action }) =>
           this.options.downloads.act(id, action),

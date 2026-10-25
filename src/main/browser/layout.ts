@@ -15,3 +15,20 @@ export function contentBounds(
     height: Math.max(0, Math.round(window.height - insets.bottom) - y),
   };
 }
+
+/** Space between the two pages of a split view; matches `--gutter`. */
+export const SPLIT_GAP = 8;
+
+/** The left and right halves of `bounds`, with `SPLIT_GAP` between them. */
+export function splitBounds(bounds: Rectangle): [Rectangle, Rectangle] {
+  const leftWidth = Math.max(0, Math.floor((bounds.width - SPLIT_GAP) / 2));
+  const rightX = bounds.x + leftWidth + SPLIT_GAP;
+  return [
+    { ...bounds, width: leftWidth },
+    {
+      ...bounds,
+      x: rightX,
+      width: Math.max(0, bounds.x + bounds.width - rightX),
+    },
+  ];
+}

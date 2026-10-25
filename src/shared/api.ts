@@ -38,6 +38,9 @@ export interface InvokeOutputs {
   'page:rename': void;
   'page:duplicate': PageId;
   'page:show-menu': void;
+  'page:open-split': void;
+  'page:toggle-split': void;
+  'split:close': void;
   'page:set-note': void;
   'workspace:switch': void;
   'workspace:rename': void;
@@ -52,7 +55,7 @@ export interface InvokeOutputs {
   'site:get-info': SiteInfo | null;
   'site:set-permission': void;
   'site:reset': void;
-  'view:freeze': string | null;
+  'view:freeze': Record<PageId, string>;
   'palette:query': PaletteItem[];
   'downloads:list': DownloadSummary[];
   'downloads:act': void;
@@ -107,6 +110,11 @@ export interface SplashApi {
   /** Opens the native context menu for a page in the sidebar. */
   showPageMenu(pageId: PageId): Promise<void>;
   setNote(pageId: PageId, note: string | null): Promise<void>;
+  /** Shows `pageId` beside `otherId` and makes it active. */
+  openSplit(pageId: PageId, otherId: PageId): Promise<void>;
+  /** Closes the page's split view, or opens one with its parent or child. */
+  toggleSplit(pageId: PageId): Promise<void>;
+  closeSplit(): Promise<void>;
   switchWorkspace(workspaceId: WorkspaceId): Promise<void>;
   renameWorkspace(workspaceId: WorkspaceId, name: string): Promise<void>;
   showWorkspaceMenu(): Promise<void>;
@@ -139,8 +147,8 @@ export interface SplashApi {
     decision: PermissionDecision,
   ): Promise<void>;
   resetSite(origin: string): Promise<void>;
-  /** A still image of the active page, to show under a popover. */
-  freezePage(): Promise<string | null>;
+  /** Stills of the pages on screen by page, to show under a popover. */
+  freezePage(): Promise<Record<PageId, string>>;
   /** While true, the live page steps aside so shell popovers are visible. */
   setOverlayActive(active: boolean): void;
   queryPalette(

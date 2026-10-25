@@ -104,6 +104,9 @@ export const invokeContract = {
   'page:rename': z.strictObject({ pageId, title: pageTitle }),
   'page:duplicate': z.strictObject({ pageId }),
   'page:show-menu': z.strictObject({ pageId }),
+  'page:open-split': z.strictObject({ pageId, otherId: pageId }),
+  'page:toggle-split': z.strictObject({ pageId }),
+  'split:close': z.undefined(),
   'page:set-note': z.strictObject({
     pageId,
     note: z.string().max(4000).nullable(),

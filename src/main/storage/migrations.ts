@@ -71,6 +71,10 @@ export const MIGRATIONS: readonly string[] = [
     started_at INTEGER NOT NULL
   );
   `,
+  // 6 — the two pages a workspace shows side by side, as JSON.
+  `
+  ALTER TABLE workspaces ADD COLUMN split TEXT;
+  `,
 ];
 
 export class SchemaTooNewError extends Error {}
