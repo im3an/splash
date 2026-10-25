@@ -146,7 +146,15 @@ function openWindow(): TrailWindow {
     onSnapshot: (snapshot) => settings?.send(eventChannels.snapshot, snapshot),
   });
   windows.add(trailWindow);
-  trailWindow.window.on('closed', () => windows.delete(trailWindow));
+  // The Workspaces menu is built for one window, so rebuild it whenever
+  // which window it should act on changes. A fresh start sends no snapshot,
+  // and a closed window must not be left behind in the menu.
+  trailWindow.window.on('focus', refreshMenu);
+  trailWindow.window.on('closed', () => {
+    windows.delete(trailWindow);
+    refreshMenu();
+  });
+  refreshMenu();
   return trailWindow;
 }
 
