@@ -1,4 +1,10 @@
-import { useCallback, useRef, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { CircleAlert, Plus } from 'lucide-react';
 import type { ContentInsets, PageSnapshot } from '../../shared/types';
 import { useContentInsets } from '../hooks/use-content-insets';
@@ -9,6 +15,7 @@ import { selectActivePage, useShell } from '../stores/shell-store';
 import { AddressSuggestions } from './AddressSuggestions';
 import { CommandPalette } from './CommandPalette';
 import { DownloadsPanel } from './DownloadsPanel';
+import { ErrorBoundary } from './ErrorBoundary';
 import { SiteInfoPopover } from './SiteInfoPopover';
 import { WorkspaceEditor } from './WorkspaceEditor';
 
@@ -32,7 +39,7 @@ export function ContentArea() {
       >
         <Surface />
         <FrozenPage />
-        <OverlayHost />
+        <OverlayBoundary />
       </div>
     </div>
   );
@@ -50,6 +57,42 @@ function FrozenPage() {
       draggable={false}
       className="absolute inset-0 size-full object-cover object-top-left"
     />
+  );
+}
+
+/** A panel that fails closes itself and says so; the rest keeps working. */
+function OverlayBoundary() {
+  const overlay = useOverlay((state) => state.overlay);
+  const [failedPanel, setFailedPanel] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!failedPanel) return;
+    const timer = setTimeout(() => setFailedPanel(null), 6000);
+    return () => clearTimeout(timer);
+  }, [failedPanel]);
+
+  return (
+    <>
+      <ErrorBoundary
+        key={overlay?.kind ?? 'none'}
+        onError={() => {
+          setFailedPanel(overlay?.kind ?? 'panel');
+          useOverlay.getState().close();
+        }}
+        fallback={() => null}
+      >
+        <OverlayHost />
+      </ErrorBoundary>
+      {failedPanel && (
+        <p
+          role="alert"
+          className="overlay-in absolute top-2 left-1/2 -translate-x-1/2 rounded-[var(--radius-control)] bg-elevated px-3 py-1.5 text-[12px] text-fg-muted shadow-[var(--shadow-row)]"
+        >
+          That panel ran into a problem and was closed. Your pages are
+          unaffected.
+        </p>
+      )}
+    </>
   );
 }
 

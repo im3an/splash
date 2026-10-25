@@ -40,7 +40,7 @@ import {
 import { pageLabel, pageParts } from '../lib/format';
 import { visibleRows, type TrailRow as Row } from '../lib/trail';
 import { api } from '../splash-api';
-import { useShell } from '../stores/shell-store';
+import { selectWorkspaces, useShell } from '../stores/shell-store';
 import { useDownloads } from '../stores/downloads-store';
 import { DownloadRing } from './DownloadRing';
 import { Favicon } from './Favicon';
@@ -408,7 +408,7 @@ function TrailSkeleton() {
 }
 
 function TrailEmpty() {
-  const workspaces = useShell((state) => state.snapshot?.workspaces ?? []);
+  const workspaces = useShell(selectWorkspaces);
   const activeId = useShell((state) => state.snapshot?.activeWorkspaceId);
   const name = workspaces.find((w) => w.id === activeId)?.name;
   const several = workspaces.length > 1;
