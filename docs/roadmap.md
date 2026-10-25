@@ -26,6 +26,38 @@ listed under a phase waits.
   browsing data with undo for history; visible asleep pages; unresponsive-page
   bar; default browser and web links from other apps.
 
+- **Compare related pages.** Split view shows two pages of a workspace side
+  by side, the ancestor on the left. ⌘\\, the toolbar button, the page menu
+  (Compare with Parent/Child, Open in Split View) or the palette open it.
+  Clicking a side makes it active; links from either side open on the right.
+  The pair stays while other pages are shown, comes back with either page,
+  ends when one closes or moves, and survives a restart.
+- **Command palette and pinned pages.** ⌘K groups results under Pinned,
+  Pages, Workspaces, Commands and History; the section with the best match
+  leads, matched words are marked and the footer says what ↵ will do. It
+  switches workspaces (with their ⌃1–9 shortcuts), and `>` narrows it to
+  commands, which hide when they can't apply and name what a toggle will do
+  ("Unpin page"). Pinned pages are Splash's saved pages: ⌘D, the page menu or
+  the palette pins a page to the top of its trail with a pin on its row;
+  closing one puts it to sleep and offers "Unpin and close"; pins confirm
+  with Undo and survive a restart.
+
+- **Browser essentials for beta.** A site's full screen (a video) fills the
+  whole window and gives it back on Esc, even from a split view. ⌘P prints,
+  ⇧⌘C copies the page address with a confirmation, ⇧⌘R reloads ignoring the
+  cache. ⌃⇥ and ⌃⇧⇥ step through the trail's visible rows, ⌘1–⌘8 pick a
+  row and ⌘9 the last. A mouse's back and forward buttons and a three-finger
+  swipe go back and forward. ⌥⌘L opens and closes Downloads. The History
+  menu lists recently closed pages (any of them can be reopened, not only the
+  last) and recently visited pages. The window takes the active page's title
+  for the Window menu and Mission Control. In pages, the right-click menu adds
+  Download Linked File, Download Image, Look Up and Print.
+- **Fixes found while testing.** uBlock Origin's scriptlets injected by the
+  built-in blocker no longer overwrite each other's helpers: on YouTube that
+  made `Function.prototype.toString` and `fetch.toString()` overflow the
+  stack. Closing or putting a page to sleep no longer starts a loop between
+  Splash and the extensions library that leaked hundreds of empty page views.
+
 ## Open before beta
 
 - Picture in picture as a site permission: Chromium doesn't expose it, so it
@@ -36,9 +68,71 @@ listed under a phase waits.
   access prompts in the installed app.
 - Code signing and notarisation for distribution.
 
+### Gaps from the 25 October audit
+
+The whole product was read against [product-quality.md](product-quality.md).
+It was checked in the code, not yet in the running app. Ordered by impact on
+the user:
+
+1. ~~**Feedback disappears with the sidebar.**~~ Done: while the sidebar is
+   hidden, the toast and the downloads button sit in the toolbar.
+2. ~~**Collapsed branches hide state.**~~ Done: a collapsed row shows how many
+   pages it hides, and any sound (click to mute), download or failure (click
+   to show the page) among them.
+3. ~~**Silent actions.**~~ Done: Copy Link, Copy Image and Copy Image Address
+   are confirmed; Move to Workspace says where the branch went, with Go there
+   and Undo.
+4. **The trail can't be walked from the keyboard.** Only the active row is
+   focusable, and ↑ ↓ Home End do nothing, so keyboard and VoiceOver users
+   can't move through pages. Port the keyboard navigation and ⌥⌘arrow moves
+   from `prototype-02-shell`.
+5. **Undo is partial.** Closing can be undone. Dragging a page, moving it to
+   another workspace and renaming it can't. ⌘Z in the sidebar doesn't undo a
+   close, though the toast offers ⇧⌘T. Decide on one undo for trail edits.
+6. ~~**Offline doesn't recover.**~~ Done: "You're offline" pages reload by
+   themselves once the Mac is back online.
+7. ~~**Menus don't reflect state.**~~ Done: Back, Forward, Close Branch,
+   Print and Copy Page Address are disabled when they can't apply.
+8. ~~**Downloads are hard to reach.**~~ Done: View › Downloads (⌥⌘L) opens
+   the list at any time. The palette's "Show downloads" doesn't show the
+   shortcut yet.
+9. ~~**History can only be reached by search.**~~ Done: History › Show All
+   History (⌘Y), the palette and the sidebar's foot show History in the
+   sidebar, widened, in place of the trail: search, reopen or remove sites,
+   with undo. Downloads opens there the same way.
+
+### Browser basics still missing
+
+Found in the 25 October feature check; none blocks daily use:
+
+- **Sign-in prompts for HTTP authentication.** Sites behind basic auth
+  (routers, staging servers) show their error page; there's no username and
+  password prompt.
+- **"Leave site?" on close.** Closing a page with unsaved form input closes
+  it at once. Reopen Closed brings the address back, not what was typed.
+- **Save Page As, View Source, Open File (⌘O).** Developer Tools covers the
+  source for now.
+- **Picture in picture from the context menu** and video controls such as
+  Loop.
+- Not yet checked by hand: a mouse's back and forward buttons and the
+  three-finger swipe (synthetic input doesn't reach a page in a background
+  window); the automatic retry after going offline (it is unit-tested).
+
+Already clearing the bar: specific error pages with Retry and Go back; row
+states for loading, error, unresponsive, audio, asleep and downloading; undo
+toast for closes and workspace deletes; save-failure bar; safe startup with a
+newer or corrupt database.
+
+### Needs a decision
+
+These brainstorm items aren't sorted into any phase yet:
+
+- **Recently closed list** outside the History menu.
+- **Close other pages** and **close pages below** in the page menu.
+
 ## Later, after beta
 
-Split view · picture in picture controls and a "now playing" list · reader
+Resizable split view · picture in picture controls and a "now playing" list · reader
 mode · page screenshots · reading list · import from other browsers · export a
 trail or workspace · semantic history search · AI page summaries · duplicate
 page detection · profiles with separate data · per-workspace isolated logins ·

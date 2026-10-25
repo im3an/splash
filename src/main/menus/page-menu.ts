@@ -19,13 +19,22 @@ export function showPageMenu(trailWindow: TrailWindow, pageId: PageId): void {
   if (!page) return;
   const url = page.url;
   const hasChildren = page.childIds.length > 0;
+  const activeId = snapshot.activePageId;
+  const split = snapshot.split;
+  const splitShowing =
+    split !== null &&
+    activeId !== null &&
+    [split.leftId, split.rightId].includes(activeId);
+  const inShowingSplit =
+    splitShowing && [split.leftId, split.rightId].includes(pageId);
+  const related = controller.relatedPageOf(pageId);
 
   const template: MenuItemConstructorOptions[] = [
     {
       label: 'New Child Page',
       click: () => {
         controller.createChildPage(pageId);
-        trailWindow.sendUiCommand({ type: 'focus-address-bar' });
+        trailWindow.sendUiCommand({ type: 'open-location' });
       },
     },
     {
@@ -33,6 +42,27 @@ export function showPageMenu(trailWindow: TrailWindow, pageId: PageId): void {
       enabled: url !== null,
       click: () => controller.duplicatePage(pageId),
     },
+    {
+      label: page.isPinned ? 'Unpin Page' : 'Pin Page',
+      click: () => controller.setPinned(pageId, !page.isPinned),
+    },
+    { type: 'separator' },
+    inShowingSplit
+      ? { label: 'Close Split View', click: () => controller.closeSplit() }
+      : pageId !== activeId && activeId !== null
+        ? {
+            label: 'Open in Split View',
+            click: () => controller.openSplit(pageId, activeId),
+          }
+        : {
+            label:
+              related !== null && related === page.parentId
+                ? 'Compare with Parent'
+                : 'Compare with Child',
+            enabled: related !== null,
+            click: () => controller.toggleSplit(pageId),
+          },
+    { type: 'separator' },
     {
       label: 'Rename…',
       click: () => trailWindow.sendUiCommand({ type: 'rename-page', pageId }),
@@ -52,7 +82,15 @@ export function showPageMenu(trailWindow: TrailWindow, pageId: PageId): void {
     {
       label: 'Copy Link',
       enabled: url !== null,
-      click: () => url && clipboard.writeText(url),
+      click: () => {
+        if (!url) return;
+        clipboard.writeText(url);
+        trailWindow.notify({
+          kind: 'copied',
+          what: 'link',
+          subject: page.customTitle || page.title || null,
+        });
+      },
     },
     ...(snapshot.workspaces.length > 1
       ? ([
@@ -80,8 +118,20 @@ export function showPageMenu(trailWindow: TrailWindow, pageId: PageId): void {
           { type: 'separator' },
         ] satisfies MenuItemConstructorOptions[])
       : []),
-    { label: 'Close Page', click: () => controller.closePage(pageId) },
-    ...(hasChildren
+    ...(page.isPinned
+      ? ([
+          {
+            label: 'Put to Sleep',
+            enabled: url !== null && !page.isDiscarded,
+            click: () => controller.closePage(pageId),
+          },
+          {
+            label: 'Unpin and Close',
+            click: () => controller.closePage(pageId, { unpin: true }),
+          },
+        ] satisfies MenuItemConstructorOptions[])
+      : [{ label: 'Close Page', click: () => controller.closePage(pageId) }]),
+    ...(hasChildren && !page.isPinned
       ? [
           {
             label: `Close Branch (${branchSize(snapshot, pageId)} Pages)`,

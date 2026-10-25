@@ -8,13 +8,16 @@ import {
 import type {
   AboutInfo,
   ClearRange,
+  ContentBlockingStatus,
   DefaultBrowserStatus,
   PermissionDecision,
+  SitePermission,
   SiteSettings,
 } from '../../shared/types';
 import { WorkspaceIcon } from '../components/WorkspaceIcon';
 import { api } from '../splash-api';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
+import { filterListsSummary } from '../lib/format';
 import { Button, Choice, Row, Section, Toggle } from './controls';
 
 function usePreferences(): [
@@ -67,6 +70,16 @@ export function GeneralSettings() {
             ))}
           </select>
         </Row>
+        <Row
+          label="Show search suggestions"
+          help="While you type in the address bar, your search engine suggests searches. What you type is sent to it as you type; full addresses and local sites never are."
+        >
+          <Toggle
+            label="Show search suggestions"
+            checked={preferences.searchSuggestions}
+            onChange={(searchSuggestions) => update({ searchSuggestions })}
+          />
+        </Row>
       </Section>
       <Section title="Default browser">
         <Row
@@ -117,14 +130,17 @@ export function AppearanceSettings() {
             ]}
           />
         </Row>
-        <Row label="Density" help="Compact fits more pages in the sidebar.">
+        <Row
+          label="Address bar"
+          help="In the sidebar, the address and back and forward sit above your pages, and the page fills the window."
+        >
           <Choice
-            label="Density"
-            value={preferences.density}
-            onChange={(density) => update({ density })}
+            label="Address bar"
+            value={preferences.addressBar}
+            onChange={(addressBar) => update({ addressBar })}
             options={[
-              { value: 'comfortable', label: 'Comfortable' },
-              { value: 'compact', label: 'Compact' },
+              { value: 'toolbar', label: 'Top bar' },
+              { value: 'sidebar', label: 'Sidebar' },
             ]}
           />
         </Row>
@@ -141,6 +157,65 @@ export function AppearanceSettings() {
           >
             Customize current workspace…
           </Button>
+        </Row>
+        <Row
+          label="Reduce motion"
+          help="Splash already follows Reduce motion in macOS Accessibility settings. This calms Splash on its own: nothing slides or springs."
+        >
+          <Toggle
+            label="Reduce motion"
+            checked={preferences.reduceMotion}
+            onChange={(reduceMotion) => update({ reduceMotion })}
+          />
+        </Row>
+      </Section>
+      <Section title="Sidebar">
+        <Row
+          label="Current page"
+          help="How the trail marks the page you’re looking at."
+        >
+          <Choice
+            label="Current page"
+            value={preferences.currentPage}
+            onChange={(currentPage) => update({ currentPage })}
+            options={[
+              { value: 'dot', label: 'Dot' },
+              { value: 'outline', label: 'Outline' },
+              { value: 'underline', label: 'Underline' },
+              { value: 'raised', label: 'Raised' },
+            ]}
+          />
+        </Row>
+        <Row label="Density" help="Compact fits more pages in the sidebar.">
+          <Choice
+            label="Density"
+            value={preferences.density}
+            onChange={(density) => update({ density })}
+            options={[
+              { value: 'comfortable', label: 'Comfortable' },
+              { value: 'compact', label: 'Compact' },
+            ]}
+          />
+        </Row>
+        <Row
+          label="Show site names"
+          help="The site’s name, in a quieter colour, after each page’s title."
+        >
+          <Toggle
+            label="Show site names"
+            checked={preferences.showSiteNames}
+            onChange={(showSiteNames) => update({ showSiteNames })}
+          />
+        </Row>
+        <Row
+          label="Show branch lines"
+          help="Hairlines down each branch, so pages opened from a page read as its children."
+        >
+          <Toggle
+            label="Show branch lines"
+            checked={preferences.showBranchLines}
+            onChange={(showBranchLines) => update({ showBranchLines })}
+          />
         </Row>
       </Section>
     </>
@@ -233,6 +308,77 @@ const RANGES: { value: ClearRange; label: string }[] = [
   { value: 'all', label: 'All time' },
 ];
 
+/** Decided by Splash itself, so a site never asks for them. */
+const NEVER_ASKED = new Set<SitePermission>(['sound', 'ads']);
+
+function ContentBlockingSettings() {
+  const [preferences, update] = usePreferences();
+  const [status, setStatus] = useState<ContentBlockingStatus | null>(null);
+  const [updating, setUpdating] = useState(false);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      const next = await api().contentBlockingStatus();
+      setStatus(next);
+      // The first download takes a few seconds; show when it's done.
+      if (next.state === 'loading') timer = setTimeout(poll, 1000);
+    };
+    void poll();
+    return () => clearTimeout(timer);
+  }, []);
+
+  const updateNow = async () => {
+    setUpdating(true);
+    try {
+      setStatus(await api().updateFilterLists());
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  if (!preferences) return null;
+  return (
+    <Section
+      title="Ads and trackers"
+      description="Splash blocks ads, trackers and harmful sites with uBlock Origin’s filter lists and EasyList. To allow them on one site, open its settings from the address bar."
+    >
+      <Row label="Block ads and trackers" help="Applies to pages as they load.">
+        <Toggle
+          label="Block ads and trackers"
+          checked={preferences.blockAds}
+          onChange={(blockAds) => update({ blockAds })}
+        />
+      </Row>
+      <Row
+        label="Hide cookie notices"
+        help="Rejects cookie banners for you and hides simple notices. Splash never agrees in your name, so a banner with no way to reject stays for you to answer. A site where you allow ads shows its banner."
+      >
+        <Toggle
+          label="Hide cookie notices"
+          checked={preferences.hideCookieNotices}
+          onChange={(hideCookieNotices) => update({ hideCookieNotices })}
+        />
+      </Row>
+      <Row
+        label="Filter lists"
+        help={
+          updating
+            ? 'Downloading the filter lists…'
+            : status && filterListsSummary(status, Date.now())
+        }
+      >
+        <Button
+          disabled={updating || status?.state === 'loading'}
+          onClick={() => void updateNow()}
+        >
+          Update now
+        </Button>
+      </Row>
+    </Section>
+  );
+}
+
 export function PrivacySettings() {
   const [sites, setSites] = useState<SiteSettings[] | null>(null);
   const [range, setRange] = useState<ClearRange>('hour');
@@ -270,6 +416,7 @@ export function PrivacySettings() {
 
   return (
     <>
+      <ContentBlockingSettings />
       <Section
         title="Clear browsing data"
         description="History follows the time range and can be undone for a minute. Cookies, cached files and permissions are cleared for all time and can’t be brought back."
@@ -403,7 +550,8 @@ export function PrivacySettings() {
                     }
                     options={DECISIONS.filter(
                       (option) =>
-                        entry.permission !== 'sound' || option.value !== 'ask',
+                        !NEVER_ASKED.has(entry.permission) ||
+                        option.value !== 'ask',
                     )}
                   />
                 </div>
@@ -452,7 +600,9 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ['Close page', '⌘W'],
       ['Close branch', '⌥⌘W'],
       ['Reopen closed', '⇧⌘T'],
+      ['Pin or unpin page', '⌘D'],
       ['Open location', '⌘L'],
+      ['Copy page address', '⇧⌘C'],
       ['Command palette', '⌘K'],
     ],
   ],
@@ -461,7 +611,11 @@ const SHORTCUTS: [string, [string, string][]][] = [
     [
       ['Back (then up the trail)', '⌘['],
       ['Forward (then into a branch)', '⌘]'],
+      ['Mouse back / forward buttons', 'Back / Forward'],
+      ['Next / previous page', '⌃⇥ / ⌃⇧⇥'],
+      ['Page 1 – 8 / last page', '⌘1 – ⌘8 / ⌘9'],
       ['Reload', '⌘R'],
+      ['Reload ignoring cache', '⇧⌘R'],
       ['Stop', '⌘.'],
     ],
   ],
@@ -473,12 +627,15 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ['Zoom in / out', '⌘+ / ⌘−'],
       ['Actual size', '⌘0'],
       ['Mute page', '⌃⌘M'],
+      ['Print', '⌘P'],
     ],
   ],
   [
     'Window',
     [
       ['Toggle sidebar', '⌘S'],
+      ['Toggle split view', '⌘\\'],
+      ['Downloads', '⌥⌘L'],
       ['Switch workspace', '⌃1 – ⌃9'],
       ['New workspace', '⇧⌘N'],
       ['Settings', '⌘,'],

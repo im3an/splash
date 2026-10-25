@@ -88,7 +88,7 @@ function Segmented<T extends string>({
           role="radio"
           aria-checked={option.value === value}
           onClick={() => onChange(option.value)}
-          className="h-7 flex-1 rounded-[5px] px-2 text-[12px] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:text-fg aria-checked:bg-elevated aria-checked:text-fg aria-checked:shadow-[var(--shadow-row)]"
+          className="h-7 flex-1 rounded-[var(--radius-inner)] px-2 text-small text-fg-muted transition-colors duration-[var(--duration-fast)] hover:text-fg aria-checked:bg-elevated aria-checked:text-fg aria-checked:shadow-[var(--shadow-row)]"
         >
           {option.label}
         </button>
@@ -106,7 +106,7 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium tracking-[0.02em] text-fg-subtle uppercase">
+      <span className="text-caption font-medium tracking-[0.02em] text-fg-subtle uppercase">
         {label}
       </span>
       {children}
@@ -184,7 +184,7 @@ export function WorkspaceEditor({
       role="dialog"
       aria-modal="true"
       aria-label={existing ? 'Customize workspace' : 'New workspace'}
-      className="overlay-in absolute inset-0 flex items-start justify-center overflow-y-auto bg-[rgb(0_0_0/0.18)] p-6 pt-[8vh]"
+      className="scrim-in absolute inset-0 flex items-start justify-center overflow-y-auto bg-scrim p-6 pt-[8vh]"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -194,12 +194,12 @@ export function WorkspaceEditor({
           event.preventDefault();
           void save();
         }}
-        className="flex w-[440px] max-w-full flex-col gap-5 rounded-[12px] bg-elevated p-5 shadow-[0_0_0_0.5px_var(--hairline),0_18px_48px_rgb(0_0_0/0.22)]"
+        className="dialog-in flex w-[440px] max-w-full flex-col gap-5 rounded-[var(--radius-content)] bg-elevated p-5 shadow-[var(--shadow-panel)]"
       >
         <div className="flex items-center gap-3">
           <div
             style={preview}
-            className="grid size-11 shrink-0 place-items-center rounded-[10px] bg-[var(--chrome)] text-[16px] font-semibold text-[var(--accent)] shadow-[0_0_0_0.5px_var(--hairline)]"
+            className="grid size-11 shrink-0 place-items-center rounded-[var(--radius-content)] bg-chrome text-[var(--type-title)] font-semibold text-accent shadow-[var(--shadow-outline)]"
           >
             <WorkspaceIcon
               icon={appearance.icon}
@@ -208,10 +208,10 @@ export function WorkspaceEditor({
             />
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="text-[15px] font-semibold">
+            <h1 className="text-title font-semibold">
               {existing ? 'Customize workspace' : 'New workspace'}
             </h1>
-            <p className="text-[12px] text-fg-subtle">
+            <p className="text-small text-fg-subtle">
               A workspace keeps its own trail, look and active page.
             </p>
           </div>
@@ -225,10 +225,10 @@ export function WorkspaceEditor({
             placeholder={`Workspace ${count + 1}`}
             maxLength={80}
             spellCheck={false}
-            className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none placeholder:text-fg-subtle focus:bg-field-focus focus:shadow-[0_0_0_1px_var(--hairline),0_0_0_3px_var(--accent-soft)] select-text"
+            className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none placeholder:text-fg-subtle focus:bg-field-focus focus:shadow-[var(--shadow-focus)] select-text"
           />
           {duplicate && (
-            <p className="text-[12px] text-fg-muted">
+            <p className="text-small text-fg-muted">
               Another workspace is already called “{trimmedName}”. A different
               name, icon or accent will help tell them apart.
             </p>
@@ -267,7 +267,7 @@ export function WorkspaceEditor({
                     onClick={() =>
                       update({ icon: { kind: 'symbol', name: symbol } })
                     }
-                    className="grid h-8 place-items-center rounded-[6px] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg aria-checked:bg-accent-soft aria-checked:text-accent"
+                    className="grid h-8 place-items-center rounded-[var(--radius-row)] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg aria-checked:bg-accent-soft aria-checked:text-accent"
                   >
                     <Symbol size={16} strokeWidth={1.75} />
                   </button>
@@ -288,22 +288,20 @@ export function WorkspaceEditor({
               }
               aria-label="Emoji"
               placeholder="Type or pick an emoji (⌃⌘Space)"
-              className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none focus:bg-field-focus focus:shadow-[0_0_0_1px_var(--hairline),0_0_0_3px_var(--accent-soft)] select-text"
+              className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none focus:bg-field-focus focus:shadow-[var(--shadow-focus)] select-text"
             />
           )}
           {appearance.icon.kind === 'image' && (
             <button
               type="button"
               onClick={() => fileInput.current?.click()}
-              className="flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-field text-[12px] text-fg-muted hover:text-fg"
+              className="flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-field text-small text-fg-muted hover:text-fg"
             >
               <ImagePlus size={14} strokeWidth={1.75} />
               Choose another image…
             </button>
           )}
-          {imageError && (
-            <p className="text-[12px] text-danger">{imageError}</p>
-          )}
+          {imageError && <p className="text-small text-danger">{imageError}</p>}
           <input
             ref={fileInput}
             type="file"
@@ -343,12 +341,12 @@ export function WorkspaceEditor({
                 title={accent.label}
                 onClick={() => update({ accent: accent.id })}
                 style={{ background: previewDark ? accent.dark : accent.light }}
-                className="size-6 rounded-full shadow-[0_0_0_0.5px_var(--hairline)] outline-offset-2 aria-checked:outline-2 aria-checked:outline-[var(--fg-muted)]"
+                className="size-6 rounded-full shadow-[var(--shadow-outline)] outline-offset-2 aria-checked:outline-2 aria-checked:outline-[var(--fg-muted)]"
               />
             ))}
             <label
               title="Custom colour"
-              className="relative size-6 cursor-default overflow-hidden rounded-full shadow-[0_0_0_0.5px_var(--hairline)]"
+              className="relative size-6 cursor-default overflow-hidden rounded-full shadow-[var(--shadow-outline)]"
               style={{
                 background: isCustomAccent(appearance.accent)
                   ? appearance.accent
@@ -394,7 +392,7 @@ export function WorkspaceEditor({
                     ? frame.dark.chrome
                     : frame.light.chrome,
                 }}
-                className="h-7 w-10 rounded-[6px] shadow-[0_0_0_0.5px_var(--hairline)] outline-offset-2 aria-checked:outline-2 aria-checked:outline-[var(--fg-muted)]"
+                className="h-7 w-10 rounded-[var(--radius-row)] shadow-[var(--shadow-outline)] outline-offset-2 aria-checked:outline-2 aria-checked:outline-[var(--fg-muted)]"
               />
             ))}
           </div>
@@ -410,17 +408,10 @@ export function WorkspaceEditor({
         </Field>
 
         <div className="flex justify-end gap-2 pt-1">
-          <button
-            type="button"
-            onClick={close}
-            className="h-8 rounded-[var(--radius-control)] px-3 text-fg-muted hover:bg-hover hover:text-fg"
-          >
+          <button type="button" onClick={close} className="button h-8">
             Cancel
           </button>
-          <button
-            type="submit"
-            className="h-8 rounded-[var(--radius-control)] bg-accent px-3.5 font-medium text-chrome shadow-[var(--shadow-row)] hover:brightness-105 active:brightness-95"
-          >
+          <button type="submit" className="button button-primary h-8">
             {existing ? 'Save' : 'Create workspace'}
           </button>
         </div>

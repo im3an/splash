@@ -1,22 +1,27 @@
 import { create } from 'zustand';
-import type { WorkspaceId } from '../../shared/types';
+import type { PaletteScope } from '../../shared/palette';
+import type { PageId, WorkspaceId } from '../../shared/types';
+import { durationMs } from '../lib/motion';
 import { api } from '../splash-api';
 
 /** Shell surfaces drawn over the page area. */
 export type Overlay =
-  | { kind: 'palette' }
+  | { kind: 'palette'; scope: PaletteScope }
   | { kind: 'suggestions' }
   | { kind: 'site-info' }
-  | { kind: 'downloads' }
   | { kind: 'workspace-editor'; workspaceId: WorkspaceId | null };
 
 interface OverlayState {
   overlay: Overlay | null;
-  /** A still of the page, shown in its place while an overlay is open. */
-  frozenPage: string | null;
+  /** The overlay is animating out; it's gone once the exit finishes. */
+  leaving: boolean;
+  /** Stills of the pages on screen, shown in their place while an overlay is open. */
+  frozenPages: Record<PageId, string> | null;
   open(overlay: Overlay): Promise<void>;
   close(): void;
 }
+
+let leaveTimer: ReturnType<typeof setTimeout> | undefined;
 
 const nextFrame = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -28,26 +33,38 @@ const nextFrame = () =>
  */
 export const useOverlay = create<OverlayState>()((set, get) => ({
   overlay: null,
-  frozenPage: null,
+  leaving: false,
+  frozenPages: null,
   open: async (overlay) => {
     if (get().overlay) {
-      set({ overlay });
+      // Opening again mid-exit keeps the page stepped aside.
+      clearTimeout(leaveTimer);
+      set({ overlay, leaving: false });
       return;
     }
-    const still = await api().freezePage();
-    set({ overlay, frozenPage: still });
+    const stills = await api().freezePage();
+    set({ overlay, frozenPages: stills });
     // Let the still paint before the live view leaves.
     await nextFrame();
     await nextFrame();
     if (get().overlay) api().setOverlayActive(true);
   },
   close: () => {
-    if (!get().overlay) return;
-    api().setOverlayActive(false);
-    set({ overlay: null });
-    // Keep the still a moment so the returning view covers it seamlessly.
-    setTimeout(() => {
-      if (!get().overlay) set({ frozenPage: null });
-    }, 120);
+    if (!get().overlay || get().leaving) return;
+    // The overlay animates out over the still; the live page comes back
+    // only once it has gone, since the page would paint over the exit.
+    set({ leaving: true });
+    leaveTimer = setTimeout(() => {
+      api().setOverlayActive(false);
+      set({ overlay: null, leaving: false });
+      // Keep the still a moment so the returning view covers it seamlessly.
+      setTimeout(() => {
+        if (!get().overlay) set({ frozenPages: null });
+      }, 120);
+    }, durationMs('--duration-exit'));
   },
 }));
+
+/** The palette standing in for the address bar on a blank page. */
+export const openLocation = () =>
+  useOverlay.getState().open({ kind: 'palette', scope: 'location' });

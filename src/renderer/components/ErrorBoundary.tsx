@@ -37,7 +37,7 @@ export function ShellCrashed() {
   return (
     <div className="flex h-full items-center justify-center p-8">
       <div className="max-w-[360px] text-center">
-        <h1 className="text-[15px] font-semibold">
+        <h1 className="text-title font-semibold">
           This window ran into a problem
         </h1>
         <p className="mt-1.5 text-fg-muted">

@@ -6,6 +6,7 @@ import type { DownloadManager } from '../downloads/download-manager';
 import type { IpcTarget } from '../ipc/register-ipc';
 import type { PreferencesService } from '../preferences';
 import type { BrowsingDataCleaner } from '../privacy/browsing-data';
+import type { ContentBlocking } from '../privacy/content-blocker';
 import {
   decisionOf,
   PERMISSION_LABELS,
@@ -20,6 +21,7 @@ export interface SettingsWindowOptions {
   preferences: PreferencesService;
   downloads: DownloadManager;
   cleaner: BrowsingDataCleaner;
+  blocker: ContentBlocking;
   /** The browser window that workspace settings act on. */
   browserWindow(): TrailWindow | null;
 }
@@ -99,6 +101,11 @@ export class SettingsWindow {
         'preferences:update': ({ patch }) =>
           this.options.preferences.update(patch),
         'settings:sites': () => this.sites(),
+        'settings:content-blocking': () => this.options.blocker.getStatus(),
+        'settings:update-filter-lists': async () => {
+          await this.options.blocker.update().catch(() => undefined);
+          return this.options.blocker.getStatus();
+        },
         'settings:clear-data': (request) => cleaner.clear(request),
         'settings:undo-clear': ({ token }) => cleaner.restore(token),
         'settings:default-browser': () => defaultBrowserStatus(),

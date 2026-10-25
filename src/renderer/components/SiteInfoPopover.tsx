@@ -10,6 +10,9 @@ import { useOverlay } from '../stores/overlay-store';
 import { selectActivePage, useShell } from '../stores/shell-store';
 import { AnchoredPanel } from './AnchoredPanel';
 
+/** Decided by Splash itself, so a site never asks for them. */
+const NEVER_ASKED = new Set<SitePermission>(['sound', 'ads']);
+
 const DECISIONS: { value: PermissionDecision; label: string }[] = [
   { value: 'allow', label: 'Allow' },
   { value: 'ask', label: 'Ask' },
@@ -95,7 +98,16 @@ export function SiteInfoPopover() {
                   key={permission}
                   className="flex h-9 items-center justify-between gap-3 rounded-[var(--radius-row)] px-2"
                 >
-                  <span className="text-fg-muted">{label}</span>
+                  <span className="min-w-0 text-fg-muted">
+                    {label}
+                    {permission === 'ads' &&
+                      decision === 'block' &&
+                      info.blockedCount > 0 && (
+                        <span className="block text-[11px] text-fg-subtle">
+                          {info.blockedCount} blocked on this page
+                        </span>
+                      )}
+                  </span>
                   <div
                     role="radiogroup"
                     aria-label={label}
@@ -103,7 +115,7 @@ export function SiteInfoPopover() {
                   >
                     {DECISIONS.filter(
                       (option) =>
-                        permission !== 'sound' || option.value !== 'ask',
+                        !NEVER_ASKED.has(permission) || option.value !== 'ask',
                     ).map((option) => (
                       <button
                         key={option.value}

@@ -18,6 +18,7 @@ function page(id: string, overrides: Partial<StoredPage> = {}): StoredPage {
     customTitle: null,
     note: null,
     collapsed: false,
+    pinned: false,
     history: null,
     createdAt: 1,
     lastActiveAt: 2,
@@ -31,6 +32,7 @@ const SESSION: StoredSession = {
       id: 'w1',
       name: 'Personal',
       activePageId: 'b',
+      split: { leftId: 'a', rightId: 'b' },
       createdAt: 1,
       appearance: {
         icon: { kind: 'symbol', name: 'leaf' },
@@ -61,7 +63,7 @@ const SESSION: StoredSession = {
       },
     }),
     page('c', { parentId: 'a', url: null }),
-    page('d'),
+    page('d', { pinned: true }),
     page('w', { workspaceId: 'w2' }),
   ],
   activeWorkspaceId: 'w2',
@@ -215,11 +217,45 @@ describe('SqliteTrailStore history and preferences', () => {
         title: 'Web docs | MDN',
         visitCount: 2,
         lastVisitedAt: 20,
+        faviconUrl: null,
       },
     ]);
     expect(store.searchHistory('example', 10)).toHaveLength(1);
     expect(store.searchHistory('nope', 10)).toHaveLength(0);
     expect(store.searchHistory('100%', 10)).toHaveLength(0);
+  });
+
+  it('keeps the favicon each visit showed', () => {
+    const store = memoryStore();
+    store.recordVisit('https://www.youtube.com/', 1);
+    store.recordFavicon(
+      'https://www.youtube.com/',
+      'https://www.youtube.com/favicon.ico',
+    );
+    store.recordFavicon(
+      'https://www.youtube.com/',
+      `data:image/png;base64,${'A'.repeat(20_000)}`,
+    );
+    expect(store.searchHistory('youtube', 1)[0]?.faviconUrl).toBe(
+      'https://www.youtube.com/favicon.ico',
+    );
+    expect(store.frequentHistory(1)[0]?.faviconUrl).toBe(
+      'https://www.youtube.com/favicon.ico',
+    );
+  });
+
+  it('offers history used most recently and most often', () => {
+    const store = memoryStore();
+    for (let at = 1; at <= 5; at++)
+      store.recordVisit('https://often.example/', at);
+    store.recordVisit('https://once.example/', 6);
+    store.recordVisit('https://latest.example/', 7);
+    const urls = store
+      .frequentHistory(1)
+      .map((row) => row.url)
+      .toSorted();
+    expect(urls).toEqual(['https://latest.example/', 'https://often.example/']);
+    expect(store.frequentHistory(10)).toHaveLength(3);
   });
 
   it('remembers, changes and forgets permission decisions', () => {
@@ -258,6 +294,26 @@ describe('SqliteTrailStore history and preferences', () => {
     expect(store.searchHistory('example', 10)).toHaveLength(1);
     store.restoreHistory(removed);
     expect(store.searchHistory('new', 10)[0]?.title).toBe('New');
+  });
+
+  it('lists recent history and forgets one address', () => {
+    const store = memoryStore();
+    store.recordVisit('https://a.example/', 100);
+    store.recordVisit('https://b.example/', 300);
+    store.recordVisit('https://c.example/', 200);
+    store.recordTitle('https://c.example/', 'Recipes');
+    expect(store.listHistory('', 2).map((row) => row.url)).toEqual([
+      'https://b.example/',
+      'https://c.example/',
+    ]);
+    expect(store.listHistory('recipes', 10).map((row) => row.url)).toEqual([
+      'https://c.example/',
+    ]);
+    store.deleteHistoryEntry('https://b.example/');
+    expect(store.listHistory('', 10).map((row) => row.url)).toEqual([
+      'https://c.example/',
+      'https://a.example/',
+    ]);
   });
 
   it('lists permission decisions by site', () => {

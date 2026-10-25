@@ -9,6 +9,12 @@
   --color-field-focus: var(--field-focus);
   --color-hover: var(--hover);
   --color-pressed: var(--pressed);
+  --color-selected: var(--selected);
+  --color-frame: var(--frame);
+  --color-row-hover: var(--row-hover);
+  --color-row-pressed: var(--row-pressed);
+  --color-pill: var(--pill);
+  --color-scrim: var(--scrim);
   --color-divider: var(--divider);
   --color-hairline: var(--hairline);
   --color-fg: var(--fg);
@@ -16,11 +22,59 @@
   --color-fg-subtle: var(--fg-subtle);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
   --color-danger: var(--danger);
   --color-skeleton: var(--skeleton);
+  --text-caption: var(--type-caption);
+  --text-small: var(--type-small);
+  --text-body: var(--type-body);
+  --text-lead: var(--type-lead);
+  --text-title: var(--type-title);
+  --text-display: var(--type-display);
   --font-sans: var(--font-ui);
   --font-mono: var(--font-mono);
   --ease-out: var(--ease-out);
+}
+
+/*
+ * Workspace colours are registered so switching workspaces crossfades the
+ * frame and accent instead of snapping. Only after the first theme is in,
+ * so the window doesn't fade in from the default palette.
+ */
+@property --frame {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+@property --chrome {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+@property --surface {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+@property --elevated {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+@property --accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+
+:root[data-theme-motion='true'] {
+  transition:
+    --frame var(--duration-slow) var(--ease-out),
+    --chrome var(--duration-slow) var(--ease-out),
+    --surface var(--duration-slow) var(--ease-out),
+    --elevated var(--duration-slow) var(--ease-out),
+    --accent var(--duration-slow) var(--ease-out);
 }
 
 @layer base {
@@ -33,18 +87,19 @@
   body {
     margin: 0;
     overflow: hidden;
-    background: var(--chrome);
+    background: var(--frame);
     color: var(--fg);
     font-family: var(--font-ui);
-    font-size: 13px;
+    font-size: var(--type-body);
     line-height: 1.35;
     -webkit-font-smoothing: antialiased;
     user-select: none;
     cursor: default;
   }
 
+  /* Keyboard focus has to be findable: a solid accent ring, never a tint. */
   :focus-visible {
-    outline: 2px solid var(--accent-soft);
+    outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
 
@@ -58,8 +113,41 @@
   .drag {
     -webkit-app-region: drag;
   }
-  .drag :is(button, input, a, [role='treeitem'], [role='search']) {
+  .drag
+    :is(
+      button,
+      input,
+      a,
+      [role='treeitem'],
+      [role='search'],
+      [role='status'],
+      browser-action-list
+    ) {
     -webkit-app-region: no-drag;
+  }
+
+  /*
+   * Extension toolbar buttons. They live in the element's shadow DOM, so
+   * they're styled through its parts and custom properties to match
+   * .icon-button.
+   */
+  browser-action-list {
+    gap: 2px;
+    --browser-action-hover-bg: var(--hover);
+    --browser-action-badge-outline: var(--frame);
+  }
+  browser-action-list::part(action) {
+    border-radius: var(--radius-control);
+    background-size: 16px;
+    transition: background-color var(--duration-fast) var(--ease-out);
+  }
+  browser-action-list::part(action):active {
+    background-color: var(--pressed);
+  }
+  /* The global focus ring doesn't reach into shadow DOM. */
+  browser-action-list::part(action):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
 
   .icon-button {
@@ -71,7 +159,8 @@
     color: var(--fg-muted);
     transition:
       background-color var(--duration-fast) var(--ease-out),
-      color var(--duration-fast) var(--ease-out);
+      color var(--duration-fast) var(--ease-out),
+      scale var(--duration-base) var(--ease-spring);
   }
   .icon-button:hover:not(:disabled) {
     background: var(--hover);
@@ -79,15 +168,95 @@
   }
   .icon-button:active:not(:disabled) {
     background: var(--pressed);
+    scale: 0.92;
+    transition-duration: var(--duration-fast);
+  }
+  /* A toggle that's on, such as split view. */
+  .icon-button[aria-pressed='true'] {
+    background: var(--hover);
+    color: var(--accent);
   }
   .icon-button:disabled {
     color: var(--fg-subtle);
     opacity: 0.55;
   }
 
+  /*
+   * Text buttons. Quiet for the way out (Block, Go back), raised for the
+   * expected next step, primary for the one answer a bar is asking for.
+   */
+  .button {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 28px;
+    padding-inline: 12px;
+    border-radius: var(--radius-control);
+    color: var(--fg-muted);
+    white-space: nowrap;
+    transition:
+      background-color var(--duration-fast) var(--ease-out),
+      color var(--duration-fast) var(--ease-out),
+      scale var(--duration-base) var(--ease-spring);
+  }
+  .button:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--fg);
+  }
+  .button:active:not(:disabled) {
+    background: var(--pressed);
+    scale: 0.96;
+    transition-duration: var(--duration-fast);
+  }
+  .button:disabled {
+    opacity: 0.5;
+  }
+  .button-raised {
+    background: var(--elevated);
+    color: var(--fg);
+    box-shadow: var(--shadow-row);
+  }
+  .button-raised:hover:not(:disabled) {
+    background: var(--field-focus);
+  }
+  .button-primary {
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 500;
+  }
+  .button-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+    color: var(--on-accent);
+  }
+  .button-primary:active:not(:disabled) {
+    background: var(--accent);
+  }
+
+  /* A bar between the toolbar and the page: a question, a warning, find. */
+  .shell-bar {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 12px;
+    margin: 0 var(--gutter) var(--gutter);
+    padding: 6px 6px 6px 12px;
+    border-radius: var(--radius-control);
+    background: var(--elevated);
+    box-shadow: var(--shadow-row);
+  }
+
+  /* Text fields inside the shell take the same focus as the address bar. */
+  .editing-field {
+    background: var(--field-focus);
+    box-shadow: var(--shadow-focus);
+    outline: none;
+  }
+
   .skeleton {
     background: var(--skeleton);
-    border-radius: 4px;
+    border-radius: var(--radius-mark);
     animation: skeleton-pulse 1.4s ease-in-out infinite;
   }
 
@@ -124,17 +293,80 @@
   }
 }
 
-@keyframes toast-in {
+/*
+ * Motion. Arrivals ease out (or settle with a touch of spring when they
+ * pop up); departures are quicker and accelerate away. Everything that
+ * appears also leaves with an animation: the closing state is a
+ * `data-leaving` or `data-state="closed"` ancestor.
+ */
+@keyframes fade-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
   }
 }
 
-@keyframes overlay-in {
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* A dialog or the palette, dropping in over a fading scrim. */
+@keyframes dialog-in {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.99);
+    transform: translateY(-10px) scale(0.97);
+  }
+}
+
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+/* A panel unfolding from the control above it. */
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+
+@keyframes popover-out {
+  to {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.99);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+
+/* A sidebar view arrives from the side it was opened towards. */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+}
+
+@keyframes trail-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
   }
 }
 
@@ -145,15 +377,151 @@
   }
 }
 
-@layer components {
-  .toast-in {
-    animation: toast-in var(--duration-base) var(--ease-out);
+/* A bar opening the space it needs, pushing the page down smoothly. */
+@keyframes reveal-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
   }
+}
+
+@keyframes reveal-out {
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+/* A new row in a list growing into its slot. */
+@keyframes row-in {
+  from {
+    height: 0;
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+
+/* List items on first show, one after another. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes slide-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@keyframes slide-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
+@layer components {
+  .fade-in {
+    animation: fade-in var(--duration-base) var(--ease-out);
+  }
+  .scrim-in {
+    animation: fade-in var(--duration-base) var(--ease-out);
+  }
+  .dialog-in {
+    animation: dialog-in var(--duration-slow) var(--ease-spring);
+  }
+  .popover-in {
+    transform-origin: top left;
+    animation: popover-in var(--duration-base) var(--ease-spring);
+  }
+  .toast-in {
+    animation: toast-in var(--duration-slow) var(--ease-spring);
+  }
+  /* Kept for small notices that only fade and lift. */
   .overlay-in {
-    animation: overlay-in var(--duration-fast) var(--ease-out);
+    animation: popover-in var(--duration-base) var(--ease-out);
   }
   .bar-in {
     animation: bar-in var(--duration-base) var(--ease-out);
+  }
+  .panel-in {
+    animation: panel-in var(--duration-slow) var(--ease-emphasized);
+  }
+  .trail-in {
+    animation: trail-in var(--duration-slow) var(--ease-emphasized);
+  }
+  .row-in {
+    overflow: hidden;
+    animation: row-in var(--duration-slow) var(--ease-emphasized);
+  }
+  .rise-in {
+    animation: rise-in var(--duration-slow) var(--ease-emphasized) backwards;
+    animation-delay: calc(min(var(--i, 0), 10) * 22ms);
+  }
+  .slide-from-right {
+    animation: slide-from-right var(--duration-slow) var(--ease-emphasized);
+  }
+  .slide-from-left {
+    animation: slide-from-left var(--duration-slow) var(--ease-emphasized);
+  }
+
+  /* Leaving. */
+  [data-leaving='true'] .scrim-in,
+  [data-leaving='true'] .fade-in {
+    animation: fade-out var(--duration-exit) var(--ease-in) forwards;
+  }
+  [data-leaving='true'] .dialog-in {
+    animation: dialog-out var(--duration-exit) var(--ease-in) forwards;
+  }
+  [data-leaving='true'] .popover-in,
+  [data-leaving='true'] .overlay-in {
+    animation: popover-out var(--duration-exit) var(--ease-in) forwards;
+  }
+  .toast-in[data-leaving='true'] {
+    animation: toast-out var(--duration-exit) var(--ease-in) forwards;
+    pointer-events: none;
+  }
+
+  /* A bar's space opens and closes with it; see Reveal. */
+  .reveal {
+    display: grid;
+    grid-template-rows: 1fr;
+    flex-shrink: 0;
+    animation: reveal-in var(--duration-slow) var(--ease-emphasized);
+  }
+  .reveal[data-state='closed'] {
+    animation: reveal-out var(--duration-base) var(--ease-in) forwards;
+    pointer-events: none;
+  }
+  .reveal > * {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    /* Clipped while it opens, without cutting off the bar's shadow. */
+    overflow: clip;
+    overflow-clip-margin: 6px;
+  }
+
+  /*
+   * Press feedback: controls give a little under the pointer and spring
+   * back, so every click is felt.
+   */
+  .press {
+    transition-property: background-color, color, box-shadow, opacity, scale;
+    transition-duration:
+      var(--duration-fast), var(--duration-fast), var(--duration-fast),
+      var(--duration-fast), var(--duration-base);
+    transition-timing-function:
+      var(--ease-out), var(--ease-out), var(--ease-out), var(--ease-out),
+      var(--ease-spring);
+  }
+  .press:active:not(:disabled) {
+    scale: 0.94;
+    transition-duration: var(--duration-fast);
+    transition-timing-function: var(--ease-out);
   }
 }
 
@@ -178,10 +546,155 @@
   }
 }
 
+@keyframes load-breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/*
+ * Reduced motion: nothing slides. Activity still has to read as activity,
+ * so loading breathes in place instead of sweeping, and spinners slow down
+ * rather than freeze into something that looks finished.
+ */
 @media (prefers-reduced-motion: reduce) {
-  .skeleton,
-  .load-indicator::after,
-  .spinner {
-    animation-duration: 0s;
+  .skeleton {
+    animation: none;
+  }
+  .load-indicator::after {
+    width: 100%;
+    animation: load-breathe 1.6s ease-in-out infinite;
+  }
+  .spinner,
+  .animate-spin {
+    animation-duration: 2.4s;
+  }
+  .rise-in {
+    animation-delay: 0s;
+  }
+  .press:active:not(:disabled),
+  .icon-button:active:not(:disabled),
+  .button:active:not(:disabled) {
+    scale: none;
+  }
+}
+
+:root[data-motion='reduced'] {
+  .rise-in {
+    animation-delay: 0s;
+  }
+  .press:active:not(:disabled),
+  .icon-button:active:not(:disabled),
+  .button:active:not(:disabled) {
+    scale: none;
+  }
+}
+
+/* The same, when Reduce motion is on in Splash's settings. */
+:root[data-motion='reduced'] {
+  .skeleton {
+    animation: none;
+  }
+  .load-indicator::after {
+    width: 100%;
+    animation: load-breathe 1.6s ease-in-out infinite;
+  }
+  .spinner,
+  .animate-spin {
+    animation-duration: 2.4s;
+  }
+  .rise-in {
+    animation-delay: 0s;
+  }
+  .press:active:not(:disabled),
+  .icon-button:active:not(:disabled),
+  .button:active:not(:disabled) {
+    scale: none;
+  }
+}
+
+/*
+ * The current page in the trail, marked as Appearance settings choose.
+ * Unlayered, so the mark holds over a row's hover and press. Each mark
+ * eases in on the page you open and out of the one you leave.
+ */
+
+/* Raised: a card lifted off the frame. */
+:root[data-current-page='raised']
+  .trail-row[data-active='true']:not([data-dragging='true']) {
+  background-color: var(--selected);
+  box-shadow: var(--shadow-row);
+}
+
+/* Outline: an accent hairline with the faintest lift, and no fill. */
+:root[data-current-page='outline'] .trail-row[data-active='true'] {
+  box-shadow: var(--shadow-current-outline);
+}
+
+/* A raised or outlined row stands apart from its branch's lines. */
+:root:is([data-current-page='raised'], [data-current-page='outline'])
+  .trail-row[data-active='true']
+  .indent-guides {
+  display: none;
+}
+
+/*
+ * Underline: drawn in from the left on the page you open and wiped out to
+ * the right on the one you leave, so the line seems to pass between rows.
+ */
+:root[data-current-page='underline'] .trail-title {
+  padding-bottom: 1px;
+  background: linear-gradient(var(--accent), var(--accent)) no-repeat right
+    bottom / 0% 1.5px;
+  transition: background-size var(--duration-slow) var(--ease-emphasized);
+}
+:root[data-current-page='underline']
+  .trail-row[data-active='true']
+  .trail-title {
+  background-position: left bottom;
+  background-size: 100% 1.5px;
+}
+
+/* Dot: like the Dock, under the icon, centred in the space below it. */
+:root[data-current-page='dot'] .trail-favicon::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: calc(100% + (var(--row-height) - 16px) / 4 - 2px);
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+  scale: 0;
+  opacity: 0;
+  transition:
+    scale var(--duration-fast) var(--ease-in),
+    opacity var(--duration-fast) var(--ease-in);
+}
+:root[data-current-page='dot']
+  .trail-row[data-active='true']
+  .trail-favicon::after {
+  scale: 1;
+  opacity: 1;
+  transition:
+    scale var(--duration-slow) var(--ease-spring),
+    opacity var(--duration-fast) var(--ease-out);
+}
+
+/*
+ * With no shape around it, the current row keeps its close button for the
+ * pointer like every other row, and shows its marker meanwhile.
+ */
+:root:is([data-current-page='dot'], [data-current-page='underline'])
+  .trail-row[data-active='true']:not(:hover, :focus-visible) {
+  .trail-trailing:not([data-marked='true']) {
+    width: 0;
+  }
+  .trail-marker {
+    visibility: visible;
+  }
+  .trail-close {
+    opacity: 0;
   }
 }

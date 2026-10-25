@@ -8,17 +8,20 @@ export function PageNote({
   pageId,
   depth,
   indent,
+  lead,
 }: {
   pageId: PageId;
   depth: number;
   indent: number;
+  /** Where a top-level row's favicon starts. */
+  lead: number;
 }) {
   const note = useShell((state) => state.snapshot?.pages[pageId]?.note ?? null);
   const editing = useShell((state) => state.editingNotePageId === pageId);
   const active = useShell((state) => state.snapshot?.activePageId === pageId);
   const editNote = useShell((state) => state.editNote);
   const settled = useRef(false);
-  const inset = { marginLeft: 4 + depth * indent + 24 };
+  const inset = { marginLeft: lead + depth * indent };
 
   if (editing) {
     settled.current = false;
@@ -49,7 +52,7 @@ export function PageNote({
         }}
         onBlur={(event) => commit(event.currentTarget.value)}
         style={inset}
-        className="mr-1 mb-1 resize-none rounded-[var(--radius-control)] bg-field-focus px-2 py-1.5 text-[12px] leading-[1.45] text-fg shadow-[0_0_0_1px_var(--hairline),0_0_0_3px_var(--accent-soft)] outline-none placeholder:text-fg-subtle select-text"
+        className="editing-field mr-1 mb-1 resize-none rounded-[var(--radius-control)] px-2 py-1.5 text-small leading-[1.45] text-fg placeholder:text-fg-subtle select-text"
       />
     );
   }
@@ -61,7 +64,7 @@ export function PageNote({
       onClick={() => editNote(pageId)}
       title="Edit note"
       style={inset}
-      className="mr-1 mb-1 line-clamp-2 rounded-[5px] px-1.5 py-0.5 text-left text-[12px] leading-[1.4] text-fg-subtle transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg-muted"
+      className="mr-1 mb-1 line-clamp-2 rounded-[var(--radius-inner)] px-1.5 py-0.5 text-left text-small leading-[1.4] text-fg-subtle transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg-muted"
     >
       {note}
     </button>

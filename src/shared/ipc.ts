@@ -22,10 +22,18 @@ export const preferencesSchema = z.strictObject({
       ...(typeof SEARCH_ENGINES)[number]['id'][],
     ],
   ),
+  searchSuggestions: z.boolean(),
   theme: z.enum(['system', 'light', 'dark']),
   density: z.enum(['comfortable', 'compact']),
+  currentPage: z.enum(['dot', 'outline', 'underline', 'raised']),
+  showSiteNames: z.boolean(),
+  showBranchLines: z.boolean(),
+  reduceMotion: z.boolean(),
+  addressBar: z.enum(['toolbar', 'sidebar']),
   downloads: z.enum(['folder', 'ask']),
   awakePages: z.number().int().min(2).max(100),
+  blockAds: z.boolean(),
+  hideCookieNotices: z.boolean(),
 });
 const sitePermission = z.enum([
   'camera',
@@ -35,6 +43,7 @@ const sitePermission = z.enum([
   'midi',
   'clipboard',
   'sound',
+  'ads',
 ]);
 /** A bare web origin such as `https://example.com`. */
 const siteOrigin = z
@@ -86,7 +95,7 @@ export const invokeContract = {
   'storage:status': z.undefined(),
   'page:create': z.strictObject({ input: addressInput.optional() }),
   'page:activate': z.strictObject({ pageId }),
-  'page:close': z.strictObject({ pageId }),
+  'page:close': z.strictObject({ pageId, unpin: z.boolean().optional() }),
   'page:navigate': z.strictObject({ pageId, input: addressInput }),
   'page:go-back': z.strictObject({ pageId }),
   'page:go-forward': z.strictObject({ pageId }),
@@ -101,9 +110,31 @@ export const invokeContract = {
     parentId: pageId.nullable(),
     afterId: pageId.nullable(),
   }),
+  'page:return': z.strictObject({
+    pageId,
+    origin: z.strictObject({
+      workspaceId,
+      parentId: pageId.nullable(),
+      index: z.number().int().min(0).max(100_000),
+      wasActive: z.boolean(),
+    }),
+  }),
   'page:rename': z.strictObject({ pageId, title: pageTitle }),
+  'page:set-pinned': z.strictObject({
+    pageId,
+    pinned: z.boolean(),
+    origin: z
+      .strictObject({
+        parentId: pageId.nullable(),
+        index: z.number().int().min(0).max(100_000),
+      })
+      .optional(),
+  }),
   'page:duplicate': z.strictObject({ pageId }),
   'page:show-menu': z.strictObject({ pageId }),
+  'page:open-split': z.strictObject({ pageId, otherId: pageId }),
+  'page:toggle-split': z.strictObject({ pageId }),
+  'split:close': z.undefined(),
   'page:set-note': z.strictObject({
     pageId,
     note: z.string().max(4000).nullable(),
@@ -163,7 +194,22 @@ export const invokeContract = {
   }),
   'downloads:clear': z.undefined(),
   'downloads:open-folder': z.undefined(),
+  'history:list': z.strictObject({
+    query: z.string().max(1000),
+    limit: z.number().int().min(1).max(1000),
+  }),
+  'history:delete': z.strictObject({ url: z.string().min(1).max(8192) }),
+  'history:restore': z.strictObject({
+    entry: z.strictObject({
+      url: z.string().min(1).max(8192),
+      title: z.string().max(1000),
+      visitCount: z.number().int().min(1),
+      lastVisitedAt: z.number().int().min(0),
+    }),
+  }),
   'settings:sites': z.undefined(),
+  'settings:content-blocking': z.undefined(),
+  'settings:update-filter-lists': z.undefined(),
   'settings:clear-data': z.strictObject({
     range: z.enum(['hour', 'day', 'week', 'all']),
     history: z.boolean(),
@@ -183,10 +229,15 @@ export const invokeContract = {
   'settings:delete-workspace': z.strictObject({ workspaceId }),
   'preferences:get': z.undefined(),
   'preferences:update': z.strictObject({ patch: preferencesSchema.partial() }),
+  'app:open-settings': z.undefined(),
   'palette:query': z.strictObject({
-    query: z.string().max(500),
-    scope: z.enum(['palette', 'address']),
+    // Long enough for a pasted address.
+    query: z.string().max(8192),
+    scope: z.enum(['palette', 'location', 'address']),
+    // Fill in the rest of an address from history (typing forward).
+    complete: z.boolean().optional(),
   }),
+  'search:suggest': z.strictObject({ query: z.string().max(8192) }),
   'workspace:move': z.strictObject({
     workspaceId,
     index: z.number().int().min(0).max(1000),

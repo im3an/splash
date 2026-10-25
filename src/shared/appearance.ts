@@ -161,6 +161,47 @@ export function accentColors(accent: string): { light: string; dark: string } {
   return { light: preset.light, dark: preset.dark };
 }
 
+/** How much of the accent tints the window frame, like an Arc space. */
+const FRAME_TINT = { light: 0.13, dark: 0.09 };
+
+function mixHex(a: string, b: string, amountOfA: number): string {
+  const channel = (hex: string, i: number) =>
+    parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  return `#${[0, 1, 2]
+    .map((i) =>
+      Math.round(channel(a, i) * amountOfA + channel(b, i) * (1 - amountOfA))
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`;
+}
+
+/**
+ * The window frame around the page: the frame preset's chrome with a little
+ * of the accent. A hex colour, since the main process paints the window
+ * background with it too.
+ */
+export function frameColor(
+  appearance: WorkspaceAppearance,
+  dark: boolean,
+): string {
+  const chrome = dark
+    ? framePreset(appearance.frame).dark.chrome
+    : framePreset(appearance.frame).light.chrome;
+  let accent: string;
+  if (isCustomAccent(appearance.accent)) {
+    // Dark mode lightens a custom accent the way `accentColors` does.
+    accent = dark
+      ? mixHex(appearance.accent, '#ffffff', 0.7)
+      : appearance.accent;
+  } else {
+    const preset =
+      ACCENTS.find((other) => other.id === appearance.accent) ?? ACCENTS[0]!;
+    accent = dark ? preset.dark : preset.light;
+  }
+  return mixHex(accent, chrome, dark ? FRAME_TINT.dark : FRAME_TINT.light);
+}
+
 /**
  * The look a new workspace starts with. The accent rotates through the
  * presets so new workspaces don't all look alike.

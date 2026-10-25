@@ -19,6 +19,28 @@ export function isNavigableUrl(value: string): boolean {
   }
 }
 
+/** Extensions Splash ships with, whose own pages may open as pages. */
+const extensionIds = new Set<string>();
+
+export function allowExtensionPages(id: string): void {
+  extensionIds.add(id);
+}
+
+/** A settings or dashboard page of a bundled extension. */
+export function isExtensionPageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'chrome-extension:' && extensionIds.has(url.host);
+  } catch {
+    return false;
+  }
+}
+
+/** What a page may show: web content, or a bundled extension's own page. */
+export function isPageUrl(value: string): boolean {
+  return isNavigableUrl(value) || isExtensionPageUrl(value);
+}
+
 export function searchUrl(
   query: string,
   engine: SearchEngineId = DEFAULT_PREFERENCES.searchEngine,

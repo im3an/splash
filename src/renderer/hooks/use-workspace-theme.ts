@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { accentColors, framePreset } from '../../shared/appearance';
+import { accentColors, frameColor, framePreset } from '../../shared/appearance';
 import type { WorkspaceAppearance } from '../../shared/types';
 import { useShell } from '../stores/shell-store';
 
@@ -27,6 +27,7 @@ export function themeVariables(
   const colors = dark ? frame.dark : frame.light;
   return {
     '--chrome': colors.chrome,
+    '--frame': frameColor(appearance, dark),
     '--surface': colors.surface,
     '--elevated': colors.elevated,
     '--field-focus': dark
@@ -58,7 +59,12 @@ export function useWorkspaceTheme(): void {
     for (const [name, value] of Object.entries(variables)) {
       root.style.setProperty(name, value);
     }
+    // From the next frame on, changes crossfade (see app.css).
+    const frame = requestAnimationFrame(() => {
+      root.dataset.themeMotion = 'true';
+    });
     return () => {
+      cancelAnimationFrame(frame);
       for (const name of Object.keys(variables))
         root.style.removeProperty(name);
     };

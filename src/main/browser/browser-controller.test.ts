@@ -1,5 +1,5 @@
 import type { Rectangle } from 'electron';
-import type { BrowserSnapshot } from '../../shared/types';
+import type { BrowserSnapshot, Notice } from '../../shared/types';
 import { BrowserController } from './browser-controller';
 import type {
   LoadOptions,
@@ -62,8 +62,11 @@ class FakeHost implements PageHost {
   goForward() {
     this.calls.push('forward');
   }
-  reload() {
-    this.calls.push('reload');
+  reload(options?: { ignoreCache?: boolean }) {
+    this.calls.push(options?.ignoreCache ? 'hard-reload' : 'reload');
+  }
+  print() {
+    this.calls.push('print');
   }
   stop() {
     this.calls.push('stop');
@@ -94,6 +97,7 @@ function setup(options: { maxLiveViews?: number } = {}) {
   const snapshots: BrowserSnapshot[] = [];
   const visits: string[] = [];
   const titles: [string, string][] = [];
+  const notices: Notice[] = [];
   let next = 0;
   let clock = 0;
   const controller = new BrowserController({
@@ -101,6 +105,7 @@ function setup(options: { maxLiveViews?: number } = {}) {
     now: () => ++clock,
     onVisit: (url) => visits.push(url),
     onTitle: (url, title) => titles.push([url, title]),
+    onNotice: (notice) => notices.push(notice),
     createHost: (events) => {
       const host = new FakeHost(events);
       hosts.push(host);
@@ -112,7 +117,7 @@ function setup(options: { maxLiveViews?: number } = {}) {
   });
   controller.setContentBounds(BOUNDS);
   const latest = () => snapshots.at(-1)!;
-  return { controller, hosts, latest, visits, titles };
+  return { controller, hosts, latest, visits, titles, notices };
 }
 
 describe('BrowserController', () => {
@@ -532,6 +537,63 @@ describe('BrowserController', () => {
       expect(latest().activePageId).toBe(root);
     });
 
+    it('confirms a move and can put the branch back where it was', () => {
+      const { controller, latest, notices } = setup();
+      const top = controller.createPage({ input: 'a.com' });
+      const first = controller.createPage({ input: 'b.com', parentId: top });
+      const moved = controller.createPage({ input: 'c.com', parentId: top });
+      const last = controller.createPage({ input: 'd.com', parentId: top });
+      controller.createPage({ input: 'e.com', parentId: moved });
+      controller.activatePage(moved);
+      const home = latest().activeWorkspaceId;
+      const work = controller.createWorkspace('Work');
+      controller.switchWorkspace(home);
+
+      controller.movePageToWorkspace(moved, work);
+      expect(latest().pages[top]?.childIds).toEqual([first, last]);
+      expect(notices).toEqual([
+        {
+          kind: 'moved',
+          pageId: moved,
+          label: 'c.com',
+          pageCount: 2,
+          workspaceId: work,
+          workspaceName: 'Work',
+          origin: {
+            workspaceId: home,
+            parentId: top,
+            index: 1,
+            wasActive: true,
+          },
+        },
+      ]);
+
+      const notice = notices[0]!;
+      if (notice.kind !== 'moved') throw new Error('expected a move');
+      controller.returnPage(moved, notice.origin);
+      expect(latest().activeWorkspaceId).toBe(home);
+      expect(latest().pages[top]?.childIds).toEqual([first, moved, last]);
+      expect(latest().pages[moved]?.childIds).toHaveLength(1);
+      expect(latest().activePageId).toBe(moved);
+      expect(notices).toHaveLength(1);
+    });
+
+    it('puts a moved branch at the end when its old parent has closed', () => {
+      const { controller, latest, notices } = setup();
+      const top = controller.createPage({ input: 'a.com' });
+      const moved = controller.createPage({ input: 'b.com', parentId: top });
+      const home = latest().activeWorkspaceId;
+      const work = controller.createWorkspace('Work');
+      controller.switchWorkspace(home);
+      controller.movePageToWorkspace(moved, work);
+      controller.closePage(top);
+
+      const notice = notices[0]!;
+      if (notice.kind !== 'moved') throw new Error('expected a move');
+      controller.returnPage(moved, notice.origin);
+      expect(latest().rootIds).toEqual([moved]);
+    });
+
     it('renames and deletes workspaces, but never the last one', () => {
       const { controller, hosts, latest } = setup();
       const home = latest()?.activeWorkspaceId ?? controller.currentWorkspaceId;
@@ -655,6 +717,330 @@ describe('BrowserController', () => {
     });
   });
 
+  describe('split view', () => {
+    /** parent → child, other */
+    function related() {
+      const ctx = setup();
+      const parent = ctx.controller.createPage({ input: 'a.com' });
+      const child = ctx.controller.createPage({
+        input: 'b.com',
+        parentId: parent,
+      });
+      const other = ctx.controller.createPage({ input: 'c.com' });
+      ctx.controller.activatePage(child);
+      // hosts: 0 parent, 1 child, 2 other
+      return { ...ctx, parent, child, other };
+    }
+
+    it('shows a page beside its parent, parent on the left', () => {
+      const { controller, hosts, latest, parent, child } = related();
+      controller.toggleSplit(child);
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+      expect(latest().activePageId).toBe(child);
+      expect(hosts[0]).toMatchObject({ visible: true });
+      expect(hosts[1]).toMatchObject({ visible: true });
+      expect(hosts[0]!.bounds).toEqual({
+        x: 260,
+        y: 48,
+        width: 446,
+        height: 700,
+      });
+      expect(hosts[1]!.bounds).toEqual({
+        x: 714,
+        y: 48,
+        width: 446,
+        height: 700,
+      });
+      expect(hosts[2]!.visible).toBe(false);
+    });
+
+    it('pairs a top-level page with the child it leads to', () => {
+      const { controller, latest, parent, child } = related();
+      controller.activatePage(parent);
+      controller.toggleSplit(parent);
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+      expect(latest().activePageId).toBe(parent);
+    });
+
+    it('does nothing for a page with no parent or children', () => {
+      const { controller, latest, other } = related();
+      controller.activatePage(other);
+      controller.toggleSplit(other);
+      expect(latest().split).toBeNull();
+    });
+
+    it('puts the ancestor on the left whichever page asks', () => {
+      const { controller, latest, parent, child } = related();
+      controller.openSplit(parent, child);
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+      expect(latest().activePageId).toBe(parent);
+    });
+
+    it('keeps the pair while other pages are shown, and shows it again', () => {
+      const { controller, hosts, latest, parent, child, other } = related();
+      controller.toggleSplit(child);
+      controller.activatePage(other);
+      expect(hosts.map((h) => h.visible)).toEqual([false, false, true]);
+      expect(hosts[2]!.bounds).toEqual(BOUNDS);
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+
+      controller.activatePage(parent);
+      expect(hosts.map((h) => h.visible)).toEqual([true, true, false]);
+      expect(latest().activePageId).toBe(parent);
+    });
+
+    it('closes again with the same toggle, keeping the active page', () => {
+      const { controller, hosts, latest, child } = related();
+      controller.toggleSplit(child);
+      controller.toggleSplit(child);
+      expect(latest().split).toBeNull();
+      expect(hosts.map((h) => h.visible)).toEqual([false, true, false]);
+      expect(hosts[1]!.bounds).toEqual(BOUNDS);
+    });
+
+    it('makes the side the user clicks into active', () => {
+      const { controller, hosts, latest, parent, child } = related();
+      controller.toggleSplit(child);
+      hosts[0]!.events.onFocus();
+      expect(latest().activePageId).toBe(parent);
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+    });
+
+    it('ignores focus from a page that is not on screen', () => {
+      const { controller, hosts, latest, child } = related();
+      controller.toggleSplit(child);
+      hosts[2]!.events.onFocus();
+      expect(latest().activePageId).toBe(child);
+    });
+
+    it('opens links from either side on the right', () => {
+      const { controller, hosts, latest, parent, child } = related();
+      controller.toggleSplit(child);
+      hosts[0]!.events.onBranchRequest('https://a.com/next', 'https://a.com/');
+      const fromLeft = latest().activePageId!;
+      expect(latest().pages[fromLeft]?.parentId).toBe(parent);
+      expect(latest().split).toEqual({ leftId: parent, rightId: fromLeft });
+      expect(hosts[1]!.visible).toBe(false);
+
+      hosts[3]!.events.onBranchRequest(
+        'https://a.com/deeper',
+        'https://a.com/next',
+      );
+      const fromRight = latest().activePageId!;
+      expect(latest().split).toEqual({ leftId: parent, rightId: fromRight });
+      expect(latest().pages[child]).toBeDefined();
+    });
+
+    it('leaves the pair alone for links opened in the background', () => {
+      const { controller, hosts, latest, parent, child } = related();
+      controller.toggleSplit(child);
+      hosts[1]!.events.onOpenRequest('https://b.com/later', {
+        background: true,
+      });
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+      expect(latest().activePageId).toBe(child);
+    });
+
+    it('ends when either page closes or moves away', () => {
+      const closing = related();
+      closing.controller.toggleSplit(closing.child);
+      closing.controller.closePage(closing.parent);
+      expect(closing.latest().split).toBeNull();
+      expect(closing.hosts[1]!.bounds).toEqual(BOUNDS);
+
+      const moving = related();
+      moving.controller.toggleSplit(moving.child);
+      const work = moving.controller.createWorkspace('Work');
+      moving.controller.switchWorkspace(moving.latest().workspaces[0]!.id);
+      moving.controller.movePageToWorkspace(moving.child, work);
+      expect(moving.latest().split).toBeNull();
+    });
+
+    it('never puts a page on screen to sleep', () => {
+      const { controller, hosts } = setup({ maxLiveViews: 2 });
+      const parent = controller.createPage({ input: 'a.com' });
+      const kid = controller.createPage({ input: 'b.com', parentId: parent });
+      controller.toggleSplit(kid);
+      controller.createPage({ input: 'c.com', parentId: kid, activate: false });
+      expect(hosts[0]!.destroyed).toBe(false);
+      expect(hosts[1]!.destroyed).toBe(false);
+    });
+
+    it('wakes the other side when the pair comes back', () => {
+      const { controller, hosts, latest, parent, child, other } = related();
+      controller.toggleSplit(child);
+      controller.activatePage(other);
+      controller.discard(parent);
+      controller.activatePage(child);
+      expect(latest().pages[parent]?.isDiscarded).toBe(false);
+      expect(hosts.at(-1)!.visible).toBe(true);
+    });
+
+    it('captures both sides for the shell to show under a popover', async () => {
+      const { controller, parent, child } = related();
+      controller.toggleSplit(child);
+      const stills = await controller.captureVisiblePages();
+      expect(Object.keys(stills).sort()).toEqual([parent, child].sort());
+      controller.setOverlayActive(true);
+      expect(await controller.captureVisiblePages()).toEqual({});
+    });
+
+    it('survives a restart, unless one of its pages is gone', () => {
+      const original = related();
+      original.controller.toggleSplit(original.child);
+      const session = original.controller.exportSession();
+      expect(session.workspaces[0]?.split).toEqual({
+        leftId: original.parent,
+        rightId: original.child,
+      });
+
+      const restored = setup();
+      restored.controller.restoreSession(session);
+      expect(restored.latest().split).toEqual({
+        leftId: original.parent,
+        rightId: original.child,
+      });
+      expect(restored.hosts.filter((h) => h.visible)).toHaveLength(2);
+
+      const broken = setup();
+      broken.controller.restoreSession({
+        ...session,
+        workspaces: [
+          {
+            ...session.workspaces[0]!,
+            split: { leftId: 'gone', rightId: original.child },
+          },
+        ],
+      });
+      expect(broken.latest().split).toBeNull();
+    });
+  });
+
+  describe('pinned pages', () => {
+    it('pins a branch to the top of the trail, after earlier pins', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const b = controller.createPage({ url: 'https://b.example/' });
+      const child = controller.createPage({
+        url: 'https://c.example/',
+        parentId: b,
+      });
+      const grandchild = controller.createPage({ parentId: child });
+
+      controller.setPinned(b, true);
+      controller.setPinned(child, true);
+
+      expect(latest().rootIds).toEqual([b, child, a]);
+      // The pinned child brought its own branch along.
+      expect(latest().pages[grandchild]!.parentId).toBe(child);
+      expect(latest().pages[b]!.isPinned).toBe(true);
+    });
+
+    it('unpins to just below the pinned pages', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const b = controller.createPage({ url: 'https://b.example/' });
+      const c = controller.createPage({ url: 'https://c.example/' });
+      controller.setPinned(b, true);
+      controller.setPinned(c, true);
+
+      controller.setPinned(b, false);
+
+      expect(latest().rootIds).toEqual([c, b, a]);
+      expect(latest().pages[b]!.isPinned).toBe(false);
+    });
+
+    it('confirms a pin, and its undo puts the page back quietly', () => {
+      const { controller, latest, notices } = setup();
+      const parent = controller.createPage({ url: 'https://a.example/' });
+      const page = controller.createPage({
+        url: 'https://b.example/',
+        parentId: parent,
+      });
+
+      controller.setPinned(page, true);
+      const notice = notices[0]!;
+      expect(notice).toMatchObject({
+        kind: 'pinned',
+        pageId: page,
+        pinned: true,
+        origin: { parentId: parent, index: 0 },
+      });
+
+      if (notice.kind !== 'pinned') throw new Error('unexpected notice');
+      controller.setPinned(page, false, notice.origin);
+      expect(latest().pages[page]!.parentId).toBe(parent);
+      expect(latest().pages[page]!.isPinned).toBe(false);
+      expect(notices).toHaveLength(1);
+    });
+
+    it('puts a pinned page to sleep instead of closing it', () => {
+      const { controller, latest, hosts, notices } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const pinned = controller.createPage({ url: 'https://b.example/' });
+      controller.setPinned(pinned, true);
+      const host = hosts[1]!;
+
+      controller.closePage(pinned);
+      controller.closeBranch(pinned);
+
+      expect(latest().rootIds).toEqual([pinned, a]);
+      expect(latest().activePageId).toBe(a);
+      expect(latest().pages[pinned]!.isDiscarded).toBe(true);
+      expect(host.destroyed).toBe(true);
+      expect(latest().lastClosed).toBeNull();
+      expect(notices.at(-1)).toMatchObject({
+        kind: 'kept-pinned',
+        pageId: pinned,
+        asleep: true,
+      });
+    });
+
+    it('keeps the only page awake when it is pinned', () => {
+      const { controller, latest, notices } = setup();
+      const only = controller.createPage({ url: 'https://a.example/' });
+      controller.setPinned(only, true);
+
+      controller.closePage(only);
+
+      expect(latest().activePageId).toBe(only);
+      expect(latest().pages[only]!.isDiscarded).toBe(false);
+      expect(notices.at(-1)).toMatchObject({
+        kind: 'kept-pinned',
+        asleep: false,
+      });
+    });
+
+    it('unpins and closes on request, and reopening brings the pin back', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const pinned = controller.createPage({ url: 'https://b.example/' });
+      controller.setPinned(pinned, true);
+
+      controller.closePage(pinned, { unpin: true });
+      expect(latest().rootIds).toEqual([a]);
+
+      controller.reopenClosed();
+      expect(latest().rootIds).toEqual([pinned, a]);
+      expect(latest().pages[pinned]!.isPinned).toBe(true);
+    });
+
+    it('keeps pins across a restart', () => {
+      const { controller } = setup();
+      controller.createPage({ url: 'https://a.example/' });
+      const pinned = controller.createPage({ url: 'https://b.example/' });
+      controller.setPinned(pinned, true);
+
+      const restored = setup();
+      restored.controller.restoreSession(controller.exportSession());
+      expect(restored.latest().rootIds[0]).toBe(pinned);
+      expect(restored.latest().pages[pinned]!.isPinned).toBe(true);
+      expect(
+        restored.controller.listPages().find((p) => p.id === pinned)?.pinned,
+      ).toBe(true);
+    });
+  });
+
   describe('sessions', () => {
     it('exports and restores workspaces, trails and history', () => {
       const original = setup();
@@ -747,12 +1133,24 @@ describe('BrowserController', () => {
 
     it('steps the page aside while the shell shows a popover', async () => {
       const { controller, hosts } = setup();
-      controller.createPage({ input: 'a.com' });
-      await expect(controller.captureActivePage()).resolves.toMatch(/^data:/);
+      const id = controller.createPage({ input: 'a.com' });
+      await expect(controller.captureVisiblePages()).resolves.toEqual({
+        [id]: expect.stringMatching(/^data:/),
+      });
       controller.setOverlayActive(true);
       expect(hosts[0]?.visible).toBe(false);
       controller.setOverlayActive(false);
       expect(hosts[0]?.visible).toBe(true);
+    });
+
+    it('focuses the page once an overlay has finished closing', () => {
+      const { controller, hosts } = setup();
+      controller.createPage({ input: 'a.com' });
+      controller.setOverlayActive(true);
+      controller.focusActivePage();
+      expect(hosts[0]?.calls).not.toContain('focus');
+      controller.setOverlayActive(false);
+      expect(hosts[0]?.calls).toContain('focus');
     });
 
     it('lists pages from every workspace for search', () => {
@@ -851,6 +1249,97 @@ describe('BrowserController', () => {
       expect(() =>
         controller.respondToPermission(id, 'stale', true),
       ).not.toThrow();
+    });
+  });
+
+  describe('browser essentials', () => {
+    const WINDOW = { x: 0, y: 0, width: 1200, height: 800 };
+
+    it('lets a page in full screen cover the window, then puts it back', () => {
+      const { controller, hosts } = setup();
+      controller.setContentBounds(BOUNDS, WINDOW);
+      controller.createPage({ input: 'video.example' });
+      hosts[0]!.events.onFullscreenChange(true);
+      expect(hosts[0]!.bounds).toEqual(WINDOW);
+      hosts[0]!.events.onFullscreenChange(false);
+      expect(hosts[0]!.bounds).toEqual(BOUNDS);
+    });
+
+    it('hides the other side of a split while one side is full screen', () => {
+      const { controller, hosts } = setup();
+      controller.setContentBounds(BOUNDS, WINDOW);
+      const left = controller.createPage({ input: 'a.example' });
+      const right = controller.createPage({
+        input: 'b.example',
+        parentId: left,
+      });
+      controller.openSplit(right, left);
+      expect(hosts[0]!.visible && hosts[1]!.visible).toBe(true);
+      hosts[1]!.events.onFullscreenChange(true);
+      expect(hosts[0]!.visible).toBe(false);
+      expect(hosts[1]!.bounds).toEqual(WINDOW);
+      hosts[1]!.events.onFullscreenChange(false);
+      expect(hosts[0]!.visible).toBe(true);
+    });
+
+    it('steps through the rows the sidebar shows, wrapping around', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ input: 'a.example' });
+      const b = controller.createPage({ input: 'b.example', parentId: a });
+      const c = controller.createPage({ input: 'c.example' });
+      controller.activatePage(a);
+      controller.activateAdjacent(1);
+      expect(latest().activePageId).toBe(b);
+      controller.activateAdjacent(1);
+      expect(latest().activePageId).toBe(c);
+      controller.activateAdjacent(1);
+      expect(latest().activePageId).toBe(a);
+      controller.activateAdjacent(-1);
+      expect(latest().activePageId).toBe(c);
+
+      controller.setCollapsed(a, true);
+      controller.activatePage(a);
+      controller.activateAdjacent(1);
+      expect(latest().activePageId).toBe(c);
+    });
+
+    it('shows the nth row or the last one', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ input: 'a.example' });
+      const b = controller.createPage({ input: 'b.example', parentId: a });
+      const c = controller.createPage({ input: 'c.example' });
+      controller.activateRow(2);
+      expect(latest().activePageId).toBe(b);
+      controller.activateRow('last');
+      expect(latest().activePageId).toBe(c);
+      controller.activateRow(9);
+      expect(latest().activePageId).toBe(c);
+    });
+
+    it('reopens a chosen closed page, not only the last one', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ input: 'a.example' });
+      const b = controller.createPage({ input: 'b.example' });
+      controller.createPage({ input: 'c.example' });
+      controller.closePage(a);
+      controller.closePage(b);
+      const [newest, older] = controller.recentlyClosed();
+      expect(newest?.label).toBe('b.example');
+      expect(older?.label).toBe('a.example');
+      expect(controller.reopenClosed(older!.serial)).toBe(a);
+      expect(latest().pages[a]).toBeDefined();
+      expect(controller.recentlyClosed().map((s) => s.label)).toEqual([
+        'b.example',
+      ]);
+      expect(controller.reopenClosed(12345)).toBeNull();
+    });
+
+    it('reloads ignoring the cache and prints the page', () => {
+      const { controller, hosts } = setup();
+      const id = controller.createPage({ input: 'a.example' });
+      controller.reload(id, { ignoreCache: true });
+      controller.print(id);
+      expect(hosts[0]!.calls).toEqual(['hard-reload', 'print']);
     });
   });
 });

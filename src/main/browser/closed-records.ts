@@ -18,6 +18,8 @@ export interface ClosedPage {
   collapsed: boolean;
   customTitle: string | null;
   note: string | null;
+  /** Missing in records saved before pages could be pinned. */
+  pinned?: boolean;
   state: PageRuntimeState;
   history: PageHistory | null;
   createdAt: number;

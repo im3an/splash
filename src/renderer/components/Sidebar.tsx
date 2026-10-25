@@ -1,20 +1,55 @@
 import { useLayoutEffect, useRef } from 'react';
-import { Download, PanelLeft, Plus } from 'lucide-react';
+import { PanelLeft, Plus } from 'lucide-react';
 import { api } from '../splash-api';
-import { useShell } from '../stores/shell-store';
+import { openLocation } from '../stores/overlay-store';
+import {
+  selectAddressInSidebar,
+  selectFlatTrail,
+  useShell,
+} from '../stores/shell-store';
+import { AddressBar } from './AddressBar';
+import { ExtensionActions } from './ExtensionActions';
+import { SidebarPanel } from './SidebarPanel';
+import { NavigationButtons, SplitButton } from './Toolbar';
 import { TrailTree } from './TrailTree';
-import { UndoToast } from './UndoToast';
+import { Toast } from './Toast';
 import { WorkspaceBar } from './WorkspaceBar';
 import { WorkspaceButton } from './WorkspaceButton';
-import { DownloadRing } from './DownloadRing';
-import { useDownloads } from '../stores/downloads-store';
-import { useOverlay } from '../stores/overlay-store';
 
+/**
+ * Arc's layout: window controls on top (with navigation and the address
+ * pill when the Address bar setting puts them here), the workspace's name
+ * over its trail, and workspaces along the foot.
+ */
 export function Sidebar() {
   const open = useShell((state) => state.sidebarOpen);
+  const panel = useShell((state) => state.sidebarPanel);
+  // The trail slides back in after a panel, but not when the window opens.
+  const leftForPanel = useRef(false);
+  if (panel) leftForPanel.current = true;
   const toggleSidebar = useShell((state) => state.toggleSidebar);
-  const focusAddressBar = useShell((state) => state.focusAddressBar);
+  // Only while open: the toolbar has the address field while this is shut.
+  const addressHere = useShell(selectAddressInSidebar);
   const workspaceId = useShell((state) => state.snapshot?.activeWorkspaceId);
+  const workspaceIndex = useShell(
+    (state) =>
+      state.snapshot?.workspaces.findIndex(
+        (w) => w.id === state.snapshot?.activeWorkspaceId,
+      ) ?? -1,
+  );
+  // Switching workspaces slides the trail the way the foot's order goes.
+  const previousIndex = useRef(workspaceIndex);
+  const slide = useRef('');
+  if (previousIndex.current !== workspaceIndex) {
+    slide.current =
+      previousIndex.current === -1
+        ? ''
+        : workspaceIndex > previousIndex.current
+          ? 'slide-from-right'
+          : 'slide-from-left';
+    previousIndex.current = workspaceIndex;
+  }
+  const flat = useShell(selectFlatTrail);
   const listRef = useRef<HTMLElement>(null);
   const scrollPositions = useRef(new Map<string, number>());
 
@@ -31,22 +66,28 @@ export function Sidebar() {
 
   const newPage = async () => {
     await api().createPage();
-    focusAddressBar();
+    void openLocation();
   };
+
+  // Downloads and History get more room than the trail.
+  const width = panel ? 'var(--sidebar-width-wide)' : 'var(--sidebar-width)';
 
   return (
     <aside
       aria-label="Sidebar"
       aria-hidden={!open}
       inert={!open}
-      className="shrink-0 overflow-hidden transition-[width] duration-[var(--duration-base)] ease-[var(--ease-out)]"
-      style={{ width: open ? 'var(--sidebar-width)' : 0 }}
+      className="shrink-0 overflow-hidden transition-[width] duration-[var(--duration-slow)] ease-[var(--ease-emphasized)]"
+      style={{ width: open ? width : 0 }}
     >
-      <div className="flex h-full w-[var(--sidebar-width)] flex-col pl-2">
-        <div className="drag flex h-[var(--toolbar-height)] shrink-0 items-center gap-1 pr-1 pl-[calc(var(--traffic-lights)-8px)]">
-          <WorkspaceButton />
-          <span className="flex-1" />
-          <DownloadsButton />
+      {/* Keeps its width while the sidebar closes, so nothing reflows. */}
+      <div
+        className="flex h-full flex-col pl-[var(--gutter)] transition-[width] duration-[var(--duration-slow)] ease-[var(--ease-emphasized)]"
+        style={{ width }}
+      >
+        <div className="drag flex h-[var(--toolbar-height)] shrink-0 items-center gap-0.5 pl-[calc(var(--traffic-lights)-var(--gutter))]">
+          {/* Without navigation beside it, the toggle sits by the page. */}
+          {!addressHere && <span className="flex-1" />}
           <button
             type="button"
             className="icon-button"
@@ -56,67 +97,67 @@ export function Sidebar() {
           >
             <PanelLeft size={16} strokeWidth={1.75} />
           </button>
+          {addressHere && (
+            <>
+              <span className="flex-1" />
+              <NavigationButtons />
+            </>
+          )}
         </div>
 
-        <button
-          type="button"
-          onClick={newPage}
-          className="mb-1 flex h-[var(--row-height)] shrink-0 items-center gap-2 rounded-[var(--radius-row)] pr-2 pl-6 text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg"
-        >
-          <Plus size={14} strokeWidth={1.75} className="shrink-0" />
-          <span className="flex-1 text-left">New page</span>
-          <kbd className="font-sans text-[11px] text-fg-subtle">⌘T</kbd>
-        </button>
+        {addressHere && (
+          <div className="mb-3 flex shrink-0">
+            <AddressBar
+              variant="sidebar"
+              trailing={
+                <>
+                  <ExtensionActions />
+                  <SplitButton compact />
+                </>
+              }
+            />
+          </div>
+        )}
 
-        <div className="mx-2 mb-1 h-px shrink-0 bg-divider" />
-
-        <nav
-          ref={listRef}
-          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pb-2"
+        {/* Stays mounted under a panel, keeping its scroll position. */}
+        <div
+          className={`${panel ? 'hidden' : 'flex'} ${leftForPanel.current ? 'trail-in' : ''} min-h-0 flex-1 flex-col`}
         >
-          <TrailTree />
-        </nav>
-        <UndoToast />
+          <div
+            key={workspaceId}
+            className={`flex shrink-0 flex-col ${slide.current}`}
+          >
+            <WorkspaceButton />
+          </div>
+
+          <button
+            type="button"
+            onClick={newPage}
+            data-flat={flat}
+            className="mb-px flex h-[var(--row-height)] shrink-0 items-center gap-2 rounded-[var(--radius-row)] pr-2 pl-[30px] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-row-hover hover:text-fg active:bg-row-pressed data-[flat=true]:pl-2.5"
+          >
+            {/* Sits in the favicon column of a top-level row, wherever that is. */}
+            <span className="grid size-4 shrink-0 place-items-center">
+              <Plus size={15} strokeWidth={1.75} />
+            </span>
+            <span className="flex-1 text-left">New page</span>
+            <kbd className="font-sans text-caption text-fg-subtle">⌘T</kbd>
+          </button>
+
+          {/* Padded so the active row's edge is never clipped by the scroller. */}
+          <nav
+            ref={listRef}
+            className="min-h-0 flex-1 scroll-py-1 overflow-x-hidden overflow-y-auto overscroll-contain pt-px pb-2"
+          >
+            <div key={workspaceId} className={slide.current}>
+              <TrailTree />
+            </div>
+          </nav>
+        </div>
+        {panel && <SidebarPanel key={panel} panel={panel} />}
+        <Toast placement="sidebar" />
         <WorkspaceBar />
       </div>
     </aside>
-  );
-}
-
-/** Opens the downloads list; shows overall progress while files arrive. */
-function DownloadsButton() {
-  const downloads = useDownloads((state) => state.downloads);
-  const unseenProblems = useDownloads((state) => state.unseenProblems);
-  const open = useOverlay((state) => state.open);
-  const active = downloads.filter((d) => d.state === 'progressing');
-  if (downloads.length === 0) return null;
-  const received = active.reduce((sum, d) => sum + d.receivedBytes, 0);
-  const total = active.reduce((sum, d) => sum + d.totalBytes, 0);
-  const label =
-    active.length > 0
-      ? `Downloads: ${active.length} in progress`
-      : unseenProblems > 0
-        ? 'Downloads: a download stopped'
-        : 'Downloads';
-  return (
-    <button
-      type="button"
-      className="icon-button relative"
-      aria-label={label}
-      title={label}
-      onClick={() => void open({ kind: 'downloads' })}
-    >
-      {active.length > 0 ? (
-        <DownloadRing received={received} total={total} size={16} />
-      ) : (
-        <Download size={15} strokeWidth={1.75} />
-      )}
-      {unseenProblems > 0 && (
-        <span
-          className="absolute top-1 right-1 size-1.5 rounded-full bg-danger"
-          aria-hidden
-        />
-      )}
-    </button>
   );
 }

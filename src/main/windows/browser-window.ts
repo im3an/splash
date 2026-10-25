@@ -3,26 +3,35 @@ import {
   app,
   BrowserWindow,
   nativeTheme,
+  net,
   shell,
   screen,
   session,
   type Rectangle,
 } from 'electron';
 import { eventChannels } from '../../shared/api';
-import { DEFAULT_APPEARANCE, framePreset } from '../../shared/appearance';
+import { DEFAULT_APPEARANCE, frameColor } from '../../shared/appearance';
 import type { Preferences } from '../../shared/preferences';
 import type {
   BrowserSnapshot,
   ContentInsets,
+  Notice,
+  PermissionDecision,
   StorageStatus,
   SiteInfo,
+  SitePermission,
   UiCommand,
   WorkspaceAppearance,
 } from '../../shared/types';
 import { BrowserController } from '../browser/browser-controller';
-import { buildPaletteItems } from '../browser/palette';
-import { createElectronPageHostFactory } from '../browser/electron-page-host';
+import { buildPaletteItems, searchSuggestionItems } from '../browser/palette';
+import { SearchSuggestions } from '../browser/search-suggestions';
+import {
+  contentsForPage,
+  createElectronPageHostFactory,
+} from '../browser/electron-page-host';
 import { contentBounds } from '../browser/layout';
+import { OfflineRetry } from '../browser/offline-retry';
 import { isSameDocument, shellUrl } from './shell-url';
 import type { IpcTarget } from '../ipc/register-ipc';
 import { showPageMenu } from '../menus/page-menu';
@@ -35,20 +44,37 @@ import {
 } from '../security/permissions';
 import { WEB_PARTITION } from '../security/web-security';
 import { SessionPersister } from '../storage/session-persister';
-import type { TrailStore } from '../storage/trail-store';
+import type { HistoryMatch, TrailStore } from '../storage/trail-store';
 import type { PreferencesService } from '../preferences';
 import type { DownloadManager } from '../downloads/download-manager';
+import type { ContentBlocking } from '../privacy/content-blocker';
+import type { ExtensionHost } from '../extensions/extension-host';
 
 const BOUNDS_KEY = 'window.bounds';
+
+/**
+ * Asked from the default session, which holds none of the pages' cookies,
+ * so the engine can't tie suggestions to a signed-in account.
+ */
+const engineSuggestions = new SearchSuggestions((url, init) =>
+  net.fetch(url, { ...init, credentials: 'omit' }),
+);
 
 export interface TrailWindowOptions {
   store: TrailStore;
   preferences: PreferencesService;
   downloads: DownloadManager;
-  /** Called when the list of workspaces, their names or the active one changes. */
+  blocker: ContentBlocking;
+  /**
+   * Called when the list of workspaces, their names or the active one
+   * changes, or the active page's pin or mute, so the menu bar can follow.
+   */
   onWorkspacesChanged(): void;
+  openSettings(): void;
   /** Every snapshot sent to this window, for other windows that mirror it. */
   onSnapshot?(snapshot: BrowserSnapshot): void;
+  /** Extensions see this window's pages as their tabs. */
+  extensions: ExtensionHost | null;
 }
 
 /** The last window position, if it still fits on a connected display. */
@@ -74,12 +100,24 @@ function savedBounds(store: TrailStore): Rectangle | null {
   }
 }
 
+/** What the window is called in the Window menu and Mission Control. */
+function windowTitle(
+  page:
+    | { customTitle: string | null; title: string; url: string | null }
+    | undefined,
+): string {
+  if (!page) return 'Splash';
+  if (page.customTitle || page.title) return page.customTitle || page.title;
+  try {
+    return page.url ? new URL(page.url).host : 'New Page';
+  } catch {
+    return 'Splash';
+  }
+}
+
 /** The window frame colour for a workspace's look, matching the shell. */
 function chromeBackground(appearance: WorkspaceAppearance): string {
-  const frame = framePreset(appearance.frame);
-  return nativeTheme.shouldUseDarkColors
-    ? frame.dark.chrome
-    : frame.light.chrome;
+  return frameColor(appearance, nativeTheme.shouldUseDarkColors);
 }
 
 /**
@@ -93,8 +131,19 @@ export class TrailWindow {
   private insets: ContentInsets | null = null;
   private readonly persister: SessionPersister;
   private workspaceKey = '';
+  /** The active page's toggles the menu bar names: Pin or Unpin, Mute or Unmute. */
+  private menuStateKey = '';
+  /** The contents extensions were last told are in front. */
+  private extensionContentsId: number | null = null;
   /** Why the last save failed, until one succeeds again. */
   private saveProblem: string | null = null;
+  /** Reloads "You're offline" pages when the connection returns. */
+  private readonly offline = new OfflineRetry({
+    isOnline: () => net.isOnline(),
+    retry: (pageId) => {
+      if (this.controller.hasPage(pageId)) this.controller.reload(pageId);
+    },
+  });
 
   constructor(private readonly options: TrailWindowOptions) {
     const url = shellUrl();
@@ -127,18 +176,45 @@ export class TrailWindow {
         preload: path.join(__dirname, 'page-preload.cjs'),
         isSoundBlocked: (origin) =>
           this.safely(() => store.getPermission(origin, 'sound')) === false,
+        onContentsCreated: (contents) =>
+          options.extensions?.addPage(contents, this.window),
+        extensionMenuItems: (contents, params) =>
+          options.extensions?.menuItems(contents, params) ?? [],
       }),
       onSnapshot: (snapshot) => {
         this.send(eventChannels.snapshot, snapshot);
+        this.selectForExtensions(snapshot.activePageId);
         this.options.onSnapshot?.(snapshot);
         this.persister.schedule();
+        this.offline.update(snapshot);
         const key = JSON.stringify([
           snapshot.activeWorkspaceId,
           snapshot.workspaces.map((w) => [w.id, w.name, w.appearance]),
         ]);
+        const active = snapshot.activePageId
+          ? snapshot.pages[snapshot.activePageId]
+          : undefined;
+        if (!this.window.isDestroyed()) {
+          this.window.setTitle(windowTitle(active));
+        }
+        // The menu names toggles and enables Back, Forward, Close Branch
+        // and the History menu's lists by these.
+        const menuState = JSON.stringify([
+          active?.isPinned,
+          active?.isMuted,
+          active?.canGoBack,
+          active?.canGoForward,
+          active?.childIds.length,
+          active?.url,
+          snapshot.lastClosed?.serial,
+        ]);
         if (key !== this.workspaceKey) {
           this.workspaceKey = key;
+          this.menuStateKey = menuState;
           this.applyAppearance();
+          this.options.onWorkspacesChanged();
+        } else if (menuState !== this.menuStateKey) {
+          this.menuStateKey = menuState;
           this.options.onWorkspacesChanged();
         }
       },
@@ -148,6 +224,9 @@ export class TrailWindow {
         this.safely(() => store.recordVisit(visited, Date.now())),
       onTitle: (visited, title) =>
         this.safely(() => store.recordTitle(visited, title)),
+      onFavicon: (visited, faviconUrl) =>
+        this.safely(() => store.recordFavicon(visited, faviconUrl)),
+      onNotice: (notice) => this.notify(notice),
     });
 
     this.persister = new SessionPersister({
@@ -175,7 +254,8 @@ export class TrailWindow {
         'storage:status': () => this.storageStatus(),
         'page:create': ({ input }) => this.controller.createPage({ input }),
         'page:activate': ({ pageId }) => this.controller.activatePage(pageId),
-        'page:close': ({ pageId }) => this.controller.closePage(pageId),
+        'page:close': ({ pageId, unpin }) =>
+          this.controller.closePage(pageId, { unpin }),
         'page:navigate': ({ pageId, input }) =>
           this.controller.navigate(pageId, input),
         'page:go-back': ({ pageId }) => this.controller.goBack(pageId),
@@ -191,12 +271,22 @@ export class TrailWindow {
         'page:reopen-closed': () => this.controller.reopenClosed(),
         'page:move': ({ pageId, parentId, afterId }) =>
           this.controller.movePage(pageId, parentId, afterId),
+        'page:return': ({ pageId, origin }) =>
+          this.controller.returnPage(pageId, origin),
         'page:rename': ({ pageId, title }) =>
           this.controller.renamePage(pageId, title),
+        'page:set-pinned': ({ pageId, pinned, origin }) =>
+          this.controller.setPinned(pageId, pinned, origin),
+        'app:open-settings': () => this.options.openSettings(),
         'page:duplicate': ({ pageId }) => this.controller.duplicatePage(pageId),
         'page:show-menu': ({ pageId }) => showPageMenu(this, pageId),
         'page:set-note': ({ pageId, note }) =>
           this.controller.setNote(pageId, note),
+        'page:open-split': ({ pageId, otherId }) =>
+          this.controller.openSplit(pageId, otherId),
+        'page:toggle-split': ({ pageId }) =>
+          this.controller.toggleSplit(pageId),
+        'split:close': () => this.controller.closeSplit(),
         'workspace:switch': ({ workspaceId }) =>
           this.controller.switchWorkspace(workspaceId),
         'workspace:rename': ({ workspaceId, name }) =>
@@ -230,7 +320,7 @@ export class TrailWindow {
           store.clearPermissions(origin);
           this.controller.applySoundPolicy(origin, false);
         },
-        'view:freeze': () => this.controller.captureActivePage(),
+        'view:freeze': () => this.controller.captureVisiblePages(),
         'downloads:list': () => this.options.downloads.list(),
         'downloads:act': ({ id, action }) =>
           this.options.downloads.act(id, action),
@@ -238,22 +328,48 @@ export class TrailWindow {
         'downloads:open-folder': () => {
           void shell.openPath(app.getPath('downloads'));
         },
+        'history:list': ({ query, limit }) =>
+          this.safely(() => store.listHistory(query, limit)) ?? [],
+        'history:delete': ({ url }) => {
+          this.safely(() => store.deleteHistoryEntry(url));
+        },
+        'history:restore': ({ entry }) => {
+          this.safely(() => store.restoreHistory([entry]));
+        },
         'preferences:get': () => this.options.preferences.get(),
         'preferences:update': ({ patch }) =>
           this.options.preferences.update(patch),
-        'palette:query': ({ query, scope }) => {
+        'palette:query': ({ query, scope, complete }) => {
           const snapshot = this.controller.snapshot();
+          const active = snapshot.activePageId
+            ? snapshot.pages[snapshot.activePageId]
+            : undefined;
           return buildPaletteItems({
             query,
             scope,
             pages: this.controller.listPages(),
-            history: query.trim()
-              ? (this.safely(() => store.searchHistory(query, 12)) ?? [])
-              : [],
+            history: query.trim() ? this.historyPool(query) : [],
+            workspaces: snapshot.workspaces,
             activeWorkspaceId: snapshot.activeWorkspaceId,
             activePageId: snapshot.activePageId,
+            activePage: active && {
+              id: active.id,
+              url: active.url,
+              pinned: active.isPinned,
+              muted: active.isMuted,
+              hasChildren: active.childIds.length > 0,
+              hasNote: active.note !== null,
+            },
             searchEngine: this.options.preferences.get().searchEngine,
+            complete,
           });
+        },
+        'search:suggest': async ({ query }) => {
+          const { searchEngine, searchSuggestions } =
+            this.options.preferences.get();
+          if (!searchSuggestions) return [];
+          const found = await engineSuggestions.get(query, searchEngine);
+          return searchSuggestionItems(found, query, searchEngine);
         },
         'workspace:move': ({ workspaceId, index }) =>
           this.controller.moveWorkspace(workspaceId, index),
@@ -280,6 +396,17 @@ export class TrailWindow {
     // Recompute in the main process so the page tracks live resizing
     // without waiting for a round trip through the shell UI.
     this.window.on('resize', () => this.layout());
+    // A three-finger swipe goes back or forward, as in Safari.
+    this.window.on('swipe', (_event, direction) => {
+      const pageId = this.controller.activePageId;
+      if (!pageId) return;
+      if (direction === 'right') this.controller.goBack(pageId);
+      if (direction === 'left') this.controller.goForward(pageId);
+    });
+    // The window shows the active page's title, as in Mission Control.
+    this.window.webContents.on('page-title-updated', (event) =>
+      event.preventDefault(),
+    );
     this.window.once('ready-to-show', () => this.window.show());
     // Save while every page view still exists, so their history is current.
     this.window.on('close', () => {
@@ -293,6 +420,7 @@ export class TrailWindow {
     });
     this.window.on('closed', () => {
       nativeTheme.off('updated', syncBackground);
+      this.offline.dispose();
       this.controller.dispose();
     });
 
@@ -320,6 +448,11 @@ export class TrailWindow {
     this.send(eventChannels.preferences, preferences);
   }
 
+  /** Confirms something in the shell, without taking focus from the page. */
+  notify(notice: Notice): void {
+    this.send(eventChannels.notice, notice);
+  }
+
   sendUiCommand(command: UiCommand): void {
     this.window.webContents.focus();
     this.send(eventChannels.uiCommand, command);
@@ -341,6 +474,17 @@ export class TrailWindow {
     }
   }
 
+  /** Tells extensions when a different page comes to the front. */
+  private selectForExtensions(pageId: string | null): void {
+    const contents = pageId ? contentsForPage(pageId) : undefined;
+    // A page that slept and woke up has new contents, so compare those.
+    if (!contents || contents.id === this.extensionContentsId) return;
+    // An asleep page has no contents to show; never hand over a closing one.
+    if (contents.isDestroyed()) return;
+    this.extensionContentsId = contents.id;
+    this.options.extensions?.selectPage(contents);
+  }
+
   /** Connection and permission details for the page's site. */
   private siteInfo(pageId: string): SiteInfo | null {
     const page = this.controller.snapshot().pages[pageId];
@@ -351,24 +495,47 @@ export class TrailWindow {
       origin,
       host: new URL(origin).host,
       security: origin.startsWith('https:') ? 'secure' : 'insecure',
+      blockedCount: this.options.blocker.blockedOn(pageId),
       permissions: SITE_PERMISSIONS.map((permission) => {
-        const decided = this.safely(() =>
-          store.getPermission(origin, permission),
-        );
+        const decided =
+          this.safely(() => store.getPermission(origin, permission)) ?? null;
         return {
           permission,
           label: PERMISSION_LABELS[permission],
-          // Sound plays unless the user turned it off.
           decision:
-            permission === 'sound' && decided === null
-              ? 'allow'
-              : decisionOf(decided ?? null),
+            decided === null ? this.undecided(permission) : decisionOf(decided),
         };
       }),
     };
   }
 
+  /** What applies on a site where the user hasn't decided. */
+  private undecided(permission: SitePermission): PermissionDecision {
+    // Sound plays unless the user turned it off; ads follow the setting.
+    if (permission === 'sound') return 'allow';
+    if (permission === 'ads') {
+      return this.options.preferences.get().blockAds ? 'block' : 'allow';
+    }
+    return 'ask';
+  }
+
   /** Storage problems are logged; they never take the browser down. */
+  /**
+   * History for suggestions to rank: every visit that contains the words,
+   * and the ones used most recently and most often, which a misspelling or
+   * a completion may still lead to.
+   */
+  private historyPool(query: string): HistoryMatch[] {
+    const { store } = this.options;
+    const matches = this.safely(() => store.searchHistory(query, 60)) ?? [];
+    const frequent = this.safely(() => store.frequentHistory(300)) ?? [];
+    const byUrl = new Map(matches.map((entry) => [entry.url, entry]));
+    for (const entry of frequent) {
+      if (!byUrl.has(entry.url)) byUrl.set(entry.url, entry);
+    }
+    return [...byUrl.values()];
+  }
+
   private safely<T>(run: () => T): T | null {
     try {
       return run();
@@ -383,6 +550,7 @@ export class TrailWindow {
     const [width = 0, height = 0] = this.window.getContentSize();
     this.controller.setContentBounds(
       contentBounds({ width, height }, this.insets),
+      { x: 0, y: 0, width, height },
     );
   }
 

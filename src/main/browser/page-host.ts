@@ -1,6 +1,7 @@
 import type { Rectangle } from 'electron';
 import type {
   FindResult,
+  Notice,
   PageError,
   PageId,
   SitePermission,
@@ -57,6 +58,8 @@ export interface PageHostEvents {
   onNavigationCommand(command: 'back' | 'forward' | 'reload'): void;
   /** Whether back/forward lead anywhere, counting the trail. */
   navigationAvailability(): { canGoBack: boolean; canGoForward: boolean };
+  /** The page took keyboard focus, usually because it was clicked. */
+  onFocus(): void;
   /** The page asks for permissions nobody has decided on yet. */
   onPermissionRequest(
     origin: string,
@@ -64,6 +67,10 @@ export interface PageHostEvents {
   ): Promise<boolean>;
   /** The page was refused something, without asking. */
   onPermissionBlocked(permissions: SitePermission[]): void;
+  /** Something the user did in the page's own menu worth confirming. */
+  onNotice(notice: Notice): void;
+  /** The page put itself in full screen (a video), or left it. */
+  onFullscreenChange(active: boolean): void;
 }
 
 /**
@@ -74,8 +81,11 @@ export interface PageHost {
   load(url: string, options?: LoadOptions): void;
   goBack(): void;
   goForward(): void;
-  reload(): void;
+  /** `ignoreCache` fetches everything again, like a hard reload. */
+  reload(options?: { ignoreCache?: boolean }): void;
   stop(): void;
+  /** Opens the system print dialog for the page. */
+  print(): void;
   show(bounds: Rectangle): void;
   hide(): void;
   focus(): void;

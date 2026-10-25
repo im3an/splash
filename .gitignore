@@ -145,5 +145,8 @@ vite.config.ts.timestamp-*
 # Electron-Forge
 out/
 
+# Extensions fetched by scripts/fetch-extensions.mjs
+/extensions/
+
 # Local Claude Code worktrees (separate checkouts, not part of this tree)
 .claude/worktrees/

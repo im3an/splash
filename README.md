@@ -84,7 +84,7 @@ its own surface (new-page hint, error with Try again) in the same frame.
 | Shortcut             | Action                                              |
 | -------------------- | --------------------------------------------------- |
 | ⌘T                   | New page                                            |
-| ⌘L                   | Focus address bar                                   |
+| ⌘L                   | Focus address bar (the palette on a new page)       |
 | ⌘W                   | Close page (closes the window when no pages remain) |
 | ⌘R / ⌘.              | Reload / stop                                       |
 | ⌘[ / ⌘]              | Back / forward                                      |
@@ -122,3 +122,25 @@ Appearance (System / Light / Dark) is under **View → Appearance**.
    activation; handle `render-process-gone` with auto-recovery.
 4. Redirect and popup edge cases (OAuth popups that need `window.opener`,
    `noopener`, downloads triggered by navigation).
+
+## Extensions
+
+Splash runs Chrome extensions in the page session through
+[electron-chrome-extensions](https://github.com/samuelmaddock/electron-browser-shell/tree/master/packages/electron-chrome-extensions),
+which adds the extension APIs Electron lacks. It ships with
+[uBlock Origin](https://github.com/gorhill/uBlock). `npm start` and
+`npm run package` fetch the pinned release into `extensions/` and check its
+SHA-256 (see `scripts/fetch-extensions.mjs`). Its button sits in the toolbar
+and "Block element" is in a page's context menu.
+
+On Electron 45.0.0, an extension's blocking `chrome.webRequest` listeners never
+answer ([electron/electron#55234](https://github.com/electron/electron/pull/55234),
+fixed in 45.0.1). Until Splash moves to 45.0.1, Splash's built-in blocker
+handles network requests, using uBlock Origin's and EasyList's filter lists. uBlock Origin
+hides page elements and runs its popup, picker and dashboard.
+
+## License
+
+Splash is licensed under the [GNU General Public License v3.0](LICENSE),
+as required by electron-chrome-extensions (GPL-3.0) and uBlock Origin
+(GPL-3.0).

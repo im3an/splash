@@ -14,6 +14,7 @@ export const SITE_PERMISSIONS: readonly SitePermission[] = [
   'location',
   'notifications',
   'sound',
+  'ads',
   'midi',
   'clipboard',
 ];
@@ -24,6 +25,7 @@ export const PERMISSION_LABELS: Record<SitePermission, string> = {
   location: 'Location',
   notifications: 'Notifications',
   sound: 'Sound',
+  ads: 'Ads and trackers',
   midi: 'MIDI devices',
   clipboard: 'Clipboard',
 };

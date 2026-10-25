@@ -1,10 +1,19 @@
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { app, BrowserWindow, dialog, nativeTheme, session } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  nativeTheme,
+  session,
+  type WebContents,
+} from 'electron';
 import { eventChannels } from '../shared/api';
 import { isNavigableUrl } from './browser/url';
 import { BrowsingDataCleaner } from './privacy/browsing-data';
+import type { ContentBlocking } from './privacy/content-blocker';
+import { enableContentBlocking } from './privacy/electron-content-blocker';
 import { SettingsWindow } from './windows/settings-window';
 import { registerIpc } from './ipc/register-ipc';
 import { installApplicationMenu } from './menus/application-menu';
@@ -18,6 +27,8 @@ import { SchemaTooNewError } from './storage/migrations';
 import { openTrailStore, SqliteTrailStore } from './storage/sqlite-trail-store';
 import type { TrailStore } from './storage/trail-store';
 import { TrailWindow } from './windows/browser-window';
+import { ExtensionHost } from './extensions/extension-host';
+import { contentsForPage, pageHandleFor } from './browser/electron-page-host';
 import { PreferencesService } from './preferences';
 import type { DownloadManager } from './downloads/download-manager';
 import { createDownloadManager } from './downloads/electron-downloads';
@@ -27,6 +38,8 @@ let store: TrailStore;
 let preferences: PreferencesService;
 let downloads: DownloadManager;
 let cleaner: BrowsingDataCleaner;
+let blocker: ContentBlocking;
+let extensions: ExtensionHost | null = null;
 let settings: SettingsWindow | null = null;
 /** Links macOS handed over before a window was ready. */
 const pendingUrls: string[] = [];
@@ -41,6 +54,7 @@ function openSettings(): void {
     preferences,
     downloads,
     cleaner,
+    blocker,
     browserWindow: () => currentWindow(),
   });
   settings.window.on('closed', () => {
@@ -114,12 +128,64 @@ function openWindow(): TrailWindow {
     store,
     preferences,
     downloads,
+    blocker,
+    extensions,
     onWorkspacesChanged: refreshMenu,
+    openSettings,
     onSnapshot: (snapshot) => settings?.send(eventChannels.snapshot, snapshot),
   });
   windows.add(trailWindow);
   trailWindow.window.on('closed', () => windows.delete(trailWindow));
   return trailWindow;
+}
+
+/** The window showing a page, with the page's id. */
+function windowOfContents(
+  contents: WebContents,
+): { trailWindow: TrailWindow; pageId: string } | null {
+  const pageId = pageHandleFor(contents)?.pageId;
+  if (!pageId) return null;
+  for (const trailWindow of windows) {
+    if (trailWindow.controller.snapshot().pages[pageId]) {
+      return { trailWindow, pageId };
+    }
+  }
+  return null;
+}
+
+/** Extensions open, show and close Splash pages in place of Chrome's tabs. */
+function createExtensionHost(): ExtensionHost {
+  return new ExtensionHost(session.fromPartition(WEB_PARTITION), {
+    openPage: (url, active) => {
+      const trailWindow = currentWindow() ?? openWindow();
+      const pageId = trailWindow.controller.createPage({
+        url,
+        activate: active,
+      });
+      const contents = contentsForPage(pageId);
+      return contents ? { contents, window: trailWindow.window } : null;
+    },
+    showPage: (contents) => {
+      // Splash also tells extensions which page is in front, and the
+      // library answers by asking to show it; that must not loop.
+      if (contents.isDestroyed()) return;
+      const found = windowOfContents(contents);
+      if (!found) return;
+      const { controller, window } = found.trailWindow;
+      if (controller.activePageId === found.pageId) return;
+      controller.activatePage(found.pageId);
+      window.focus();
+    },
+    closePage: (contents) => {
+      const found = windowOfContents(contents);
+      found?.trailWindow.controller.closePage(found.pageId);
+    },
+    openWindow: (url) => {
+      const trailWindow = openWindow();
+      if (url) trailWindow.controller.createPage({ url });
+      return trailWindow.window;
+    },
+  });
 }
 
 function currentWindow(): TrailWindow | null {
@@ -166,13 +232,18 @@ if (!app.requestSingleInstanceLock()) {
     return null;
   });
 
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
     const startup = openStartupStore();
     store = startup.store;
     configureAppSession(session.defaultSession);
     configureWebSession(session.fromPartition(WEB_PARTITION), store);
     preferences = new PreferencesService(store);
     nativeTheme.themeSource = preferences.get().theme;
+    blocker = enableContentBlocking(
+      session.fromPartition(WEB_PARTITION),
+      store,
+      preferences,
+    );
     downloads = createDownloadManager(
       session.fromPartition(WEB_PARTITION),
       store,
@@ -217,6 +288,14 @@ if (!app.requestSingleInstanceLock()) {
     });
 
     refreshMenu();
+    try {
+      extensions = createExtensionHost();
+      // Before the first window, so restored pages open with uBlock Origin
+      // already running.
+      await extensions.loadBundled();
+    } catch (error) {
+      console.error('Extensions are unavailable', error);
+    }
     const firstWindow = openWindow();
     if (startup.notice) {
       const { message, detail } = startup.notice;

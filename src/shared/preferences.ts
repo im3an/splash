@@ -25,21 +25,51 @@ export function searchEngine(id: SearchEngineId) {
 
 export interface Preferences {
   searchEngine: SearchEngineId;
+  /** Ask the search engine for suggestions while typing in the address field. */
+  searchSuggestions: boolean;
   /** Light or dark for the whole app; a workspace may override it. */
   theme: 'system' | 'light' | 'dark';
   density: 'comfortable' | 'compact';
+  /**
+   * How the sidebar marks the page on screen: a dot under its icon, a
+   * hairline outline, an underlined title, or a raised card.
+   */
+  currentPage: 'dot' | 'outline' | 'underline' | 'raised';
+  /** The site's name, quieter, after each page's title in the sidebar. */
+  showSiteNames: boolean;
+  /** Hairlines down each branch of the trail. */
+  showBranchLines: boolean;
+  /** Turn motion down in Splash even when macOS doesn't. */
+  reduceMotion: boolean;
+  /**
+   * Where the address field and page controls sit: a top bar over the page,
+   * or a pill at the top of the sidebar, like Arc.
+   */
+  addressBar: 'toolbar' | 'sidebar';
   /** Save into the Downloads folder, or ask where for each file. */
   downloads: 'folder' | 'ask';
   /** Pages kept awake; beyond this the least recently used ones sleep. */
   awakePages: number;
+  /** Block ads and trackers, unless a site is allowed. */
+  blockAds: boolean;
+  /** Reject cookie banners and hide notices, never agreeing; sites can be allowed. */
+  hideCookieNotices: boolean;
 }
 
 export const AWAKE_PAGE_CHOICES = [6, 12, 24, 48] as const;
 
 export const DEFAULT_PREFERENCES: Preferences = {
   searchEngine: 'duckduckgo',
+  searchSuggestions: true,
   theme: 'system',
   density: 'comfortable',
+  currentPage: 'dot',
+  showSiteNames: true,
+  showBranchLines: true,
+  reduceMotion: false,
+  addressBar: 'toolbar',
   downloads: 'folder',
   awakePages: 12,
+  blockAds: true,
+  hideCookieNotices: true,
 };

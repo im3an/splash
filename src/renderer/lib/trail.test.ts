@@ -1,5 +1,5 @@
 import { sampleSnapshot } from '../test-fixtures';
-import { visibleRows } from './trail';
+import { hiddenSummary, visibleRows } from './trail';
 
 describe('visibleRows', () => {
   it('lists pages depth-first with their depth', () => {
@@ -15,5 +15,28 @@ describe('visibleRows', () => {
   it('skips the descendants of collapsed pages', () => {
     const rows = visibleRows(sampleSnapshot({ b: { collapsed: true } }));
     expect(rows.map((row) => row.id)).toEqual(['a', 'b', 'c', 'e']);
+  });
+});
+
+describe('hiddenSummary', () => {
+  it('is null for expanded pages and pages without children', () => {
+    expect(hiddenSummary(sampleSnapshot(), 'a')).toBeNull();
+    expect(
+      hiddenSummary(sampleSnapshot({ c: { collapsed: true } }), 'c'),
+    ).toBeNull();
+  });
+
+  it('collects what the collapsed pages are doing', () => {
+    const snapshot = sampleSnapshot({
+      a: { collapsed: true },
+      b: { isAudible: true, isMuted: true },
+      c: { isAudible: true },
+      d: { isUnresponsive: true },
+    });
+    expect(hiddenSummary(snapshot, 'a')).toEqual({
+      ids: ['b', 'd', 'c'],
+      playing: ['c'],
+      failedId: 'd',
+    });
   });
 });

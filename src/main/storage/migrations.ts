@@ -71,6 +71,18 @@ export const MIGRATIONS: readonly string[] = [
     started_at INTEGER NOT NULL
   );
   `,
+  // 6 — the two pages a workspace shows side by side, as JSON.
+  `
+  ALTER TABLE workspaces ADD COLUMN split TEXT;
+  `,
+  // 7 — pinned pages, kept at the top of their trail.
+  `
+  ALTER TABLE pages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+  `,
+  // 8 — each visit's favicon, so suggestions can show it.
+  `
+  ALTER TABLE history ADD COLUMN favicon_url TEXT;
+  `,
 ];
 
 export class SchemaTooNewError extends Error {}

@@ -1,4 +1,10 @@
-import { isNavigableUrl, resolveAddressInput, searchUrl } from './url';
+import {
+  allowExtensionPages,
+  isNavigableUrl,
+  isPageUrl,
+  resolveAddressInput,
+  searchUrl,
+} from './url';
 
 describe('resolveAddressInput', () => {
   it.each([
@@ -45,6 +51,27 @@ describe('isNavigableUrl', () => {
     expect(isNavigableUrl('file:///tmp')).toBe(false);
     expect(isNavigableUrl('mailto:a@b.c')).toBe(false);
     expect(isNavigableUrl('not a url')).toBe(false);
+  });
+});
+
+describe('isPageUrl', () => {
+  it('allows web pages and the pages of bundled extensions only', () => {
+    allowExtensionPages('bundledextensionid');
+    expect(isPageUrl('https://example.com/')).toBe(true);
+    expect(
+      isPageUrl('chrome-extension://bundledextensionid/dashboard.html'),
+    ).toBe(true);
+    expect(isPageUrl('chrome-extension://otherextension/options.html')).toBe(
+      false,
+    );
+    expect(isPageUrl('file:///etc/hosts')).toBe(false);
+  });
+
+  it('never lets typed input reach an extension page', () => {
+    allowExtensionPages('bundledextensionid');
+    expect(
+      resolveAddressInput('chrome-extension://bundledextensionid/x.html'),
+    ).toMatch(/^https:\/\/duckduckgo\.com\//);
   });
 });
 

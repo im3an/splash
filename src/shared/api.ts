@@ -2,21 +2,27 @@ import type {
   BrowserSnapshot,
   AboutInfo,
   ClearDataRequest,
+  ContentBlockingStatus,
   ContentInsets,
   DefaultBrowserStatus,
   SiteSettings,
   StorageStatus,
   DownloadAction,
   DownloadSummary,
+  HistoryEntry,
+  MoveOrigin,
+  Notice,
   PageId,
   PaletteItem,
   PermissionDecision,
   SiteInfo,
   SitePermission,
+  TrailPosition,
   UiCommand,
   WorkspaceAppearance,
   WorkspaceId,
 } from './types';
+import type { PaletteScope } from './palette';
 import type { Preferences } from './preferences';
 
 export interface InvokeOutputs {
@@ -35,9 +41,15 @@ export interface InvokeOutputs {
   'page:close-branch': void;
   'page:reopen-closed': PageId | null;
   'page:move': void;
+  'page:return': void;
   'page:rename': void;
+  'page:set-pinned': void;
+  'app:open-settings': void;
   'page:duplicate': PageId;
   'page:show-menu': void;
+  'page:open-split': void;
+  'page:toggle-split': void;
+  'split:close': void;
   'page:set-note': void;
   'workspace:switch': void;
   'workspace:rename': void;
@@ -52,13 +64,19 @@ export interface InvokeOutputs {
   'site:get-info': SiteInfo | null;
   'site:set-permission': void;
   'site:reset': void;
-  'view:freeze': string | null;
+  'view:freeze': Record<PageId, string>;
   'palette:query': PaletteItem[];
+  'search:suggest': PaletteItem[];
   'downloads:list': DownloadSummary[];
   'downloads:act': void;
   'downloads:clear': void;
   'downloads:open-folder': void;
+  'history:list': HistoryEntry[];
+  'history:delete': void;
+  'history:restore': void;
   'settings:sites': SiteSettings[];
+  'settings:content-blocking': ContentBlockingStatus;
+  'settings:update-filter-lists': ContentBlockingStatus;
   'settings:clear-data': { summary: string; undoToken: string | null };
   'settings:undo-clear': boolean;
   'settings:default-browser': DefaultBrowserStatus;
@@ -78,6 +96,7 @@ export const eventChannels = {
   preferences: 'preferences:changed',
   downloads: 'downloads:changed',
   storage: 'storage:changed',
+  notice: 'shell:notice',
 } as const;
 
 /** The API the preload script exposes on `window.splash`. */
@@ -86,7 +105,8 @@ export interface SplashApi {
   getSnapshot(): Promise<BrowserSnapshot>;
   createPage(input?: string): Promise<PageId>;
   activatePage(pageId: PageId): Promise<void>;
-  closePage(pageId: PageId): Promise<void>;
+  /** A pinned page only goes to sleep unless `unpin` is set. */
+  closePage(pageId: PageId, options?: { unpin?: boolean }): Promise<void>;
   navigate(pageId: PageId, input: string): Promise<void>;
   goBack(pageId: PageId): Promise<void>;
   goForward(pageId: PageId): Promise<void>;
@@ -102,11 +122,25 @@ export interface SplashApi {
     parentId: PageId | null,
     afterId: PageId | null,
   ): Promise<void>;
+  /** Puts a page moved to another workspace back where it was. */
+  returnPage(pageId: PageId, origin: MoveOrigin): Promise<void>;
+  /** Pins or unpins a page; `origin` (undo) puts it back where it was. */
+  setPinned(
+    pageId: PageId,
+    pinned: boolean,
+    origin?: TrailPosition,
+  ): Promise<void>;
+  openSettings(): Promise<void>;
   renamePage(pageId: PageId, title: string | null): Promise<void>;
   duplicatePage(pageId: PageId): Promise<PageId>;
   /** Opens the native context menu for a page in the sidebar. */
   showPageMenu(pageId: PageId): Promise<void>;
   setNote(pageId: PageId, note: string | null): Promise<void>;
+  /** Shows `pageId` beside `otherId` and makes it active. */
+  openSplit(pageId: PageId, otherId: PageId): Promise<void>;
+  /** Closes the page's split view, or opens one with its parent or child. */
+  toggleSplit(pageId: PageId): Promise<void>;
+  closeSplit(): Promise<void>;
   switchWorkspace(workspaceId: WorkspaceId): Promise<void>;
   renameWorkspace(workspaceId: WorkspaceId, name: string): Promise<void>;
   showWorkspaceMenu(): Promise<void>;
@@ -139,25 +173,40 @@ export interface SplashApi {
     decision: PermissionDecision,
   ): Promise<void>;
   resetSite(origin: string): Promise<void>;
-  /** A still image of the active page, to show under a popover. */
-  freezePage(): Promise<string | null>;
+  /** Stills of the pages on screen by page, to show under a popover. */
+  freezePage(): Promise<Record<PageId, string>>;
   /** While true, the live page steps aside so shell popovers are visible. */
   setOverlayActive(active: boolean): void;
+  /**
+   * `complete` lets the leading row fill in the rest of an address from
+   * history; the field asks only while the user is typing forward.
+   */
   queryPalette(
     query: string,
-    scope: 'palette' | 'address',
+    scope: PaletteScope,
+    complete?: boolean,
   ): Promise<PaletteItem[]>;
+  /** What the search engine suggests for `query`; none when turned off. */
+  suggestSearch(query: string): Promise<PaletteItem[]>;
   moveWorkspace(workspaceId: WorkspaceId, index: number): Promise<void>;
   setContentInsets(insets: ContentInsets): void;
   focusPage(): void;
   onSnapshot(listener: (snapshot: BrowserSnapshot) => void): () => void;
   onUiCommand(listener: (command: UiCommand) => void): () => void;
+  onNotice(listener: (notice: Notice) => void): () => void;
   listDownloads(): Promise<DownloadSummary[]>;
   actOnDownload(id: string, action: DownloadAction): Promise<void>;
   clearDownloads(): Promise<void>;
   openDownloadsFolder(): Promise<void>;
   onDownloads(listener: (downloads: DownloadSummary[]) => void): () => void;
+  /** Recent history, newest first; only matching entries when `query` is set. */
+  listHistory(query: string, limit: number): Promise<HistoryEntry[]>;
+  deleteHistoryEntry(url: string): Promise<void>;
+  /** Puts back an entry removed with `deleteHistoryEntry` (undo). */
+  restoreHistoryEntry(entry: HistoryEntry): Promise<void>;
   listSiteSettings(): Promise<SiteSettings[]>;
+  contentBlockingStatus(): Promise<ContentBlockingStatus>;
+  updateFilterLists(): Promise<ContentBlockingStatus>;
   clearBrowsingData(
     request: ClearDataRequest,
   ): Promise<{ summary: string; undoToken: string | null }>;

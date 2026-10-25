@@ -12,6 +12,7 @@ function stubApi() {
     setCollapsed: vi.fn(async () => undefined),
     showPageMenu: vi.fn(async () => undefined),
     renamePage: vi.fn(async () => undefined),
+    setMuted: vi.fn(async () => undefined),
   };
   window.splash = splash as unknown as SplashApi;
   return splash;
@@ -19,6 +20,8 @@ function stubApi() {
 
 beforeEach(() => {
   useShell.setState({ snapshot: null });
+  // jsdom has no layout, so nothing to scroll; record the requests instead.
+  Element.prototype.scrollIntoView = vi.fn();
 });
 
 describe('TrailTree', () => {
@@ -36,6 +39,7 @@ describe('TrailTree', () => {
         pages: {},
         rootIds: [],
         activePageId: null,
+        split: null,
         lastClosed: null,
         workspaces: [],
         activeWorkspaceId: 'w1',
@@ -66,6 +70,24 @@ describe('TrailTree', () => {
     expect(items[0]?.getAttribute('aria-selected')).toBe('true');
     expect(items[0]?.getAttribute('aria-expanded')).toBe('true');
     expect(items[2]?.hasAttribute('aria-expanded')).toBe(false);
+  });
+
+  it('scrolls a newly active page into view', () => {
+    stubApi();
+    useShell.setState({ snapshot: sampleSnapshot() });
+    render(<TrailTree />);
+    const scroll = vi.mocked(Element.prototype.scrollIntoView);
+    scroll.mockClear();
+
+    act(() =>
+      useShell
+        .getState()
+        .receiveSnapshot({ ...sampleSnapshot(), activePageId: 'e' }),
+    );
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts[0]).toBe(
+      screen.getByRole('treeitem', { name: 'e' }),
+    );
   });
 
   it('routes row interactions to the browser API', () => {
@@ -113,5 +135,37 @@ describe('TrailTree', () => {
     });
     render(<TrailTree />);
     expect(screen.getByRole('treeitem', { name: 'Later' })).toBeTruthy();
+  });
+
+  it('shows what a collapsed branch hides on its row', () => {
+    const splash = stubApi();
+    useShell.setState({
+      snapshot: sampleSnapshot({
+        a: { collapsed: true },
+        c: { isAudible: true },
+        d: {
+          error: {
+            kind: 'crashed',
+            code: 0,
+            description: '',
+            url: 'https://d.example/',
+          },
+        },
+      }),
+    });
+    render(<TrailTree />);
+    expect(
+      screen
+        .getAllByRole('treeitem')
+        .map((item) => item.getAttribute('aria-label')),
+    ).toEqual(['a, 3 hidden pages', 'e']);
+
+    fireEvent.click(
+      screen.getByLabelText('Mute 1 page playing in this branch'),
+    );
+    expect(splash.setMuted).toHaveBeenCalledWith('c', true);
+
+    fireEvent.click(screen.getByLabelText('Show “d”, which has a problem'));
+    expect(splash.activatePage).toHaveBeenCalledWith('d');
   });
 });

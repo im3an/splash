@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { api } from '../splash-api';
 import { selectActivePage, useShell } from '../stores/shell-store';
+import { Reveal } from './Reveal';
 
 /** ⌘F: find on the active page. Enter and ⌘G step forward, ⇧ steps back. */
 export function FindBar() {
@@ -37,7 +38,7 @@ export function FindBar() {
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId]);
 
-  if (!open) return null;
+  if (!open) return <Reveal show={false}>{null}</Reveal>;
 
   const close = () => {
     if (pageId) void api().stopFind(pageId);
@@ -54,73 +55,75 @@ export function FindBar() {
         : `${result.activeMatch} of ${result.matches}`;
 
   return (
-    <div
-      role="search"
-      aria-label="Find on page"
-      className="bar-in mx-2 mb-2 flex shrink-0 items-center gap-1 self-end rounded-[var(--radius-control)] bg-elevated py-1 pr-1 pl-2.5 shadow-[var(--shadow-row)]"
-    >
-      <input
-        ref={inputRef}
-        autoFocus
-        value={text}
-        onChange={(event) => {
-          setText(event.target.value);
-          if (pageId) {
-            void api().find(pageId, event.target.value, {
-              forward: true,
-              findNext: false,
-            });
-          }
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            close();
-          } else if (event.key === 'Enter') {
-            event.preventDefault();
-            search(!event.shiftKey, true);
-          }
-        }}
-        placeholder="Find on page"
+    <Reveal show>
+      <div
+        role="search"
         aria-label="Find on page"
-        spellCheck={false}
-        className="h-7 w-56 min-w-0 bg-transparent text-fg outline-none placeholder:text-fg-subtle select-text"
-      />
-      <span
-        aria-live="polite"
-        className="min-w-[72px] shrink-0 text-right text-[12px] text-fg-subtle tabular-nums"
+        className="shell-bar gap-1 self-end py-1 pr-1 pl-2.5"
       >
-        {status}
-      </span>
-      <button
-        type="button"
-        className="icon-button size-7"
-        aria-label="Previous match"
-        title="Previous match (⇧⌘G)"
-        disabled={!result?.matches}
-        onClick={() => search(false, true)}
-      >
-        <ChevronUp size={15} strokeWidth={1.75} />
-      </button>
-      <button
-        type="button"
-        className="icon-button size-7"
-        aria-label="Next match"
-        title="Next match (⌘G)"
-        disabled={!result?.matches}
-        onClick={() => search(true, true)}
-      >
-        <ChevronDown size={15} strokeWidth={1.75} />
-      </button>
-      <button
-        type="button"
-        className="icon-button size-7"
-        aria-label="Close find"
-        title="Close (esc)"
-        onClick={close}
-      >
-        <X size={14} strokeWidth={1.75} />
-      </button>
-    </div>
+        <input
+          ref={inputRef}
+          autoFocus
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value);
+            if (pageId) {
+              void api().find(pageId, event.target.value, {
+                forward: true,
+                findNext: false,
+              });
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              close();
+            } else if (event.key === 'Enter') {
+              event.preventDefault();
+              search(!event.shiftKey, true);
+            }
+          }}
+          placeholder="Find on page"
+          aria-label="Find on page"
+          spellCheck={false}
+          className="h-7 w-56 min-w-0 bg-transparent text-fg outline-none placeholder:text-fg-subtle select-text"
+        />
+        <span
+          aria-live="polite"
+          className="min-w-[72px] shrink-0 text-right text-small text-fg-subtle tabular-nums"
+        >
+          {status}
+        </span>
+        <button
+          type="button"
+          className="icon-button size-7"
+          aria-label="Previous match"
+          title="Previous match (⇧⌘G)"
+          disabled={!result?.matches}
+          onClick={() => search(false, true)}
+        >
+          <ChevronUp size={15} strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          className="icon-button size-7"
+          aria-label="Next match"
+          title="Next match (⌘G)"
+          disabled={!result?.matches}
+          onClick={() => search(true, true)}
+        >
+          <ChevronDown size={15} strokeWidth={1.75} />
+        </button>
+        <button
+          type="button"
+          className="icon-button size-7"
+          aria-label="Close find"
+          title="Close (esc)"
+          onClick={close}
+        >
+          <X size={14} strokeWidth={1.75} />
+        </button>
+      </div>
+    </Reveal>
   );
 }

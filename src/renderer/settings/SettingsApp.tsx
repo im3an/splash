@@ -93,7 +93,7 @@ export function SettingsApp() {
       <main className="min-w-0 flex-1 overflow-y-auto bg-surface">
         <div className="drag h-[48px]" />
         <div className="mx-auto flex max-w-[620px] flex-col gap-7 px-8 pb-10 select-text">
-          <h1 className="text-[20px] font-semibold tracking-[-0.01em]">
+          <h1 className="text-display font-semibold tracking-[-0.01em]">
             {section.title ?? section.label}
           </h1>
           <Body />

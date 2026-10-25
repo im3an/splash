@@ -1,12 +1,15 @@
 import {
   Menu,
+  webContents,
   WebContentsView,
   type BaseWindow,
+  type ContextMenuParams,
+  type MenuItem,
   type Rectangle,
   type Session,
   type WebContents,
 } from 'electron';
-import { LINK_ACTIVATED } from '../../shared/page-bridge';
+import { LINK_ACTIVATED, NAVIGATION_BUTTON } from '../../shared/page-bridge';
 import type { SitePermission } from '../../shared/types';
 import { webContextMenu } from '../menus/web-context-menu';
 import { isSameDocumentUrl, LinkActivations } from './link-activations';
@@ -17,7 +20,7 @@ import type {
   PageHostEvents,
   PageHostFactory,
 } from './page-host';
-import { isNavigableUrl } from './url';
+import { isNavigableUrl, isPageUrl } from './url';
 import { stepZoom } from './zoom';
 
 /** Must match `--radius-content` in the renderer's design tokens. */
@@ -33,6 +36,13 @@ export interface PageHostEnvironment {
   preload: string;
   /** Whether the user turned sound off for a site. */
   isSoundBlocked(origin: string): boolean;
+  /** A page's contents were created; extensions can now see it. */
+  onContentsCreated?(contents: WebContents): void;
+  /** Extension items for a page's context menu, such as "Block element". */
+  extensionMenuItems?(
+    contents: WebContents,
+    params: ContextMenuParams,
+  ): MenuItem[];
 }
 
 /**
@@ -46,6 +56,16 @@ export interface PageHandle {
 }
 
 const pageHandles = new Map<number, PageHandle>();
+
+/** The contents showing a trail page, while it is awake. */
+export function contentsForPage(pageId: string): WebContents | undefined {
+  for (const [id, handle] of pageHandles) {
+    if (handle.pageId !== pageId) continue;
+    const contents = webContents.fromId(id);
+    if (contents && !contents.isDestroyed()) return contents;
+  }
+  return undefined;
+}
 
 /** The trail page behind a WebContents, if it is one of ours. */
 export function pageHandleFor(
@@ -88,6 +108,9 @@ class ElectronPageHost implements PageHost {
         // world and can only report link clicks.
         preload: environment.preload,
         sandbox: true,
+        // Despite the name, sandboxed frames still get no Node.js: this only
+        // runs the preloads in iframes too, where cookie banners often live.
+        nodeIntegrationInSubFrames: true,
         contextIsolation: true,
         nodeIntegration: false,
         webSecurity: true,
@@ -107,6 +130,7 @@ class ElectronPageHost implements PageHost {
       blocked: (permissions) => this.events.onPermissionBlocked(permissions),
     });
     this.view.webContents.once('destroyed', () => pageHandles.delete(id));
+    environment.onContentsCreated?.(this.view.webContents);
   }
 
   private get contents(): WebContents {
@@ -136,12 +160,17 @@ class ElectronPageHost implements PageHost {
     }
   }
 
-  reload(): void {
-    this.contents.reload();
+  reload({ ignoreCache = false }: { ignoreCache?: boolean } = {}): void {
+    if (ignoreCache) this.contents.reloadIgnoringCache();
+    else this.contents.reload();
   }
 
   stop(): void {
     this.contents.stop();
+  }
+
+  print(): void {
+    this.contents.print({}, () => undefined);
   }
 
   show(bounds: Rectangle): void {
@@ -173,7 +202,7 @@ class ElectronPageHost implements PageHost {
     const history = this.contents.navigationHistory;
     const entries = history
       .getAllEntries()
-      .filter((entry) => isNavigableUrl(entry.url));
+      .filter((entry) => isPageUrl(entry.url));
     if (entries.length === 0) return null;
     const index = Math.min(history.getActiveIndex(), entries.length - 1);
     return { entries, index: Math.max(0, index) };
@@ -224,6 +253,9 @@ class ElectronPageHost implements PageHost {
   }
 
   destroy(): void {
+    // Forget the page now: `destroyed` comes later, and until then a sleeping
+    // page would still seem to have this view.
+    pageHandles.delete(this.contents.id);
     this.hide();
     // A WebContentsView does not destroy its WebContents on its own.
     if (!this.contents.isDestroyed()) this.contents.close();
@@ -241,7 +273,7 @@ class ElectronPageHost implements PageHost {
     const emit = this.events.onStateChange;
 
     contents.setWindowOpenHandler(({ url, disposition }) => {
-      if (isNavigableUrl(url)) {
+      if (isPageUrl(url)) {
         this.events.onOpenRequest(url, {
           background: disposition === 'background-tab',
         });
@@ -255,9 +287,15 @@ class ElectronPageHost implements PageHost {
       if (typeof href !== 'string' || href.length > MAX_URL_LENGTH) return;
       if (isNavigableUrl(href)) this.links.record(href);
     });
+    // Any frame may report it: the button works over embedded content too.
+    contents.ipc.on(NAVIGATION_BUTTON, (_event, button: unknown) => {
+      if (button === 'back' || button === 'forward') {
+        this.events.onNavigationCommand(button);
+      }
+    });
 
     contents.on('will-navigate', (event) => {
-      if (!isNavigableUrl(event.url)) {
+      if (!isPageUrl(event.url)) {
         event.preventDefault();
         return;
       }
@@ -281,15 +319,32 @@ class ElectronPageHost implements PageHost {
         back: () => this.events.onNavigationCommand('back'),
         forward: () => this.events.onNavigationCommand('forward'),
         reload: () => this.events.onNavigationCommand('reload'),
+        copied: (what, subject) =>
+          this.events.onNotice({ kind: 'copied', what, subject }),
+        print: () => this.print(),
       });
-      Menu.buildFromTemplate(template).popup({
+      const extras =
+        this.environment.extensionMenuItems?.(contents, params) ?? [];
+      // Extension items go just above Inspect Element.
+      const items =
+        extras.length > 0
+          ? [
+              ...template.slice(0, -1),
+              ...extras,
+              { type: 'separator' as const },
+              ...template.slice(-1),
+            ]
+          : template;
+      Menu.buildFromTemplate(items).popup({
         window: this.window,
         frame: params.frame ?? undefined,
       });
     });
     contents.on('will-redirect', (event) => {
-      if (!isNavigableUrl(event.url)) event.preventDefault();
+      if (!isPageUrl(event.url)) event.preventDefault();
     });
+
+    contents.on('focus', () => this.events.onFocus());
 
     contents.on('did-start-navigation', (details) => {
       if (details.isMainFrame && !details.isSameDocument) emit({ error: null });
@@ -347,6 +402,15 @@ class ElectronPageHost implements PageHost {
         });
       },
     );
+    // A video's full screen fills the whole window, edge to edge.
+    contents.on('enter-html-full-screen', () => {
+      this.view.setBorderRadius(0);
+      this.events.onFullscreenChange(true);
+    });
+    contents.on('leave-html-full-screen', () => {
+      this.view.setBorderRadius(CONTENT_RADIUS);
+      this.events.onFullscreenChange(false);
+    });
     contents.on('unresponsive', () => emit({ isUnresponsive: true }));
     contents.on('responsive', () => emit({ isUnresponsive: false }));
     contents.on('render-process-gone', (_event, details) => {

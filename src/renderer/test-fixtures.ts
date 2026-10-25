@@ -20,6 +20,7 @@ export function page(
     isDiscarded: false,
     customTitle: null,
     note: null,
+    isPinned: false,
     isAudible: false,
     isMuted: false,
     zoomPercent: 100,
@@ -46,6 +47,7 @@ export function sampleSnapshot(
     pages: Object.fromEntries(pages.map((p) => [p.id, p])),
     rootIds: ['a', 'e'],
     activePageId: 'a',
+    split: null,
     lastClosed: null,
     workspaces: [
       {

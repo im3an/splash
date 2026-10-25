@@ -29,7 +29,7 @@ export function Favicon({ page }: { page: PageSnapshot }) {
         height={16}
         referrerPolicy="no-referrer"
         draggable={false}
-        className="size-4 rounded-[3px] object-contain"
+        className="size-4 rounded-[var(--radius-mark)] object-contain"
         onError={() => setFailedUrl(page.faviconUrl)}
       />
     );
