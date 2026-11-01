@@ -285,7 +285,7 @@ export function TrailTree() {
                 <summary className="sidebar-section-heading mt-2">
                   <span className="sidebar-section-label">
                     <ChevronRight size={12} />
-                    {pinned ? 'Pinned' : 'Tabs'}
+                    {pinned ? 'Pinned' : 'Pages'}
                     <span className="sidebar-folded-count">
                       {pinned ? sectionCounts.pinned : sectionCounts.open}
                     </span>

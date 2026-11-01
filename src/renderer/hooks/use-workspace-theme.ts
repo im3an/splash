@@ -33,7 +33,7 @@ export function themeVariables(
     '--field-focus': dark
       ? `color-mix(in oklab, ${colors.elevated} 85%, ${colors.chrome})`
       : colors.elevated,
-    ...(dark ? {} : { '--ink': frame.light.ink }),
+    '--ink': colors.ink,
     '--accent': accentColor,
     '--accent-soft': `color-mix(in oklab, ${accentColor} ${dark ? 22 : 16}%, transparent)`,
   };

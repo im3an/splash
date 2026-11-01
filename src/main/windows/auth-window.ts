@@ -7,6 +7,7 @@ import {
   type WebContents,
 } from 'electron';
 import type { IpcTarget } from '../ipc/register-ipc';
+import { DEFAULT_APPEARANCE, frameColor } from '../../shared/appearance';
 import { isSameDocument, shellUrl } from './shell-url';
 
 const targets = new Map<number, IpcTarget>();
@@ -35,7 +36,10 @@ export function requestAuthentication(
     modal: true,
     show: false,
     title: 'Sign in to site',
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f3efe9',
+    backgroundColor: frameColor(
+      DEFAULT_APPEARANCE,
+      nativeTheme.shouldUseDarkColors,
+    ),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       sandbox: true,

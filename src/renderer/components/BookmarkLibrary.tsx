@@ -610,7 +610,7 @@ export function BookmarkLibrary() {
   const roots = collections.filter((item) => !item.parentId);
   return (
     <section
-      aria-label="Bookmarks and tab groups"
+      aria-label="Bookmarks and saved groups"
       className="library"
       onContextMenu={(event) => show(event, createEntries)}
     >

@@ -1,7 +1,8 @@
 /*
- * Design tokens. Two themes: a warm paper light and a graphite dark.
- * `--chrome` and `--radius-content` are mirrored in the main process
- * (window background, page view corner radius) — keep them in sync.
+ * Design tokens. Two themes: warm charcoal dark (the default) and a warm
+ * paper light. Every colour here is a role; components never use literals.
+ * The main process mirrors the frame colours (src/shared/appearance.ts) and
+ * `--radius-content` / `--gutter` (src/shared/geometry.ts): keep them in sync.
  */
 
 :root {
@@ -46,14 +47,27 @@
 
   /* Small secondary text stays readable on the neutral workspace frames. */
   --fg: #221d17;
-  --fg-muted: #655c52;
-  --fg-subtle: #6b6259;
+  --fg-muted: #585047;
+  --fg-subtle: #675e55;
+  --fg-disabled: rgb(var(--ink) / 0.38);
+
+  /* Named borders: structural separators, then control and hover edges. */
+  --border: var(--divider);
+  --border-strong: var(--hairline);
+  --border-hover: rgb(var(--ink) / 0.22);
 
   --accent: #b4542d;
   --accent-soft: rgb(180 84 45 / 0.16);
   --accent-hover: color-mix(in oklab, var(--accent), black 8%);
   --on-accent: var(--chrome);
+  --focus-ring: var(--accent);
+  /* Status colours. Never the only cue: pair with an icon or words. */
   --danger: #b03a2e;
+  --success: #3f7a3a;
+  --warning: #9a6a0a;
+  --info: #2d6cb0;
+  --scrollbar-thumb: rgb(var(--ink) / 0.22);
+  --scrollbar-thumb-hover: rgb(var(--ink) / 0.36);
 
   --shadow-row:
     0 0 0 0.5px rgb(var(--ink) / 0.12), 0 1px 2px rgb(var(--ink) / 0.08);
@@ -115,43 +129,53 @@
   :root {
     color-scheme: dark;
 
-    --chrome: #1c1c1e;
-    --surface: #222224;
-    --elevated: #2d2d30;
-    --field: rgb(255 255 255 / 0.06);
-    --field-focus: #2a2a2d;
-    --hover: rgb(255 255 255 / 0.045);
-    --pressed: rgb(255 255 255 / 0.09);
-    /* Elevated alone sits too close to hover on graphite. */
-    --selected: color-mix(in oklab, var(--elevated), white 6%);
+    /* Warm charcoal and brown-black, never neutral grey. */
+    --chrome: #1a1714;
+    --surface: #201c18;
+    --elevated: #2a2520;
+    /* Warm off-white as "r g b": hovers and lines tint toward it. */
+    --ink: 240 228 214;
+    --field: rgb(var(--ink) / 0.06);
+    --field-focus: #24201b;
+    --hover: rgb(var(--ink) / 0.05);
+    --pressed: rgb(var(--ink) / 0.09);
+    /* Elevated alone sits too close to hover on charcoal. */
+    --selected: color-mix(in oklab, var(--elevated), rgb(var(--ink)) 5%);
     --frame: color-mix(in oklab, var(--accent) 5%, var(--chrome));
-    --row-hover: rgb(255 255 255 / 0.05);
-    --row-pressed: rgb(255 255 255 / 0.09);
-    --pill: rgb(255 255 255 / 0.07);
-    --divider: rgb(255 255 255 / 0.07);
-    --hairline: rgb(255 255 255 / 0.1);
-    --scrim: rgb(0 0 0 / 0.32);
-    --option-selected: rgb(255 255 255 / 0.075);
-    --keycap: rgb(255 255 255 / 0.08);
-    --guide-path: rgb(255 255 255 / 0.26);
+    --row-hover: rgb(var(--ink) / 0.05);
+    --row-pressed: rgb(var(--ink) / 0.09);
+    --pill: rgb(var(--ink) / 0.07);
+    --divider: rgb(var(--ink) / 0.075);
+    --hairline: rgb(var(--ink) / 0.11);
+    --border-hover: rgb(var(--ink) / 0.2);
+    --scrim: rgb(8 6 4 / 0.42);
+    --option-selected: rgb(var(--ink) / 0.08);
+    --keycap: rgb(var(--ink) / 0.08);
+    --guide-path: rgb(var(--ink) / 0.28);
 
-    --fg: #ebebed;
-    --fg-muted: #a2a2a8;
-    --fg-subtle: #94949b;
+    --fg: #ede6dd;
+    --fg-muted: #b3a89b;
+    --fg-subtle: #a09588;
+    --fg-disabled: rgb(var(--ink) / 0.34);
 
     --accent: #e3906a;
     --accent-soft: rgb(227 144 106 / 0.2);
     --accent-hover: color-mix(in oklab, var(--accent), white 8%);
     --danger: #ec7a6b;
+    --success: #8fc27a;
+    --warning: #e6b04f;
+    --info: #7eafea;
+    --scrollbar-thumb: rgb(var(--ink) / 0.18);
+    --scrollbar-thumb-hover: rgb(var(--ink) / 0.3);
 
     --shadow-row:
-      0 0 0 0.5px rgb(255 255 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.3);
+      0 0 0 0.5px rgb(var(--ink) / 0.08), 0 1px 2px rgb(0 0 0 / 0.35);
 
     --shadow-content:
-      0 0 0 0.5px rgb(255 255 255 / 0.08), 0 1px 3px rgb(0 0 0 / 0.25);
+      0 0 0 0.5px rgb(var(--ink) / 0.08), 0 1px 3px rgb(0 0 0 / 0.3);
     --shadow-panel:
-      0 0 0 0.5px rgb(255 255 255 / 0.1), 0 14px 40px rgb(0 0 0 / 0.45);
-    --skeleton: rgb(255 255 255 / 0.06);
+      0 0 0 0.5px rgb(var(--ink) / 0.1), 0 16px 44px rgb(0 0 0 / 0.5);
+    --skeleton: rgb(var(--ink) / 0.06);
   }
 }
 

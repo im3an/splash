@@ -168,16 +168,16 @@ export function AppearanceSettings() {
       <Section title="Appearance">
         <Row
           label="Theme"
-          help="A workspace can choose its own light or dark mode, which takes precedence while it’s open."
+          help="Dark is Splash’s default. Websites follow this choice too. A workspace can set its own, which wins while it’s open. Applies immediately."
         >
           <Choice
             label="Theme"
             value={preferences.theme}
             onChange={(theme) => update({ theme })}
             options={[
-              { value: 'system', label: 'System' },
-              { value: 'light', label: 'Light' },
               { value: 'dark', label: 'Dark' },
+              { value: 'light', label: 'Light' },
+              { value: 'system', label: 'System' },
             ]}
           />
         </Row>

@@ -230,7 +230,7 @@ it('separates pinned branches from open pages and counts hidden descendants', ()
   });
   render(<TrailTree />);
   expect(screen.getByText('Pinned')).toBeTruthy();
-  expect(screen.getByText('Tabs')).toBeTruthy();
+  expect(screen.getByText('Pages')).toBeTruthy();
   expect(
     screen
       .getByRole('treeitem', { name: /a, pinned/ })

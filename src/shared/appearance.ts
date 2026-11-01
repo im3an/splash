@@ -28,10 +28,13 @@ export interface FramePreset {
   id: string;
   label: string;
   light: { chrome: string; surface: string; elevated: string; ink: string };
-  dark: { chrome: string; surface: string; elevated: string };
+  dark: { chrome: string; surface: string; elevated: string; ink: string };
 }
 
-/** The window frame around pages; `ink` tints hovers and dividers (r g b). */
+/**
+ * The window frame around pages; `ink` tints hovers and dividers (r g b).
+ * Dark frames are warm-leaning charcoals so text stays at fixed contrast.
+ */
 export const FRAMES: readonly FramePreset[] = [
   {
     id: 'paper',
@@ -42,7 +45,12 @@ export const FRAMES: readonly FramePreset[] = [
       elevated: '#ffffff',
       ink: '70 52 32',
     },
-    dark: { chrome: '#1c1c1e', surface: '#222224', elevated: '#2d2d30' },
+    dark: {
+      chrome: '#1a1714',
+      surface: '#201c18',
+      elevated: '#2a2520',
+      ink: '240 228 214',
+    },
   },
   {
     id: 'stone',
@@ -53,7 +61,12 @@ export const FRAMES: readonly FramePreset[] = [
       elevated: '#ffffff',
       ink: '44 44 48',
     },
-    dark: { chrome: '#19191a', surface: '#202021', elevated: '#2b2b2d' },
+    dark: {
+      chrome: '#191817',
+      surface: '#1f1e1c',
+      elevated: '#292826',
+      ink: '234 230 224',
+    },
   },
   {
     id: 'sage',
@@ -64,7 +77,12 @@ export const FRAMES: readonly FramePreset[] = [
       elevated: '#ffffff',
       ink: '42 62 38',
     },
-    dark: { chrome: '#161b16', surface: '#1c221c', elevated: '#262d26' },
+    dark: {
+      chrome: '#161a15',
+      surface: '#1c211b',
+      elevated: '#262c24',
+      ink: '226 236 222',
+    },
   },
   {
     id: 'mist',
@@ -75,7 +93,12 @@ export const FRAMES: readonly FramePreset[] = [
       elevated: '#ffffff',
       ink: '36 52 78',
     },
-    dark: { chrome: '#151a20', surface: '#1b2128', elevated: '#252c35' },
+    dark: {
+      chrome: '#15191e',
+      surface: '#1b2026',
+      elevated: '#252b32',
+      ink: '222 230 240',
+    },
   },
   {
     id: 'lilac',
@@ -86,7 +109,12 @@ export const FRAMES: readonly FramePreset[] = [
       elevated: '#ffffff',
       ink: '62 44 86',
     },
-    dark: { chrome: '#1a1720', surface: '#211d27', elevated: '#2b2733' },
+    dark: {
+      chrome: '#1a171f',
+      surface: '#201c26',
+      elevated: '#2a2531',
+      ink: '232 226 240',
+    },
   },
   {
     id: 'blush',
@@ -97,7 +125,12 @@ export const FRAMES: readonly FramePreset[] = [
       elevated: '#ffffff',
       ink: '88 44 40',
     },
-    dark: { chrome: '#1e1718', surface: '#261e1f', elevated: '#30272a' },
+    dark: {
+      chrome: '#1d1716',
+      surface: '#241d1c',
+      elevated: '#2f2725',
+      ink: '240 226 224',
+    },
   },
 ];
 

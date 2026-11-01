@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { app, BrowserWindow, nativeTheme, shell } from 'electron';
 import { eventChannels } from '../../shared/api';
+import { DEFAULT_APPEARANCE, frameColor } from '../../shared/appearance';
 import type { SiteSettings } from '../../shared/types';
 import type { DownloadManager } from '../downloads/download-manager';
 import type { IpcTarget } from '../ipc/register-ipc';
@@ -55,7 +56,10 @@ export class SettingsWindow {
       title: 'Settings',
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 18, y: 18 },
-      backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f3efe9',
+      backgroundColor: frameColor(
+        DEFAULT_APPEARANCE,
+        nativeTheme.shouldUseDarkColors,
+      ),
       webPreferences: {
         preload: path.join(__dirname, 'preload.cjs'),
         sandbox: true,

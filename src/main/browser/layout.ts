@@ -1,5 +1,6 @@
 import type { Rectangle } from 'electron';
 import type { ContentInsets } from '../../shared/types';
+import { SPLIT_GAP } from '../../shared/geometry';
 
 /** The rectangle the active page occupies inside a window of the given size. */
 export function contentBounds(
@@ -16,8 +17,7 @@ export function contentBounds(
   };
 }
 
-/** Space between the two pages of a split view; matches `--gutter`. */
-export const SPLIT_GAP = 8;
+export { SPLIT_GAP };
 
 /** The left and right halves of `bounds`, with `SPLIT_GAP` between them. */
 export function splitBounds(bounds: Rectangle): [Rectangle, Rectangle] {

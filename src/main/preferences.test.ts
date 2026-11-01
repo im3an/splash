@@ -32,8 +32,8 @@ describe('PreferencesService', () => {
 
   it('adopts the theme saved before Settings existed', () => {
     const backing = store();
-    backing.setPreference('appearance', 'dark');
-    expect(new PreferencesService(backing).get().theme).toBe('dark');
+    backing.setPreference('appearance', 'light');
+    expect(new PreferencesService(backing).get().theme).toBe('light');
   });
 
   it('falls back to defaults for damaged saved preferences', () => {
@@ -116,8 +116,8 @@ it('does not announce or replace settings after a failed preference write', () =
   vi.spyOn(backing, 'setPreference').mockImplementation(() => {
     throw new Error('Disk full');
   });
-  expect(() => service.update({ theme: 'dark' })).toThrow('Disk full');
-  expect(service.get().theme).toBe('system');
+  expect(() => service.update({ theme: 'light' })).toThrow('Disk full');
+  expect(service.get().theme).toBe('dark');
   expect(listener).not.toHaveBeenCalled();
 });
 

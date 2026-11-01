@@ -53,14 +53,9 @@ export interface Preferences {
   searchEngine: SearchEngineId;
   /** Ask the search engine for suggestions while typing in the address field. */
   searchSuggestions: boolean;
-  /** Light or dark for the whole app; a workspace may override it. */
+  /** Dark (the default), light or following macOS; a workspace may override it. */
   theme: 'system' | 'light' | 'dark';
   density: 'comfortable' | 'compact';
-  /**
-   * How the sidebar marks the page on screen: a soft fill with an accent
-   * bar at its edge, a dot under its icon, a hairline outline, an
-   * underlined title, or a raised card.
-   */
   /** The site's name, quieter, after each page's title in the sidebar. */
   showSiteNames: boolean;
   /** Hairlines down each branch of the trail. */
@@ -90,7 +85,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   collections: [],
   searchEngine: 'duckduckgo',
   searchSuggestions: true,
-  theme: 'system',
+  theme: 'dark',
   density: 'comfortable',
   showSiteNames: true,
   showBranchLines: true,

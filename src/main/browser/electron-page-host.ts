@@ -30,9 +30,8 @@ import type {
 import { isNavigableUrl, isPageUrl } from './url';
 import { requestPageClose } from './close-page';
 import { stepZoom } from './zoom';
+import { CONTENT_RADIUS } from '../../shared/geometry';
 
-/** Must match `--radius-content` in the renderer's design tokens. */
-const CONTENT_RADIUS = 10;
 /** Chromium's ERR_ABORTED: a load was superseded by another navigation. */
 const ERR_ABORTED = -3;
 const MAX_URL_LENGTH = 8192;
