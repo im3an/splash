@@ -14,7 +14,7 @@ export function BrandMark({
       className={`inline-flex shrink-0 ${className}`}
       style={{ width: size, height: size }}
       dangerouslySetInnerHTML={{
-        __html: mark.replace('#221d17', 'currentColor'),
+        __html: mark.replaceAll('#221d17', 'currentColor'),
       }}
     />
   );
