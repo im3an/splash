@@ -341,6 +341,8 @@ export interface TrailPosition {
 /** Something done outside the shell UI that the shell confirms in a toast. */
 export type Notice =
   | { kind: 'page-saved'; filename: string }
+  /** The window's interface crashed and was reloaded; pages kept running. */
+  | { kind: 'shell-recovered' }
   | {
       kind: 'copied';
       what: 'link' | 'image' | 'image-address';

@@ -35,8 +35,9 @@ import type { DownloadManager } from './downloads/download-manager';
 import { createDownloadManager } from './downloads/electron-downloads';
 
 app.setName('Splash');
-// Reproducible beta QA uses a separate profile and never touches daily browsing.
-const qaProfile = process.env.SPLASH_USER_DATA_DIR;
+// Reproducible beta QA uses a separate profile and never touches daily
+// browsing. Development builds only: an installed app ignores the variable.
+const qaProfile = app.isPackaged ? undefined : process.env.SPLASH_USER_DATA_DIR;
 if (qaProfile && path.isAbsolute(qaProfile)) app.setPath('userData', qaProfile);
 
 const windows = new Set<TrailWindow>();

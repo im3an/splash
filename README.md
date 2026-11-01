@@ -53,6 +53,6 @@ The shell and web pages use separate sessions, sandboxing and context isolation.
 
 ## QA without touching daily browsing
 
-For a separate test profile, create an empty directory and set `SPLASH_USER_DATA_DIR` to its **absolute path** when launching Splash. The test profile gets its own database and web session. Never point two running processes at the same profile. Tests should use local, disposable content and avoid entering real credentials.
+For a separate test profile, create an empty directory and pass it as `--user-data-dir=<absolute path>` when launching Splash (development builds: `npm start -- --user-data-dir=<path>`; installed app: `open -n -a Splash --args --user-data-dir=<path>`). Development builds also accept `SPLASH_USER_DATA_DIR`; installed builds ignore it. The test profile gets its own database and web session. Never point two running processes at the same profile. Tests should use local, disposable content and avoid entering real credentials.
 
 The current beta checklist and known limitations live in [docs/beta-readiness.md](docs/beta-readiness.md).

@@ -107,6 +107,20 @@ export function assertSupportedSchema(
   }
 }
 
+/**
+ * Undoes the open transaction after a failure. SQLite may already have
+ * rolled back (disk full, I/O error); then a second ROLLBACK would throw
+ * and hide the error that matters, so it's skipped.
+ */
+export function rollback(db: DatabaseSync): void {
+  if (db.isTransaction === false) return;
+  try {
+    db.exec('ROLLBACK');
+  } catch {
+    // Already rolled back; the caller rethrows the original error.
+  }
+}
+
 /** Brings the database up to date, one migration per transaction. */
 export function migrate(
   db: DatabaseSync,
@@ -121,7 +135,7 @@ export function migrate(
       db.exec(`PRAGMA user_version = ${version + 1}`);
       db.exec('COMMIT');
     } catch (error) {
-      db.exec('ROLLBACK');
+      rollback(db);
       throw error;
     }
   }

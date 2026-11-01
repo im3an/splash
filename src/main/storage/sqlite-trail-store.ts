@@ -15,6 +15,7 @@ import { isNavigableUrl, isPageUrl } from '../browser/url';
 import {
   assertSupportedSchema,
   migrate,
+  rollback,
   SchemaTooNewError,
 } from './migrations';
 import type {
@@ -56,18 +57,32 @@ interface PageRow {
   last_active_at: number;
 }
 
+/**
+ * JSON for disk. Chromium's page state carries typed form values and POST
+ * bodies, so it stays in memory (a sleeping page still gets its draft back)
+ * and never reaches the database.
+ */
+export function toStoredJson(value: unknown): string {
+  return JSON.stringify(value, (key, field: unknown) =>
+    key === 'pageState' ? undefined : field,
+  );
+}
+
 /** Reads stored history defensively: a bad value only loses that history. */
 function parseHistory(value: string | null): PageHistory | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as PageHistory;
+    // Older databases kept page state; it's dropped, then rewritten without.
     const entries = Array.isArray(parsed.entries)
-      ? parsed.entries.filter(
-          (entry) =>
-            typeof entry?.url === 'string' &&
-            isPageUrl(entry.url) &&
-            typeof entry.title === 'string',
-        )
+      ? parsed.entries
+          .filter(
+            (entry) =>
+              typeof entry?.url === 'string' &&
+              isPageUrl(entry.url) &&
+              typeof entry.title === 'string',
+          )
+          .map(({ url, title }) => ({ url, title }))
       : [];
     if (entries.length === 0) return null;
     const index = Number.isInteger(parsed.index) ? parsed.index : 0;
@@ -246,7 +261,7 @@ export class SqliteTrailStore implements TrailStore {
           page.note,
           page.collapsed ? 1 : 0,
           page.pinned ? 1 : 0,
-          page.history ? JSON.stringify(page.history) : null,
+          page.history ? toStoredJson(page.history) : null,
           page.createdAt,
           page.lastActiveAt,
         );
@@ -259,7 +274,7 @@ export class SqliteTrailStore implements TrailStore {
         'INSERT INTO closed_records (position, record) VALUES (?, ?)',
       );
       (session.closed ?? []).forEach((record, position) => {
-        insertClosed.run(position, JSON.stringify(record));
+        insertClosed.run(position, toStoredJson(record));
       });
     });
   }
@@ -545,7 +560,7 @@ export class SqliteTrailStore implements TrailStore {
       run();
       this.db.exec('COMMIT');
     } catch (error) {
-      this.db.exec('ROLLBACK');
+      rollback(this.db);
       throw error;
     }
   }

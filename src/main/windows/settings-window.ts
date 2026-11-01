@@ -74,6 +74,12 @@ export class SettingsWindow {
       if (!isSameDocument(event.url, this.url)) event.preventDefault();
     });
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    // Settings are saved as they change, so a crashed window just reloads.
+    let crashes = 0;
+    contents.on('render-process-gone', (_event, details) => {
+      if (details.reason === 'clean-exit' || this.window.isDestroyed()) return;
+      if (++crashes <= 3) contents.reload();
+    });
     this.window.once('ready-to-show', () => this.window.show());
     void this.window.loadURL(this.url);
   }

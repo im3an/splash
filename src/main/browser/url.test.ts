@@ -2,6 +2,7 @@ import {
   allowExtensionPages,
   isNavigableUrl,
   isPageUrl,
+  mayOpenFromPage,
   resolveAddressInput,
   searchUrl,
 } from './url';
@@ -73,6 +74,21 @@ describe('isPageUrl', () => {
     expect(
       resolveAddressInput('chrome-extension://bundledextensionid/x.html'),
     ).toMatch(/^https:\/\/duckduckgo\.com\//);
+  });
+});
+
+describe('mayOpenFromPage', () => {
+  it('lets sites open web pages and source, never extension pages', () => {
+    allowExtensionPages('bundledextensionid');
+    expect(mayOpenFromPage('https://example.com/')).toBe(true);
+    expect(mayOpenFromPage('view-source:https://example.com/')).toBe(true);
+    expect(
+      mayOpenFromPage(
+        'chrome-extension://bundledextensionid/asset-viewer.html?url=x',
+      ),
+    ).toBe(false);
+    expect(mayOpenFromPage('file:///etc/hosts')).toBe(false);
+    expect(mayOpenFromPage('javascript:alert(1)')).toBe(false);
   });
 });
 

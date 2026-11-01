@@ -27,7 +27,7 @@ import type {
   PageHostEvents,
   PageHostFactory,
 } from './page-host';
-import { isNavigableUrl, isPageUrl } from './url';
+import { isNavigableUrl, isPageUrl, mayOpenFromPage } from './url';
 import { requestPageClose } from './close-page';
 import { stepZoom } from './zoom';
 import { CONTENT_RADIUS } from '../../shared/geometry';
@@ -342,7 +342,7 @@ class ElectronPageHost implements PageHost {
     const emit = this.events.onStateChange;
 
     contents.setWindowOpenHandler(({ url, disposition }) => {
-      if (isPageUrl(url)) {
+      if (mayOpenFromPage(url)) {
         this.events.onOpenRequest(url, {
           background: disposition === 'background-tab',
         });

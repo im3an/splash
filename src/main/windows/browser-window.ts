@@ -130,6 +130,10 @@ export class TrailWindow {
   readonly controller: BrowserController;
   readonly ipc: IpcTarget;
   private closeApproved = false;
+  /** Shell renderer crashes so far; past a few, it stops reloading. */
+  private shellCrashes = 0;
+  /** The shell was reloaded after a crash and hasn't reconnected yet. */
+  private shellRecovering = false;
   private closePending: Promise<boolean> | null = null;
   private insets: ContentInsets | null = null;
   private readonly persister: SessionPersister;
@@ -254,7 +258,14 @@ export class TrailWindow {
     this.ipc = {
       isShellUrl: (candidate) => isSameDocument(candidate, url),
       invoke: {
-        'browser:get-snapshot': () => this.controller.snapshot(),
+        'browser:get-snapshot': () => {
+          // The reloaded shell asks first thing: tell it what happened.
+          if (this.shellRecovering) {
+            this.shellRecovering = false;
+            setImmediate(() => this.notify({ kind: 'shell-recovered' }));
+          }
+          return this.controller.snapshot();
+        },
         'storage:status': () => this.storageStatus(),
         'page:create': ({ input }) => this.controller.createPage({ input }),
         'page:activate': ({ pageId }) => this.controller.activatePage(pageId),
@@ -425,6 +436,16 @@ export class TrailWindow {
     this.window.webContents.on('page-title-updated', (event) =>
       event.preventDefault(),
     );
+    // Trails and pages live here in the main process, so if the shell's
+    // renderer dies a reload brings everything back. After a few crashes it
+    // stops, rather than loop; the window can still be closed.
+    this.window.webContents.on('render-process-gone', (_event, details) => {
+      if (details.reason === 'clean-exit' || this.window.isDestroyed()) return;
+      console.error(`Splash shell renderer gone: ${details.reason}`);
+      if (++this.shellCrashes > 3) return;
+      this.shellRecovering = true;
+      this.window.webContents.reload();
+    });
     this.window.once('ready-to-show', () => this.window.show());
     // Save while every page view still exists, so their history is current.
     this.window.on('close', (event) => {

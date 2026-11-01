@@ -51,6 +51,15 @@ export function isPageUrl(value: string): boolean {
   );
 }
 
+/**
+ * What a web page may open as a new page (window.open, target=_blank): web
+ * pages and their source. Never a bundled extension's own pages, which
+ * would skip Chromium's web-accessible-resources check.
+ */
+export function mayOpenFromPage(value: string): boolean {
+  return isNavigableUrl(value) || isSourceUrl(value);
+}
+
 export function searchUrl(
   query: string,
   engine: SearchEngineId = DEFAULT_PREFERENCES.searchEngine,

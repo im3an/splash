@@ -4,7 +4,11 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DEFAULT_APPEARANCE } from '../../shared/appearance';
 import { migrate, MIGRATIONS, schemaVersion } from './migrations';
-import { openTrailStore, SqliteTrailStore } from './sqlite-trail-store';
+import {
+  openTrailStore,
+  SqliteTrailStore,
+  toStoredJson,
+} from './sqlite-trail-store';
 import type { StoredPage, StoredSession } from './trail-store';
 
 function page(id: string, overrides: Partial<StoredPage> = {}): StoredPage {
@@ -103,6 +107,9 @@ const SESSION: StoredSession = {
   ],
 };
 
+/** What a saved session reads back as: form state never reaches disk. */
+const STORED: StoredSession = JSON.parse(toStoredJson(SESSION));
+
 function memoryStore() {
   return new SqliteTrailStore(new DatabaseSync(':memory:'));
 }
@@ -148,7 +155,44 @@ describe('SqliteTrailStore sessions', () => {
   it('round-trips a session in tree order', () => {
     const store = memoryStore();
     store.saveSession(SESSION);
-    expect(store.loadSession()).toEqual(SESSION);
+    expect(store.loadSession()).toEqual(STORED);
+  });
+
+  it('never writes typed form state to disk', () => {
+    const db = new DatabaseSync(':memory:');
+    const store = new SqliteTrailStore(db);
+    const withDraft = structuredClone(SESSION);
+    withDraft.closed![0]!.pages[0]!.history = {
+      entries: [
+        { url: 'https://x.example/', title: 'x', pageState: 'draft-text' },
+      ],
+      index: 0,
+    };
+    store.saveSession(withDraft);
+    const rows = db
+      .prepare(
+        'SELECT history AS value FROM pages UNION ALL SELECT record FROM closed_records',
+      )
+      .all() as { value: string | null }[];
+    for (const { value } of rows) {
+      expect(value ?? '').not.toContain('pageState');
+      expect(value ?? '').not.toContain('draft-text');
+    }
+    expect(
+      store.loadSession()!.pages.find((p) => p.id === 'b')!.history!.entries[0],
+    ).toEqual({ url: 'https://a.example/', title: 'a' });
+  });
+
+  it('drops page state saved by older versions', () => {
+    const db = new DatabaseSync(':memory:');
+    const store = new SqliteTrailStore(db);
+    store.saveSession(SESSION);
+    db.prepare("UPDATE pages SET history = ? WHERE id = 'b'").run(
+      JSON.stringify(SESSION.pages[1]!.history),
+    );
+    expect(
+      store.loadSession()!.pages.find((p) => p.id === 'b')!.history!.entries[0],
+    ).toEqual({ url: 'https://a.example/', title: 'a' });
   });
 
   it('replaces the previous session on save', () => {
@@ -379,7 +423,7 @@ describe('openTrailStore', () => {
     first.close();
     const second = openTrailStore(file);
     expect(second.recoveredFrom).toBeNull();
-    expect(second.store.loadSession()).toEqual(SESSION);
+    expect(second.store.loadSession()).toEqual(STORED);
     second.store.close();
   });
 });
