@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { offerUndo } from '../lib/trail-undo';
 
 export interface ToastAction {
   label: string;
@@ -44,7 +45,13 @@ function scheduleDismiss(toast: Toast): void {
 export const useToast = create<ToastState>()((set, get) => ({
   toast: null,
   show: (input) => {
-    const toast = { ...input, id: ++nextId };
+    // Undo stays available to ⌘Z after the toast goes.
+    const actions = input.actions.map((action) =>
+      action.icon === 'undo'
+        ? { ...action, run: offerUndo(input.message, action.run) }
+        : action,
+    );
+    const toast = { ...input, actions, id: ++nextId };
     set({ toast });
     scheduleDismiss(toast);
   },

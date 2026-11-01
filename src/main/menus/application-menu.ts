@@ -4,6 +4,7 @@ import {
   clipboard,
   Menu,
   nativeTheme,
+  webContents,
   type MenuItemConstructorOptions,
 } from 'electron';
 import type { PreferencesService } from '../preferences';
@@ -255,7 +256,23 @@ export function installApplicationMenu(actions: MenuActions): void {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
+        {
+          // Pages and other windows undo their own typing; in the shell,
+          // ⌘Z also takes back trail changes (see trail-undo.ts).
+          label: 'Undo',
+          accelerator: 'CmdOrCtrl+Z',
+          click: (_item, focusedWindow) => {
+            const focused = webContents.getFocusedWebContents();
+            const window = actions.currentWindow();
+            if (
+              window &&
+              focusedWindow === window.window &&
+              (!focused || focused === window.window.webContents)
+            )
+              window.sendUiCommand({ type: 'undo' });
+            else focused?.undo();
+          },
+        },
         { role: 'redo' },
         { type: 'separator' },
         { role: 'cut' },

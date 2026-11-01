@@ -414,4 +414,6 @@ export type UiCommand =
   | { type: 'site-info' }
   | { type: 'find'; action: 'open' | 'next' | 'previous' }
   | { type: 'show-downloads' }
-  | { type: 'show-history' };
+  | { type: 'show-history' }
+  /** Edit › Undo while the shell has focus: text first, then the trail. */
+  | { type: 'undo' };

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { undoLast } from '../lib/trail-undo';
 import type { SplashApi } from '../../shared/api';
 import type { Preferences } from '../../shared/preferences';
 import { closedToast, noticeToast } from '../lib/notices';
@@ -191,6 +192,8 @@ export function connectShell(splash: SplashApi): () => void {
         return shell.editNote(command.pageId);
       case 'rename-workspace':
         return shell.setRenamingWorkspace(true);
+      case 'undo':
+        return undoInShell();
       case 'find':
         return shell.requestFind(command.action);
       case 'open-palette':
@@ -242,4 +245,15 @@ export function connectShell(splash: SplashApi): () => void {
     unsubscribeClosed();
     unsubscribePreferences();
   };
+}
+
+/** Text being edited undoes its typing; otherwise the trail's last change. */
+function undoInShell(): void {
+  const focused = document.activeElement;
+  const editing =
+    focused instanceof HTMLInputElement ||
+    focused instanceof HTMLTextAreaElement ||
+    (focused instanceof HTMLElement && focused.isContentEditable);
+  if (editing) document.execCommand('undo');
+  else undoLast();
 }
