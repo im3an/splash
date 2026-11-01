@@ -63,6 +63,66 @@ export function filteredRows(
   return rows;
 }
 
+export type MoveDirection = 'up' | 'down' | 'in' | 'out';
+
+/**
+ * Where ⌥⌘ and an arrow moves a page: past its sibling above or below,
+ * into the sibling above as its last child, or out to just after its
+ * parent. Pinned and unpinned pages stay in their own sections. `null`
+ * when it can't go that way.
+ */
+export function keyboardMove(
+  snapshot: BrowserSnapshot,
+  id: PageId,
+  direction: MoveDirection,
+): { parentId: PageId | null; afterId: PageId | null } | null {
+  const page = snapshot.pages[id];
+  if (!page) return null;
+  const { parentId } = page;
+  const siblings = (
+    parentId === null
+      ? snapshot.rootIds
+      : (snapshot.pages[parentId]?.childIds ?? [])
+  ).filter(
+    (sibling) =>
+      parentId !== null || snapshot.pages[sibling]?.isPinned === page.isPinned,
+  );
+  const index = siblings.indexOf(id);
+  switch (direction) {
+    case 'up':
+      if (index <= 0) return null;
+      return { parentId, afterId: siblings[index - 2] ?? beforeSection() };
+    case 'down':
+      if (index < 0 || index === siblings.length - 1) return null;
+      return { parentId, afterId: siblings[index + 1]! };
+    case 'in': {
+      const into = siblings[index - 1];
+      if (into === undefined) return null;
+      return {
+        parentId: into,
+        afterId: snapshot.pages[into]?.childIds.at(-1) ?? null,
+      };
+    }
+    case 'out': {
+      if (parentId === null) return null;
+      return {
+        parentId: snapshot.pages[parentId]?.parentId ?? null,
+        afterId: parentId,
+      };
+    }
+  }
+
+  // The first unpinned root goes after the last pinned one, not first.
+  function beforeSection(): PageId | null {
+    if (parentId !== null || page!.isPinned) return null;
+    return (
+      snapshot.rootIds
+        .filter((root) => snapshot.pages[root]?.isPinned)
+        .at(-1) ?? null
+    );
+  }
+}
+
 /** The page's title or address has every word of `query`. */
 export function pageMatches(
   snapshot: BrowserSnapshot,

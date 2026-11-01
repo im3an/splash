@@ -39,7 +39,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import type { PageId } from '../../shared/types';
+import type { BrowserSnapshot, PageId } from '../../shared/types';
 import {
   projectDrop,
   rowsWhileDragging,
@@ -58,6 +58,8 @@ import {
   pruneGuides,
   treeFocusTarget,
   filteredRows,
+  keyboardMove,
+  type MoveDirection,
   pageMatches,
   visibleRows,
   type DrawnHalf,
@@ -385,6 +387,26 @@ async function moveWithUndo(
 }
 
 /** The sibling directly above a row, at the same depth. */
+const MOVE_KEYS: Record<string, MoveDirection | undefined> = {
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+  ArrowRight: 'in',
+  ArrowLeft: 'out',
+};
+
+/** The sibling just above a page, from the whole trail, collapsed or not. */
+function previousSiblingIdIn(
+  snapshot: BrowserSnapshot,
+  id: PageId,
+): PageId | null {
+  const parentId = snapshot.pages[id]?.parentId ?? null;
+  const siblings =
+    parentId === null
+      ? snapshot.rootIds
+      : (snapshot.pages[parentId]?.childIds ?? []);
+  return siblings[siblings.indexOf(id) - 1] ?? null;
+}
+
 function previousSiblingId(rows: Row[], id: PageId): PageId | null {
   const index = rows.findIndex((row) => row.id === id);
   const row = rows[index];
@@ -499,8 +521,26 @@ const TrailRow = memo(function TrailRow({
     void api().setCollapsed(row.id, collapsed);
 
   const onKeyDown = (event: KeyboardEvent) => {
-    if (renaming || event.metaKey || event.altKey || event.ctrlKey) return;
+    if (renaming) return;
     const key = event.key;
+    // ⌥⌘ and an arrow moves the page itself, with an undo.
+    const direction = MOVE_KEYS[key];
+    if (event.metaKey && event.altKey && !event.ctrlKey && direction) {
+      event.preventDefault();
+      const snapshot = useShell.getState().snapshot;
+      const target =
+        snapshot && !filter ? keyboardMove(snapshot, row.id, direction) : null;
+      if (target) {
+        void moveWithUndo(
+          row,
+          previousSiblingIdIn(snapshot!, row.id),
+          target.parentId,
+          target.afterId,
+        );
+      }
+      return;
+    }
+    if (event.metaKey || event.altKey || event.ctrlKey) return;
     if (key === 'Enter' || key === ' ') {
       event.preventDefault();
       activate();

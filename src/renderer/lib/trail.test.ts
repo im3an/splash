@@ -3,6 +3,7 @@ import type { DrawnHalf } from './trail';
 import {
   filteredRows,
   guideHalves,
+  keyboardMove,
   hiddenSummary,
   pageMatches,
   pathGuides,
@@ -60,6 +61,45 @@ describe('filteredRows', () => {
   it('tells matches from the pages shown above them', () => {
     expect(pageMatches(snapshot(), 'd', 'ALPINE')).toBe(true);
     expect(pageMatches(snapshot(), 'b', 'alpine')).toBe(false);
+  });
+});
+
+describe('keyboardMove', () => {
+  // a ─ b ─ d
+  //   └ c
+  // e
+  it('moves past siblings, and stops at the ends', () => {
+    const snapshot = sampleSnapshot();
+    expect(keyboardMove(snapshot, 'c', 'up')).toEqual({
+      parentId: 'a',
+      afterId: null,
+    });
+    expect(keyboardMove(snapshot, 'b', 'down')).toEqual({
+      parentId: 'a',
+      afterId: 'c',
+    });
+    expect(keyboardMove(snapshot, 'b', 'up')).toBeNull();
+    expect(keyboardMove(snapshot, 'e', 'down')).toBeNull();
+  });
+
+  it('nests under the sibling above, at its end, and comes back out', () => {
+    const snapshot = sampleSnapshot();
+    expect(keyboardMove(snapshot, 'c', 'in')).toEqual({
+      parentId: 'b',
+      afterId: 'd',
+    });
+    expect(keyboardMove(snapshot, 'd', 'out')).toEqual({
+      parentId: 'a',
+      afterId: 'b',
+    });
+    expect(keyboardMove(snapshot, 'a', 'out')).toBeNull();
+    expect(keyboardMove(snapshot, 'b', 'in')).toBeNull();
+  });
+
+  it('keeps pinned and unpinned pages in their own sections', () => {
+    const snapshot = sampleSnapshot({ a: { isPinned: true } });
+    expect(keyboardMove(snapshot, 'e', 'up')).toBeNull();
+    expect(keyboardMove(snapshot, 'a', 'down')).toBeNull();
   });
 });
 

@@ -684,6 +684,16 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ['Open location', '⌘L'],
       ['Copy page address', '⇧⌘C'],
       ['Command palette', '⌘K'],
+      ['Undo a trail change', '⌘Z'],
+    ],
+  ],
+  [
+    'Trail',
+    [
+      ['Filter pages', '⌥⌘F'],
+      ['Move page up / down', '⌥⌘↑ / ⌥⌘↓'],
+      ['Nest under the page above / move out', '⌥⌘→ / ⌥⌘←'],
+      ['Rename page', 'F2'],
     ],
   ],
   [
