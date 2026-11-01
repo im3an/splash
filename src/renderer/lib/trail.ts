@@ -1,4 +1,5 @@
 import type { BrowserSnapshot, PageId } from '../../shared/types';
+import { pageLabel } from './format';
 
 export interface TrailRow {
   id: PageId;
@@ -24,6 +25,55 @@ export function visibleRows(snapshot: BrowserSnapshot): TrailRow[] {
   };
   visit(snapshot.rootIds, null, 0);
   return rows;
+}
+
+/**
+ * The trail narrowed to pages whose title or address has every typed word,
+ * with the pages they came from so each keeps its place. Collapsed
+ * branches open for the search.
+ */
+export function filteredRows(
+  snapshot: BrowserSnapshot,
+  query: string,
+): TrailRow[] {
+  if (!query.trim()) return visibleRows(snapshot);
+  const matches = (id: PageId) => pageMatches(snapshot, id, query);
+  const rows: TrailRow[] = [];
+  // Returns whether the branch had a match, adding its rows if so.
+  const visit = (id: PageId, parentId: PageId | null, depth: number) => {
+    const page = snapshot.pages[id];
+    if (!page) return false;
+    const row: TrailRow = {
+      id,
+      parentId,
+      depth,
+      hasChildren: page.childIds.length > 0,
+    };
+    const at = rows.length;
+    rows.push(row);
+    let found = false;
+    for (const childId of page.childIds) {
+      if (visit(childId, id, depth + 1)) found = true;
+    }
+    if (found || matches(id)) return true;
+    rows.length = at;
+    return false;
+  };
+  for (const id of snapshot.rootIds) visit(id, null, 0);
+  return rows;
+}
+
+/** The page's title or address has every word of `query`. */
+export function pageMatches(
+  snapshot: BrowserSnapshot,
+  id: PageId,
+  query: string,
+): boolean {
+  const page = snapshot.pages[id];
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!page || words.length === 0) return false;
+  const text = `${pageLabel(page)} ${page.url ?? ''}`.toLowerCase();
+  return words.every((word) => text.includes(word));
 }
 
 /** What a collapsed branch hides, so its row can still show it. */

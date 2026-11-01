@@ -317,6 +317,12 @@ export function installApplicationMenu(actions: MenuActions): void {
             actions.currentWindow()?.sendUiCommand({ type: 'open-palette' }),
         },
         {
+          label: 'Filter Pages',
+          accelerator: 'Alt+CmdOrCtrl+F',
+          click: () =>
+            actions.currentWindow()?.sendUiCommand({ type: 'filter-trail' }),
+        },
+        {
           label: 'Toggle Sidebar',
           accelerator: 'CmdOrCtrl+S',
           click: () =>

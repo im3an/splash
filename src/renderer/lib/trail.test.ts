@@ -1,8 +1,10 @@
 import { sampleSnapshot } from '../test-fixtures';
 import type { DrawnHalf } from './trail';
 import {
+  filteredRows,
   guideHalves,
   hiddenSummary,
+  pageMatches,
   pathGuides,
   planGuides,
   pruneGuides,
@@ -24,6 +26,40 @@ describe('visibleRows', () => {
   it('skips the descendants of collapsed pages', () => {
     const rows = visibleRows(sampleSnapshot({ b: { collapsed: true } }));
     expect(rows.map((row) => row.id)).toEqual(['a', 'b', 'c', 'e']);
+  });
+});
+
+describe('filteredRows', () => {
+  const snapshot = () =>
+    sampleSnapshot({
+      b: { collapsed: true, title: 'Trail maps' },
+      d: { title: 'Alpine huts', url: 'https://huts.example/alps' },
+    });
+
+  it('keeps matches and the pages they came from, opening collapsed ones', () => {
+    expect(filteredRows(snapshot(), 'alpine').map((row) => row.id)).toEqual([
+      'a',
+      'b',
+      'd',
+    ]);
+  });
+
+  it('needs every word, in the title or the address', () => {
+    expect(filteredRows(snapshot(), 'huts alps').map((r) => r.id)).toEqual([
+      'a',
+      'b',
+      'd',
+    ]);
+    expect(filteredRows(snapshot(), 'huts beach')).toEqual([]);
+  });
+
+  it('is the whole visible trail when empty', () => {
+    expect(filteredRows(snapshot(), '  ')).toEqual(visibleRows(snapshot()));
+  });
+
+  it('tells matches from the pages shown above them', () => {
+    expect(pageMatches(snapshot(), 'd', 'ALPINE')).toBe(true);
+    expect(pageMatches(snapshot(), 'b', 'alpine')).toBe(false);
   });
 });
 

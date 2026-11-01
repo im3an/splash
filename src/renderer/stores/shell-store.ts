@@ -30,6 +30,10 @@ interface ShellState {
   editingNotePageId: PageId | null;
   renamingWorkspace: boolean;
   findOpen: boolean;
+  /** Text narrowing the trail; `null` while the filter field is closed. */
+  trailFilter: string | null;
+  /** Incremented to put focus in the filter field. */
+  trailFilterFocus: number;
   /** Incremented to focus the find field or step through matches. */
   findRequest: { serial: number; action: 'open' | 'next' | 'previous' };
   receiveSnapshot(snapshot: BrowserSnapshot): void;
@@ -45,6 +49,8 @@ interface ShellState {
   setRenamingWorkspace(renaming: boolean): void;
   requestFind(action: 'open' | 'next' | 'previous'): void;
   closeFind(): void;
+  openTrailFilter(): void;
+  setTrailFilter(filter: string | null): void;
 }
 
 export const useShell = create<ShellState>()((set) => ({
@@ -58,6 +64,8 @@ export const useShell = create<ShellState>()((set) => ({
   renamingWorkspace: false,
   findOpen: false,
   findRequest: { serial: 0, action: 'open' },
+  trailFilter: null,
+  trailFilterFocus: 0,
   receiveSnapshot: (snapshot) => set({ snapshot }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setSidebarPanel: (panel) =>
@@ -87,6 +95,14 @@ export const useShell = create<ShellState>()((set) => ({
       findRequest: { serial: state.findRequest.serial + 1, action },
     })),
   closeFind: () => set({ findOpen: false }),
+  openTrailFilter: () =>
+    set((state) => ({
+      trailFilter: state.trailFilter ?? '',
+      trailFilterFocus: state.trailFilterFocus + 1,
+      sidebarOpen: true,
+      sidebarPanel: null,
+    })),
+  setTrailFilter: (trailFilter) => set({ trailFilter }),
   setRenamingWorkspace: (renaming) =>
     set({
       renamingWorkspace: renaming,
@@ -194,6 +210,8 @@ export function connectShell(splash: SplashApi): () => void {
         return shell.setRenamingWorkspace(true);
       case 'undo':
         return undoInShell();
+      case 'filter-trail':
+        return shell.openTrailFilter();
       case 'find':
         return shell.requestFind(command.action);
       case 'open-palette':

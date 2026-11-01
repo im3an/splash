@@ -141,7 +141,8 @@ function ItemIcon({ item }: { item: PaletteItem }) {
   }
 }
 
-function Highlighted({ text, query }: { text: string; query: string }) {
+/** `text` with the words of `query` marked. */
+export function Highlighted({ text, query }: { text: string; query: string }) {
   return highlightParts(text, query).map((part, index) =>
     part.match ? (
       <mark key={index} className="bg-transparent font-semibold text-fg">

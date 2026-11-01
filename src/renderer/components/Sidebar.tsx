@@ -13,6 +13,7 @@ import { ToolbarActions } from './ToolbarActions';
 import { BookmarkLibrary } from './BookmarkLibrary';
 import { SidebarPanel } from './SidebarPanel';
 import { NavigationButtons } from './Toolbar';
+import { TrailFilter } from './TrailFilter';
 import { TrailTree } from './TrailTree';
 import { Toast } from './Toast';
 import { WorkspaceBar } from './WorkspaceBar';
@@ -141,6 +142,7 @@ export function Sidebar() {
             <kbd className="shortcut">⌘T</kbd>
           </button>
 
+          <TrailFilter />
           {/* Padded so the active row's edge is never clipped by the scroller. */}
           <nav
             ref={listRef}

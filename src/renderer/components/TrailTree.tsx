@@ -45,6 +45,8 @@ import {
   rowsWhileDragging,
   type DropProjection,
 } from '../lib/drop-projection';
+import { useOverlay } from '../stores/overlay-store';
+import { Highlighted } from './PaletteList';
 import { pageLabel, pageParts } from '../lib/format';
 import { renamedToast, trailMoveToast } from '../lib/notices';
 import {
@@ -55,6 +57,8 @@ import {
   planGuides,
   pruneGuides,
   treeFocusTarget,
+  filteredRows,
+  pageMatches,
   visibleRows,
   type DrawnHalf,
   type GuideStroke,
@@ -112,24 +116,34 @@ export function TrailTree() {
   }, []);
   const [drag, setDrag] = useState<DragState | null>(null);
   // A small threshold keeps plain clicks from turning into drags.
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-  );
+  // No dragging while filtered: neighbours on screen aren't neighbours.
+  const pointer = useSensor(PointerSensor, {
+    activationConstraint: { distance: 4 },
+  });
 
+  const filter = useShell((state) => state.trailFilter)?.trim() ?? '';
+  const filtering = filter !== '';
+  const sensors = useSensors(filtering ? undefined : pointer);
   const allRows = useMemo(
-    () => (snapshot ? visibleRows(snapshot) : []),
-    [snapshot],
+    () =>
+      snapshot
+        ? filtering
+          ? filteredRows(snapshot, filter)
+          : visibleRows(snapshot)
+        : [],
+    [snapshot, filter, filtering],
   );
   // Collapsed rows stand in for the pages beneath them.
   const hidden = useMemo(() => {
     const summaries = new Map<PageId, HiddenSummary>();
-    if (!snapshot) return summaries;
+    // Filtering opens collapsed branches, so nothing is hidden.
+    if (!snapshot || filtering) return summaries;
     for (const row of allRows) {
       const summary = hiddenSummary(snapshot, row.id);
       if (summary) summaries.set(row.id, summary);
     }
     return summaries;
-  }, [snapshot, allRows]);
+  }, [snapshot, allRows, filtering]);
   const activeId = snapshot?.activePageId ?? null;
   const guides = useMemo(
     () => pathGuides(allRows, activeId),
@@ -199,6 +213,7 @@ export function TrailTree() {
     : null;
 
   if (snapshot === null) return <TrailSkeleton />;
+  if (filtering && allRows.length === 0) return <FilterEmpty query={filter} />;
   if (allRows.length === 0) return <TrailEmpty />;
 
   const sectionCounts = trailSectionCounts(snapshot);
@@ -418,6 +433,13 @@ const TrailRow = memo(function TrailRow({
   appear: boolean;
 }) {
   const page = useShell((state) => state.snapshot?.pages[row.id]);
+  const filter = useShell((state) => state.trailFilter)?.trim() ?? '';
+  // While filtering, pages shown only for a match below them step back.
+  const matched = useShell(
+    (state) =>
+      !filter ||
+      (state.snapshot !== null && pageMatches(state.snapshot, row.id, filter)),
+  );
   const renaming = useShell((state) => state.renamingPageId === row.id);
   const download = useDownloads((state) =>
     state.downloads.find(
@@ -446,7 +468,11 @@ const TrailRow = memo(function TrailRow({
 
   if (!page) return null;
 
-  const expanded = row.hasChildren ? !page.collapsed : undefined;
+  const expanded = row.hasChildren
+    ? filter
+      ? true
+      : !page.collapsed
+    : undefined;
   const label = pageLabel(page);
   const parts = pageParts(page);
   // One quiet marker at the row's end; close takes its place on hover.
@@ -606,7 +632,16 @@ const TrailRow = memo(function TrailRow({
             startRename(row.id);
           }}
         >
-          <span className="trail-title">{parts.title}</span>
+          <span
+            className="trail-title data-context:text-fg-subtle"
+            data-context={!matched || undefined}
+          >
+            {filter ? (
+              <Highlighted text={parts.title} query={filter} />
+            ) : (
+              parts.title
+            )}
+          </span>
           {parts.site && showSiteNames && (
             <span className="trail-site text-fg-subtle">{parts.site}</span>
           )}
@@ -995,6 +1030,28 @@ function TrailEmpty() {
           ? 'Pages you open here stay in this workspace, nested under the page they came from.'
           : 'Pages you open appear here, nested under the page they came from.'}
       </p>
+    </div>
+  );
+}
+
+/** The filter found nothing; ⌘K looks further, through history and the web. */
+function FilterEmpty({ query }: { query: string }) {
+  return (
+    <div role="status" className="pt-3 pr-3 pb-2 pl-2.5">
+      <p className="text-fg-muted wrap-anywhere">No pages match “{query}”</p>
+      <p className="mt-1 text-small leading-copy text-fg-subtle">
+        Check the spelling, or search history and the web.
+      </p>
+      <button
+        type="button"
+        className="button button-raised button-sm mt-3"
+        onClick={() =>
+          useOverlay.getState().open({ kind: 'palette', scope: 'palette' })
+        }
+      >
+        Search everywhere
+        <kbd className="shortcut">⌘K</kbd>
+      </button>
     </div>
   );
 }
