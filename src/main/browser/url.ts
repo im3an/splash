@@ -19,6 +19,42 @@ export function isNavigableUrl(value: string): boolean {
   }
 }
 
+/**
+ * Schemes a link may never hand to another app: they're the browser's own,
+ * reach local files, or run code.
+ */
+const NEVER_EXTERNAL = new Set([
+  'http:',
+  'https:',
+  'file:',
+  'javascript:',
+  'data:',
+  'blob:',
+  'about:',
+  'filesystem:',
+  'view-source:',
+  'chrome:',
+  'chrome-extension:',
+  'chrome-untrusted:',
+  'devtools:',
+  'app:',
+]);
+
+const MAX_EXTERNAL_URL = 4096;
+
+/** A link meant for another app on the Mac, such as mailto: or zoommtg:. */
+export function isExternalAppUrl(value: string): boolean {
+  if (value.length > MAX_EXTERNAL_URL) return false;
+  try {
+    const { protocol } = new URL(value);
+    return (
+      /^[a-z][a-z0-9+.-]*:$/.test(protocol) && !NEVER_EXTERNAL.has(protocol)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** Extensions Splash ships with, whose own pages may open as pages. */
 const extensionIds = new Set<string>();
 

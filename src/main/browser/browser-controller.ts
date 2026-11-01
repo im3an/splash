@@ -1403,12 +1403,17 @@ export class BrowserController {
         else if (this.fullscreenId === id) this.fullscreenId = null;
         this.syncVisibleHost();
       },
-      onPermissionRequest: (origin, permissions) => {
+      onPermissionRequest: (origin, permissions, opens) => {
         const page = this.pages.get(id);
         if (!isCurrent() || !page) return Promise.resolve(false);
         return new Promise<boolean>((resolve) => {
           page.permissionQueue.push({
-            request: { id: this.createId(), origin, permissions },
+            request: {
+              id: this.createId(),
+              origin,
+              permissions,
+              ...(opens ? { opens } : {}),
+            },
             resolve: (granted) => {
               if (!granted) for (const p of permissions) page.blocked.add(p);
               resolve(granted);

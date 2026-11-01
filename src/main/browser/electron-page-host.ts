@@ -17,7 +17,7 @@ import {
   LINK_ACTIVATED,
   NAVIGATION_BUTTON,
 } from '../../shared/page-bridge';
-import type { SitePermission } from '../../shared/types';
+import type { ExternalApp, Notice, SitePermission } from '../../shared/types';
 import { webContextMenu } from '../menus/web-context-menu';
 import { isSameDocumentUrl, LinkActivations } from './link-activations';
 import type {
@@ -27,7 +27,12 @@ import type {
   PageHostEvents,
   PageHostFactory,
 } from './page-host';
-import { isNavigableUrl, isPageUrl, mayOpenFromPage } from './url';
+import {
+  isExternalAppUrl,
+  isNavigableUrl,
+  isPageUrl,
+  mayOpenFromPage,
+} from './url';
 import { requestPageClose } from './close-page';
 import { stepZoom } from './zoom';
 import { CONTENT_RADIUS } from '../../shared/geometry';
@@ -45,6 +50,8 @@ export interface PageHostEnvironment {
   isSoundBlocked(origin: string): boolean;
   /** A page's contents were created; extensions can now see it. */
   onContentsCreated?(contents: WebContents): void;
+  /** A page's link wants another app (mailto:, tel:): ask, then open it. */
+  openExternal?(contents: WebContents, url: string): void;
   /** Extension items for a page's context menu, such as "Block element". */
   extensionMenuItems?(
     contents: WebContents,
@@ -58,8 +65,13 @@ export interface PageHostEnvironment {
  */
 export interface PageHandle {
   pageId: string;
-  request(origin: string, permissions: SitePermission[]): Promise<boolean>;
+  request(
+    origin: string,
+    permissions: SitePermission[],
+    opens?: ExternalApp,
+  ): Promise<boolean>;
   blocked(permissions: SitePermission[]): void;
+  notify(notice: Notice): void;
 }
 
 const pageHandles = new Map<number, PageHandle>();
@@ -138,9 +150,10 @@ class ElectronPageHost implements PageHost {
     const id = this.view.webContents.id;
     pageHandles.set(id, {
       pageId: events.pageId,
-      request: (origin, permissions) =>
-        this.events.onPermissionRequest(origin, permissions),
+      request: (origin, permissions, opens) =>
+        this.events.onPermissionRequest(origin, permissions, opens),
       blocked: (permissions) => this.events.onPermissionBlocked(permissions),
+      notify: (notice) => this.events.onNotice(notice),
     });
     this.view.webContents.once('destroyed', () => pageHandles.delete(id));
     environment.onContentsCreated?.(this.view.webContents);
@@ -342,7 +355,9 @@ class ElectronPageHost implements PageHost {
     const emit = this.events.onStateChange;
 
     contents.setWindowOpenHandler(({ url, disposition }) => {
-      if (mayOpenFromPage(url)) {
+      if (isExternalAppUrl(url)) {
+        this.environment.openExternal?.(contents, url);
+      } else if (mayOpenFromPage(url)) {
         this.events.onOpenRequest(url, {
           background: disposition === 'background-tab',
         });
@@ -383,6 +398,11 @@ class ElectronPageHost implements PageHost {
     contents.on('will-navigate', (event) => {
       if (!isPageUrl(event.url)) {
         event.preventDefault();
+        // mailto:, tel: and the like: never silently dropped, never opened
+        // without asking. Only the user's own clicks in the top frame.
+        if (event.isMainFrame && isExternalAppUrl(event.url)) {
+          this.environment.openExternal?.(contents, event.url);
+        }
         return;
       }
       if (!event.isMainFrame || event.isSameDocument) return;

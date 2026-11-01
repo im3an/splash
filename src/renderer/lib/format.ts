@@ -233,6 +233,7 @@ const PERMISSION_NAMES: Record<SitePermission, string> = {
   clipboard: 'clipboard',
   sound: 'sound',
   ads: 'ads and trackers',
+  apps: 'other apps',
 };
 
 /** "camera and microphone", "camera, microphone and location". */

@@ -68,6 +68,8 @@ export function noticeMessage(notice: Notice): string {
         : `“${shortName(notice.label)}” is pinned, so it stays.`;
     case 'page-saved':
       return `Saved “${notice.filename}”.`;
+    case 'no-app':
+      return `No app on this Mac opens “${notice.scheme}:” links.`;
     case 'shell-recovered':
       return 'Splash’s window had a problem and reloaded. Your pages are as you left them.';
     case 'copied':
@@ -90,6 +92,7 @@ export function noticeToast(notice: Notice): ToastInput {
   switch (notice.kind) {
     case 'page-saved':
     case 'copied':
+    case 'no-app':
     case 'shell-recovered':
       return { message, detail: null, durationMs: CONFIRM_MS, actions: [] };
     case 'pinned': {

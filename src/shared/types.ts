@@ -60,7 +60,9 @@ export type SitePermission =
   | 'clipboard'
   | 'sound'
   /** Allowed means ads and trackers aren't blocked on the site. */
-  | 'ads';
+  | 'ads'
+  /** Links that open an app on the Mac: mailto:, tel:, zoommtg: … */
+  | 'apps';
 
 export type PermissionDecision = 'allow' | 'block' | 'ask';
 
@@ -257,6 +259,16 @@ export interface PermissionRequest {
   id: string;
   origin: string;
   permissions: SitePermission[];
+  /** For `apps`: the app the link would open, and its kind of link. */
+  opens?: ExternalApp;
+}
+
+/** An app on the Mac that a page's link would open. */
+export interface ExternalApp {
+  /** As macOS names it: "Mail", "FaceTime", "zoom.us". */
+  app: string;
+  /** The link's scheme, lowercased, without its colon: "mailto". */
+  scheme: string;
 }
 
 /** How a workspace marks itself in the sidebar. */
@@ -343,6 +355,8 @@ export type Notice =
   | { kind: 'page-saved'; filename: string }
   /** The window's interface crashed and was reloaded; pages kept running. */
   | { kind: 'shell-recovered' }
+  /** A page's link needs an app this Mac doesn't have. */
+  | { kind: 'no-app'; scheme: string }
   | {
       kind: 'copied';
       what: 'link' | 'image' | 'image-address';

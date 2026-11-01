@@ -1,5 +1,6 @@
 import {
   allowExtensionPages,
+  isExternalAppUrl,
   isNavigableUrl,
   isPageUrl,
   mayOpenFromPage,
@@ -114,4 +115,27 @@ it('permits source inspection only for web addresses', () => {
   ]) {
     expect(isPageUrl(address)).toBe(false);
   }
+});
+
+describe('isExternalAppUrl', () => {
+  it.each(['mailto:hi@example.com', 'tel:+4930123', 'zoommtg://zoom.us/join'])(
+    'hands %s to another app',
+    (url) => expect(isExternalAppUrl(url)).toBe(true),
+  );
+
+  it.each([
+    'https://example.com',
+    'file:///etc/passwd',
+    'javascript:alert(1)',
+    'data:text/html,hi',
+    'blob:https://example.com/x',
+    'chrome://settings',
+    'chrome-extension://abc/page.html',
+    'view-source:https://example.com',
+    'about:blank',
+    'not a url',
+    `mailto:${'a'.repeat(5000)}`,
+  ])('never hands %s to another app', (url) =>
+    expect(isExternalAppUrl(url)).toBe(false),
+  );
 });

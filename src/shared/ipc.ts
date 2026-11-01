@@ -92,6 +92,7 @@ const sitePermission = z.enum([
   'clipboard',
   'sound',
   'ads',
+  'apps',
 ]);
 /** A bare web origin such as `https://example.com`. */
 const siteOrigin = z

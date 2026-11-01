@@ -31,7 +31,9 @@ import { SearchSuggestions } from '../browser/search-suggestions';
 import {
   contentsForPage,
   createElectronPageHostFactory,
+  pageHandleFor,
 } from '../browser/electron-page-host';
+import { requestExternalOpen } from '../security/external-apps';
 import { contentBounds } from '../browser/layout';
 import { OfflineRetry } from '../browser/offline-retry';
 import { isSameDocument, shellUrl } from './shell-url';
@@ -187,6 +189,19 @@ export class TrailWindow {
           options.extensions?.addPage(contents, this.window),
         extensionMenuItems: (contents, params) =>
           options.extensions?.menuItems(contents, params) ?? [],
+        openExternal: (contents, url) =>
+          void requestExternalOpen(
+            pageHandleFor(contents),
+            contents.getURL(),
+            url,
+            store,
+            {
+              appFor: (link) => app.getApplicationNameForProtocol(link),
+              open: (link) => void shell.openExternal(link),
+            },
+          ).catch((error: unknown) =>
+            console.error('Splash could not open an external link', error),
+          ),
       }),
       onSnapshot: (snapshot) => {
         this.send(eventChannels.snapshot, snapshot);

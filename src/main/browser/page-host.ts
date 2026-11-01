@@ -1,5 +1,6 @@
 import type { Rectangle } from 'electron';
 import type {
+  ExternalApp,
   FindResult,
   Notice,
   PageError,
@@ -66,6 +67,7 @@ export interface PageHostEvents {
   onPermissionRequest(
     origin: string,
     permissions: SitePermission[],
+    opens?: ExternalApp,
   ): Promise<boolean>;
   /** The page was refused something, without asking. */
   onPermissionBlocked(permissions: SitePermission[]): void;
