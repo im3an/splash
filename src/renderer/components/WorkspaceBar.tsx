@@ -71,6 +71,37 @@ export function WorkspaceBar() {
           <div
             role="tablist"
             aria-label="Workspaces"
+            onKeyDown={(event) => {
+              const tabs = Array.from(
+                event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                  '[role="tab"]',
+                ),
+              );
+              const current = tabs.indexOf(event.target as HTMLButtonElement);
+              if (current < 0) return;
+              let next: number;
+              switch (event.key) {
+                case 'ArrowRight':
+                  next = (current + 1) % tabs.length;
+                  break;
+                case 'ArrowLeft':
+                  next = (current - 1 + tabs.length) % tabs.length;
+                  break;
+                case 'Home':
+                  next = 0;
+                  break;
+                case 'End':
+                  next = tabs.length - 1;
+                  break;
+                default:
+                  return;
+              }
+              event.preventDefault();
+              tabs[next]?.focus();
+              const workspace = workspaces[next];
+              if (workspace && workspace.id !== activeId)
+                void api().switchWorkspace(workspace.id);
+            }}
             className="-m-1 flex min-w-0 items-center gap-0.5 overflow-x-auto p-1"
           >
             {workspaces.map((workspace, index) => (
@@ -129,6 +160,7 @@ function WorkspaceChip({
       type="button"
       role="tab"
       aria-selected={active}
+      tabIndex={active ? 0 : -1}
       aria-label={workspace.name}
       title={`${workspace.name} · ${workspace.pageCount} page${workspace.pageCount === 1 ? '' : 's'}${shortcut}`}
       onClick={() => void api().switchWorkspace(workspace.id)}

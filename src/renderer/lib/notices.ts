@@ -66,6 +66,8 @@ export function noticeMessage(notice: Notice): string {
       return notice.asleep
         ? `“${shortName(notice.label)}” is pinned, so it went to sleep instead.`
         : `“${shortName(notice.label)}” is pinned, so it stays.`;
+    case 'page-saved':
+      return `Saved “${notice.filename}”.`;
     case 'copied':
       switch (notice.what) {
         case 'link':
@@ -84,6 +86,7 @@ export function noticeMessage(notice: Notice): string {
 export function noticeToast(notice: Notice): ToastInput {
   const message = noticeMessage(notice);
   switch (notice.kind) {
+    case 'page-saved':
     case 'copied':
       return { message, detail: null, durationMs: CONFIRM_MS, actions: [] };
     case 'pinned': {
@@ -153,6 +156,51 @@ function movedToast(
               }),
             ),
       },
+    ],
+  };
+}
+
+/** Confirms a page dragged to a new place in the trail, with the way back. */
+export function trailMoveToast({
+  label,
+  parentLabel,
+  sameParent,
+  undo,
+}: {
+  label: string;
+  /** Where it went; `null` for the top level. */
+  parentLabel: string | null;
+  /** Only its order among its siblings changed. */
+  sameParent: boolean;
+  undo(): void;
+}): ToastInput {
+  const name = `“${shortName(label)}”`;
+  const message = sameParent
+    ? `Moved ${name}.`
+    : parentLabel
+      ? `Moved ${name} under “${shortName(parentLabel)}”.`
+      : `Moved ${name} to the top level.`;
+  return {
+    message,
+    detail: null,
+    durationMs: UNDO_MS,
+    actions: [{ label: 'Undo', title: 'Put it back', icon: 'undo', run: undo }],
+  };
+}
+
+/** Confirms a rename; `name` is `null` when it went back to the page's title. */
+export function renamedToast(
+  name: string | null,
+  undo: () => void,
+): ToastInput {
+  return {
+    message: name
+      ? `Renamed to “${shortName(name)}”.`
+      : 'Back to the page’s own title.',
+    detail: null,
+    durationMs: UNDO_MS,
+    actions: [
+      { label: 'Undo', title: 'Use the old name', icon: 'undo', run: undo },
     ],
   };
 }

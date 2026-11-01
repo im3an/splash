@@ -36,9 +36,19 @@ export function isExtensionPageUrl(value: string): boolean {
   }
 }
 
-/** What a page may show: web content, or a bundled extension's own page. */
+/** Source inspection is limited to ordinary web pages, never local or privileged URLs. */
+export function isSourceUrl(value: string): boolean {
+  return (
+    value.startsWith('view-source:') &&
+    isNavigableUrl(value.slice('view-source:'.length))
+  );
+}
+
+/** What a page may show: web content, its source, or a bundled extension's own page. */
 export function isPageUrl(value: string): boolean {
-  return isNavigableUrl(value) || isExtensionPageUrl(value);
+  return (
+    isNavigableUrl(value) || isSourceUrl(value) || isExtensionPageUrl(value)
+  );
 }
 
 export function searchUrl(
@@ -68,6 +78,7 @@ export function resolveAddressInput(
   const input = raw.trim();
   const search = () => searchUrl(input, engine);
   if (input === '' || /\s/.test(input)) return search();
+  if (isSourceUrl(input)) return input;
 
   if (SCHEME.test(input)) {
     return isNavigableUrl(input) ? new URL(input).href : search();

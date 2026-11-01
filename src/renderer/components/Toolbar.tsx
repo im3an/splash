@@ -17,7 +17,7 @@ import {
 } from '../stores/shell-store';
 import { AddressBar } from './AddressBar';
 import { DownloadsButton } from './DownloadsButton';
-import { ExtensionActions } from './ExtensionActions';
+import { ToolbarActions } from './ToolbarActions';
 import { Toast } from './Toast';
 
 /**
@@ -57,11 +57,15 @@ export function Toolbar() {
           <div className="mx-1.5 flex min-w-0 flex-1">
             <AddressBar />
           </div>
-          <ExtensionActions />
-          <SplitButton />
+          <ToolbarActions />
         </div>
       )}
-      {blank && <span className="flex-1" />}
+      {blank && (
+        <>
+          <span className="flex-1" />
+          <ToolbarActions />
+        </>
+      )}
       {/* With the sidebar hidden, its feedback moves up here. */}
       <Toast placement="toolbar" />
       {!sidebarOpen && <DownloadsButton />}

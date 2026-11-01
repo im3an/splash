@@ -1,5 +1,7 @@
+import { requestAuthentication } from '../windows/auth-window';
 import {
   Menu,
+  dialog,
   webContents,
   WebContentsView,
   type BaseWindow,
@@ -9,7 +11,12 @@ import {
   type Session,
   type WebContents,
 } from 'electron';
-import { LINK_ACTIVATED, NAVIGATION_BUTTON } from '../../shared/page-bridge';
+import {
+  BRANCH_LINK,
+  FORM_EDITED,
+  LINK_ACTIVATED,
+  NAVIGATION_BUTTON,
+} from '../../shared/page-bridge';
 import type { SitePermission } from '../../shared/types';
 import { webContextMenu } from '../menus/web-context-menu';
 import { isSameDocumentUrl, LinkActivations } from './link-activations';
@@ -21,6 +28,7 @@ import type {
   PageHostFactory,
 } from './page-host';
 import { isNavigableUrl, isPageUrl } from './url';
+import { requestPageClose } from './close-page';
 import { stepZoom } from './zoom';
 
 /** Must match `--radius-content` in the renderer's design tokens. */
@@ -89,11 +97,16 @@ function originOf(url: string): string | null {
 /** A page rendered by Chromium in a `WebContentsView` inside the window. */
 class ElectronPageHost implements PageHost {
   private readonly view: WebContentsView;
+  /** The view releases its getter on native close; retain the lifecycle object. */
+  private readonly nativeContents: WebContents;
   private readonly window: BaseWindow;
   private readonly environment: PageHostEnvironment;
   private readonly links = new LinkActivations();
   private attached = false;
+  private closing = false;
+  private hasFormEdits = false;
   private origin: string | null = null;
+  private sourceUrl: string | null = null;
 
   constructor(
     environment: PageHostEnvironment,
@@ -119,6 +132,7 @@ class ElectronPageHost implements PageHost {
         navigateOnDragDrop: false,
       },
     });
+    this.nativeContents = this.view.webContents;
     this.view.setBorderRadius(CONTENT_RADIUS);
     this.view.setBackgroundColor('#ffffff');
     this.wire(this.view.webContents);
@@ -134,10 +148,11 @@ class ElectronPageHost implements PageHost {
   }
 
   private get contents(): WebContents {
-    return this.view.webContents;
+    return this.nativeContents;
   }
 
   load(url: string, options: LoadOptions = {}): void {
+    this.sourceUrl = url.startsWith('view-source:') ? url : null;
     const httpReferrer = options.referrer
       ? {
           url: options.referrer,
@@ -205,13 +220,23 @@ class ElectronPageHost implements PageHost {
       .filter((entry) => isPageUrl(entry.url));
     if (entries.length === 0) return null;
     const index = Math.min(history.getActiveIndex(), entries.length - 1);
+    if (this.sourceUrl && entries[index])
+      entries[index] = { ...entries[index]!, url: this.sourceUrl };
     return { entries, index: Math.max(0, index) };
   }
 
   restoreHistory(history: PageHistory): void {
+    const active = history.entries[history.index]?.url;
+    if (active?.startsWith('view-source:')) {
+      this.load(active);
+      return;
+    }
     this.contents.navigationHistory
       .restore({ entries: history.entries, index: history.index })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!this.contents.isDestroyed() && active && isPageUrl(active))
+          this.load(active);
+      });
   }
 
   isAudible(): boolean {
@@ -252,10 +277,55 @@ class ElectronPageHost implements PageHost {
     }
   }
 
+  private allowLeave(reason: 'unsaved' | 'unresponsive' | 'edited'): boolean {
+    const url = this.contents.isDestroyed() ? '' : this.contents.getURL();
+    let host = 'This page';
+    try {
+      host = new URL(url).host;
+    } catch {
+      /* Blank or crashed page. */
+    }
+    return (
+      dialog.showMessageBoxSync(this.window, {
+        type: 'warning',
+        message:
+          reason !== 'unresponsive'
+            ? `Leave ${host}?`
+            : `${host} isn’t responding.`,
+        detail:
+          reason === 'edited'
+            ? 'You edited fields on this page. Some sites save automatically. Leave only if your work is saved, or if you want to discard it.'
+            : reason === 'unsaved'
+              ? 'The site says you may have unsaved changes. Leaving can discard what you entered.'
+              : 'You can keep this page open and wait, or force it to close. Unsaved changes may be lost.',
+        buttons:
+          reason !== 'unresponsive'
+            ? ['Stay on Page', 'Leave Page']
+            : ['Keep Page Open', 'Force Close'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      }) === 1
+    );
+  }
+
+  async requestClose(): Promise<boolean> {
+    const edited = this.hasFormEdits;
+    if (edited && !this.allowLeave('edited')) return false;
+    this.closing = true;
+    try {
+      return await requestPageClose(this.contents, (reason) =>
+        reason === 'unsaved' && edited ? true : this.allowLeave(reason),
+      );
+    } finally {
+      this.closing = false;
+    }
+  }
+
   destroy(): void {
     // Forget the page now: `destroyed` comes later, and until then a sleeping
     // page would still seem to have this view.
-    pageHandles.delete(this.contents.id);
+    if (!this.contents.isDestroyed()) pageHandles.delete(this.contents.id);
     this.hide();
     // A WebContentsView does not destroy its WebContents on its own.
     if (!this.contents.isDestroyed()) this.contents.close();
@@ -282,10 +352,27 @@ class ElectronPageHost implements PageHost {
       return { action: 'deny' };
     });
 
+    contents.ipc.on(FORM_EDITED, (event, edited: unknown) => {
+      if (!event.senderFrame || edited !== true) return;
+      this.hasFormEdits = true;
+      emit({ hasFormEdits: true });
+    });
     contents.ipc.on(LINK_ACTIVATED, (event, href: unknown) => {
       if (event.senderFrame?.parent !== null) return;
       if (typeof href !== 'string' || href.length > MAX_URL_LENGTH) return;
       if (isNavigableUrl(href)) this.links.record(href);
+    });
+    contents.ipc.on(BRANCH_LINK, (event, href: unknown) => {
+      if (
+        event.senderFrame?.parent !== null ||
+        typeof href !== 'string' ||
+        href.length > MAX_URL_LENGTH ||
+        !isNavigableUrl(href)
+      )
+        return;
+      const current = contents.getURL();
+      if (this.links.take(href) && !isSameDocumentUrl(href, current))
+        this.events.onBranchRequest(href, current);
     });
     // Any frame may report it: the button works over embedded content too.
     contents.ipc.on(NAVIGATION_BUTTON, (_event, button: unknown) => {
@@ -300,6 +387,13 @@ class ElectronPageHost implements PageHost {
         return;
       }
       if (!event.isMainFrame || event.isSameDocument) return;
+      if (this.sourceUrl && isNavigableUrl(event.url)) {
+        event.preventDefault();
+        this.events.onBranchRequest(event.url, this.sourceUrl.slice(12));
+        return;
+      }
+      if (this.sourceUrl && event.url.startsWith('view-source:'))
+        this.sourceUrl = event.url;
       const current = contents.getURL();
       // Only a link the user just clicked, leading to another document,
       // grows the trail. Everything else navigates in place.
@@ -344,6 +438,26 @@ class ElectronPageHost implements PageHost {
       if (!isPageUrl(event.url)) event.preventDefault();
     });
 
+    contents.on('login', (event, details, info, callback) => {
+      event.preventDefault();
+      requestAuthentication(this.window, contents, details.url, info, callback);
+    });
+
+    contents.on('will-prevent-unload', (event) => {
+      if (this.closing) return;
+      if (this.allowLeave('unsaved')) event.preventDefault();
+      else {
+        // Address-bar navigation is optimistic. A site veto must restore
+        // the committed address instead of labelling the old form as the target.
+        emit({
+          url: this.sourceUrl ?? contents.getURL(),
+          isLoading: false,
+          error: null,
+          ...this.navigationState(),
+        });
+      }
+    });
+
     contents.on('focus', () => this.events.onFocus());
 
     contents.on('did-start-navigation', (details) => {
@@ -353,7 +467,10 @@ class ElectronPageHost implements PageHost {
     contents.on('did-stop-loading', () =>
       emit({ isLoading: false, ...this.navigationState() }),
     );
-    contents.on('did-navigate', (_event, url) => {
+    contents.on('did-navigate', (_event, committed) => {
+      this.hasFormEdits = false;
+      emit({ hasFormEdits: false });
+      const url = this.sourceUrl ?? committed;
       const origin = originOf(url);
       const leftSite = origin !== this.origin;
       this.origin = origin;
@@ -362,6 +479,9 @@ class ElectronPageHost implements PageHost {
       }
       emit({
         url,
+        ...(this.sourceUrl
+          ? { title: `Source · ${new URL(this.sourceUrl.slice(12)).host}` }
+          : {}),
         ...this.navigationState(),
         zoomPercent: Math.round(contents.getZoomFactor() * 100),
         find: null,
@@ -372,7 +492,13 @@ class ElectronPageHost implements PageHost {
     contents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
       if (isMainFrame) emit({ url, ...this.navigationState() });
     });
-    contents.on('page-title-updated', (_event, title) => emit({ title }));
+    contents.on('page-title-updated', (_event, title) =>
+      emit({
+        title: this.sourceUrl
+          ? `Source · ${new URL(this.sourceUrl.slice(12)).host}`
+          : title,
+      }),
+    );
     contents.on('audio-state-changed', (event) =>
       emit({ isAudible: event.audible }),
     );

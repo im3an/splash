@@ -59,3 +59,235 @@ export function hiddenSummary(
   visit(root.childIds);
   return summary;
 }
+
+/** Where a row's branch line is on the way to the current page. */
+export interface PathGuide {
+  /** The guide's level: the depth of the ancestor it hangs from. */
+  level: number;
+  /** The row the path turns into; its line stops at the row's middle. */
+  end: boolean;
+  /** How far down the path the row's line starts, in rows. */
+  start: number;
+}
+
+/**
+ * Lights the branch lines that lead from each ancestor down to the current
+ * page, so its place in a deep trail reads at a glance. Rows are depth
+ * first, so the rows between an ancestor and its child on the path all hang
+ * from that ancestor, and each row lights at most one level.
+ */
+export function pathGuides(
+  rows: readonly TrailRow[],
+  activeId: PageId | null,
+): Map<PageId, PathGuide> {
+  const guides = new Map<PageId, PathGuide>();
+  const index = new Map(rows.map((row, i) => [row.id, i]));
+  if (activeId === null || !index.has(activeId)) return guides;
+  // The path from the top of the trail down to the current page.
+  const path: TrailRow[] = [];
+  for (let id: PageId | null = activeId; id !== null; ) {
+    const row: TrailRow | undefined = rows[index.get(id) ?? -1];
+    if (!row) return guides;
+    path.unshift(row);
+    id = row.parentId;
+  }
+  let start = 0;
+  for (let level = 0; level < path.length - 1; level++) {
+    const from = index.get(path[level]!.id)!;
+    const to = index.get(path[level + 1]!.id)!;
+    for (let i = from + 1; i <= to; i++) {
+      const end = i === to;
+      guides.set(rows[i]!.id, { level, end, start });
+      start += end ? 0.5 : 1;
+    }
+  }
+  return guides;
+}
+
+/** Half a row of lit line: each row's line is a top and a bottom half. */
+export interface GuideHalf {
+  key: string;
+  rowId: PageId;
+  level: number;
+  half: 'top' | 'bottom';
+  /** How far down the path it starts, in rows. */
+  start: number;
+}
+
+/**
+ * Splits the lit lines into halves, so a row that stops being the path's
+ * turn keeps its top half and only grows the rest.
+ */
+export function guideHalves(
+  guides: ReadonlyMap<PageId, PathGuide>,
+): GuideHalf[] {
+  const halves: GuideHalf[] = [];
+  for (const [rowId, { level, start, end }] of guides) {
+    const key = `${rowId}:${level}`;
+    halves.push({ key: `${key}:top`, rowId, level, half: 'top', start });
+    if (!end) {
+      halves.push({
+        key: `${key}:bottom`,
+        rowId,
+        level,
+        half: 'bottom',
+        start: start + 0.5,
+      });
+    }
+  }
+  return halves;
+}
+
+/**
+ * One half's share of a stroke drawing in or retracting: it moves between
+ * `from` and `to` of the stroke's eased progress, so every half follows one
+ * curve and the line moves as a single smooth stroke. `count` halves share
+ * the stroke, which sets its length.
+ */
+export interface GuideStroke {
+  direction: 'in' | 'out';
+  from: number;
+  to: number;
+  count: number;
+}
+
+export interface DrawnHalf extends GuideHalf {
+  /** Stable while drawn; a half that comes back gets a new one. */
+  id: number;
+  /** `null` once it's simply there. */
+  stroke: GuideStroke | null;
+  /** The plan in which it began retracting, until it's gone. */
+  leavingSince: number | null;
+}
+
+let nextHalfId = 0;
+let nextPlan = 0;
+
+/**
+ * Plans the lines when the current page changes. Halves already drawn keep
+ * their entry, so updates mid-stroke never restart them. New halves draw
+ * downward as one stroke from the first of them; halves no longer on the
+ * path retract upward, the lowest first, at the same time. Without
+ * `animate` (the trail's first paint) changes simply happen.
+ */
+export function planGuides(
+  previous: ReadonlyMap<string, DrawnHalf>,
+  halves: readonly GuideHalf[],
+  animate: boolean,
+): Map<string, DrawnHalf> {
+  const plan = new Map<string, DrawnHalf>();
+  const serial = ++nextPlan;
+  const fresh = halves
+    .filter((half) => {
+      const drawn = previous.get(half.key);
+      return !drawn || drawn.leavingSince !== null;
+    })
+    .sort((a, b) => a.start - b.start);
+  const current = new Set(halves.map((half) => half.key));
+  const leaving = [...previous.values()]
+    .filter((drawn) => !current.has(drawn.key) && drawn.leavingSince === null)
+    .sort((a, b) => b.start - a.start);
+
+  for (const drawn of previous.values()) {
+    if (current.has(drawn.key) && drawn.leavingSince === null) {
+      plan.set(drawn.key, drawn);
+    } else if (!current.has(drawn.key) && drawn.leavingSince !== null) {
+      plan.set(drawn.key, drawn);
+    }
+  }
+  fresh.forEach((half, rank) => {
+    plan.set(half.key, {
+      ...half,
+      id: ++nextHalfId,
+      leavingSince: null,
+      stroke: animate ? stroke('in', rank, fresh.length) : null,
+    });
+  });
+  if (animate) {
+    leaving.forEach((drawn, rank) => {
+      plan.set(drawn.key, {
+        ...drawn,
+        leavingSince: serial,
+        stroke: stroke('out', rank, leaving.length),
+      });
+    });
+  }
+  return plan;
+}
+
+function stroke(
+  direction: GuideStroke['direction'],
+  rank: number,
+  count: number,
+): GuideStroke {
+  return { direction, from: rank / count, to: (rank + 1) / count, count };
+}
+
+/** Drops halves that finished retracting in plans up to `serial`. */
+export function pruneGuides(
+  plan: ReadonlyMap<string, DrawnHalf>,
+  serial: number,
+): Map<string, DrawnHalf> {
+  return new Map(
+    [...plan].filter(
+      ([, drawn]) => drawn.leavingSince === null || drawn.leavingSince > serial,
+    ),
+  );
+}
+
+export type TreeKey =
+  | 'ArrowUp'
+  | 'ArrowDown'
+  | 'ArrowLeft'
+  | 'ArrowRight'
+  | 'Home'
+  | 'End';
+
+/**
+ * Where a key moves focus in the trail, following the WAI-ARIA tree
+ * pattern: ↑ ↓ step through visible rows, ← goes to the parent and → to
+ * the first child (collapsing and expanding happen before these, in the
+ * row), Home and End jump to the ends. `null` when focus stays.
+ */
+export function treeFocusTarget(
+  rows: readonly TrailRow[],
+  id: PageId,
+  key: TreeKey,
+): PageId | null {
+  const i = rows.findIndex((row) => row.id === id);
+  if (i === -1) return rows[0]?.id ?? null;
+  const row = rows[i]!;
+  switch (key) {
+    case 'ArrowUp':
+      return rows[i - 1]?.id ?? null;
+    case 'ArrowDown':
+      return rows[i + 1]?.id ?? null;
+    case 'ArrowLeft':
+      return row.parentId;
+    case 'ArrowRight': {
+      const next = rows[i + 1];
+      return next?.parentId === id ? next.id : null;
+    }
+    case 'Home':
+      return i === 0 ? null : rows[0]!.id;
+    case 'End':
+      return i === rows.length - 1 ? null : rows.at(-1)!.id;
+  }
+}
+
+/** Count complete branches, including pages hidden by collapsed ancestors. */
+export function trailSectionCounts(snapshot: BrowserSnapshot) {
+  const counts = { pinned: 0, open: 0 };
+  const seen = new Set<PageId>();
+  const visit = (id: PageId, section: keyof typeof counts) => {
+    const page = snapshot.pages[id];
+    if (!page || seen.has(id)) return;
+    seen.add(id);
+    counts[section]++;
+    page.childIds.forEach((child) => visit(child, section));
+  };
+  snapshot.rootIds.forEach((id) =>
+    visit(id, snapshot.pages[id]?.isPinned ? 'pinned' : 'open'),
+  );
+  return counts;
+}

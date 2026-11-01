@@ -15,6 +15,7 @@
   --color-row-pressed: var(--row-pressed);
   --color-pill: var(--pill);
   --color-scrim: var(--scrim);
+  --color-option-selected: var(--option-selected);
   --color-divider: var(--divider);
   --color-hairline: var(--hairline);
   --color-fg: var(--fg);
@@ -254,6 +255,33 @@
     outline: none;
   }
 
+  /*
+   * A shortcut beside a control or command, like a menu item's: quiet and
+   * set in the UI font so ⌘ and ⇧ sit on the baseline.
+   */
+  .shortcut {
+    flex-shrink: 0;
+    font-family: var(--font-ui);
+    font-size: var(--type-caption);
+    color: var(--fg-subtle);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+  /* A key in a legend that teaches the keyboard: ↑↓ move, ↵ open. */
+  .keycap {
+    display: inline-grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding-inline: 4px;
+    border-radius: var(--radius-mark);
+    background: var(--keycap);
+    font-family: var(--font-ui);
+    font-size: var(--type-caption);
+    line-height: 1;
+    color: var(--fg-muted);
+  }
+
   .skeleton {
     background: var(--skeleton);
     border-radius: var(--radius-mark);
@@ -392,12 +420,11 @@
   }
 }
 
-/* A new row in a list growing into its slot. */
+/* Reserve the full row immediately so controls never overlap during entry. */
 @keyframes row-in {
   from {
-    height: 0;
     opacity: 0;
-    transform: translateX(-6px);
+    transform: translateX(-4px);
   }
 }
 
@@ -454,7 +481,6 @@
     animation: trail-in var(--duration-slow) var(--ease-emphasized);
   }
   .row-in {
-    overflow: hidden;
     animation: row-in var(--duration-slow) var(--ease-emphasized);
   }
   .rise-in {
@@ -579,17 +605,6 @@
   }
 }
 
-:root[data-motion='reduced'] {
-  .rise-in {
-    animation-delay: 0s;
-  }
-  .press:active:not(:disabled),
-  .icon-button:active:not(:disabled),
-  .button:active:not(:disabled) {
-    scale: none;
-  }
-}
-
 /* The same, when Reduce motion is on in Splash's settings. */
 :root[data-motion='reduced'] {
   .skeleton {
@@ -613,88 +628,463 @@
   }
 }
 
-/*
- * The current page in the trail, marked as Appearance settings choose.
- * Unlayered, so the mark holds over a row's hover and press. Each mark
- * eases in on the page you open and out of the one you leave.
- */
-
-/* Raised: a card lifted off the frame. */
-:root[data-current-page='raised']
-  .trail-row[data-active='true']:not([data-dragging='true']) {
-  background-color: var(--selected);
-  box-shadow: var(--shadow-row);
+/* One quiet surface marks the current page throughout the sidebar. */
+.trail-row[data-active='true']:not([data-dragging='true']) {
+  isolation: isolate;
+  background-color: transparent;
 }
-
-/* Outline: an accent hairline with the faintest lift, and no fill. */
-:root[data-current-page='outline'] .trail-row[data-active='true'] {
-  box-shadow: var(--shadow-current-outline);
+.trail-row[data-active='true']:not([data-dragging='true'])::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 18px;
+  z-index: -1;
+  border-radius: inherit;
+  background-color: var(--row-hover);
 }
-
-/* A raised or outlined row stands apart from its branch's lines. */
-:root:is([data-current-page='raised'], [data-current-page='outline'])
-  .trail-row[data-active='true']
-  .indent-guides {
+.trail-row[data-active='true'][data-flat='true']::before {
+  left: 0;
+}
+.trail-row[data-active='true'] .indent-guides {
   display: none;
 }
 
-/*
- * Underline: drawn in from the left on the page you open and wiped out to
- * the right on the one you leave, so the line seems to pass between rows.
- */
-:root[data-current-page='underline'] .trail-title {
-  padding-bottom: 1px;
-  background: linear-gradient(var(--accent), var(--accent)) no-repeat right
-    bottom / 0% 1.5px;
-  transition: background-size var(--duration-slow) var(--ease-emphasized);
+/* One hierarchy for saved destinations and the live trail. */
+.sidebar-section-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--sidebar-action-size);
+  align-items: center;
+  column-gap: 8px;
+  min-height: 32px;
+  padding: 4px var(--sidebar-row-inset) 4px 10px;
+  color: var(--fg-subtle);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
 }
-:root[data-current-page='underline']
-  .trail-row[data-active='true']
-  .trail-title {
-  background-position: left bottom;
-  background-size: 100% 1.5px;
+summary.sidebar-section-heading {
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-row);
 }
-
-/* Dot: like the Dock, under the icon, centred in the space below it. */
-:root[data-current-page='dot'] .trail-favicon::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: calc(100% + (var(--row-height) - 16px) / 4 - 2px);
-  width: 4px;
-  height: 4px;
-  margin-left: -2px;
-  border-radius: 50%;
-  background: var(--accent);
-  scale: 0;
+summary.sidebar-section-heading::-webkit-details-marker {
+  display: none;
+}
+.sidebar-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sidebar-section-label > svg {
+  flex-shrink: 0;
+  transition: transform var(--duration-base) var(--ease-out);
+}
+details[open] > summary .sidebar-section-label > svg {
+  transform: rotate(90deg);
+}
+.sidebar-folded-count:empty,
+details[open] > summary .sidebar-folded-count {
+  display: none;
+}
+.sidebar-folded-count {
+  font-variant-numeric: tabular-nums;
+}
+.sidebar-folded-count::before {
+  content: '·';
+  margin-right: 6px;
+}
+.sidebar-section-label > svg,
+.trail-branch-toggle {
   opacity: 0;
-  transition:
-    scale var(--duration-fast) var(--ease-in),
-    opacity var(--duration-fast) var(--ease-in);
 }
-:root[data-current-page='dot']
-  .trail-row[data-active='true']
-  .trail-favicon::after {
-  scale: 1;
+summary:is(:hover, :focus-visible) .sidebar-section-label > svg,
+details:not([open]) > summary .sidebar-section-label > svg,
+.trail-row:is(:hover, :focus-within) .trail-branch-toggle,
+.trail-row[aria-expanded='false'] .trail-branch-toggle {
   opacity: 1;
-  transition:
-    scale var(--duration-slow) var(--ease-spring),
-    opacity var(--duration-fast) var(--ease-out);
+}
+.trail-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.trail-label > .trail-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trail-site {
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-caption);
+}
+.library-branch[data-flattened='true'] > .library-children {
+  margin-left: 0;
+  padding-left: 25px;
+  border-left: 0;
+}
+.sidebar-section-heading > .icon-button {
+  grid-column: 2;
+  grid-row: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.sidebar-section-heading:is(:hover, :focus-within) > .icon-button {
+  opacity: 1;
+  pointer-events: auto;
+}
+summary.sidebar-section-heading:hover {
+  color: var(--fg-muted);
+  background: var(--row-hover);
+}
+summary.sidebar-section-heading:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+@keyframes sidebar-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+details[open] > .sidebar-section-content {
+  animation: sidebar-reveal var(--duration-base) var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  details[open] > .sidebar-section-content {
+    animation: none;
+  }
+  .sidebar-section-label > svg {
+    transition: none;
+  }
+}
+:root[data-motion='reduced'] details[open] > .sidebar-section-content {
+  animation: none;
+}
+:root[data-motion='reduced'] .sidebar-section-label > svg {
+  transition: none;
+}
+@media (hover: none) {
+  .sidebar-section-heading > .icon-button {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+.sidebar-section-heading > span:first-child {
+  min-width: 0;
+}
+.sidebar-section-heading > .icon-button {
+  width: var(--sidebar-action-size);
+  height: var(--sidebar-action-size);
+}
+.library {
+  padding-bottom: 6px;
+}
+.library-section + .library-section {
+  margin-top: 8px;
+}
+.library-count {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: var(--sidebar-action-size);
+  line-height: 1;
+  color: var(--fg-subtle);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.library-folder,
+.library-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  padding-right: var(--sidebar-row-inset);
+  border-radius: var(--radius-row);
+}
+.library-folder:hover,
+.library-link:hover,
+.library-folder[data-menu-open='true'] {
+  background: var(--row-hover);
+}
+.library-folder-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  height: var(--row-height);
+  padding: 0 32px 0 6px;
+  text-align: left;
+}
+.library-folder > .library-more {
+  position: absolute;
+  right: var(--sidebar-row-inset);
+}
+.library-folder[data-collapsed='true']:has(> .library-count) > .library-more {
+  right: calc(var(--sidebar-row-inset) + var(--sidebar-action-size) + 8px);
+}
+.library-folder-toggle > svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+.library-folder-toggle > .library-chevron {
+  padding: 2px;
+}
+.library-chevron {
+  flex-shrink: 0;
+  color: var(--fg-subtle);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.library-children {
+  margin-left: 12px;
+  padding-left: 6px;
+}
+.library-link-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: var(--row-height);
+  padding: 0 5px;
+  text-align: left;
+  color: var(--fg);
+  font-size: var(--type-body);
+}
+.library-link[data-current='true'] {
+  background: var(--row-hover);
+}
+.library-link[data-current='true'] .library-link-main {
+  color: var(--fg);
+  font-weight: 500;
+}
+.library-more {
+  flex-shrink: 0;
+  width: var(--sidebar-action-size);
+  height: var(--sidebar-action-size);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.library-folder:hover > .library-more,
+.library-link:hover > .library-more,
+.library-folder:focus-within > .library-more,
+.library-link:focus-within > .library-more,
+.library-folder[data-menu-open='true'] > .library-more {
+  opacity: 1;
+  pointer-events: auto;
+}
+.saved-site-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-mark);
+  background: var(--field);
+  color: var(--fg-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+.saved-site-icon img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  border-radius: 2px;
+}
+.library-empty,
+.library-status {
+  padding: 3px 10px 6px;
+  color: var(--fg-subtle);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.library-empty-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 3px 5px;
+  color: var(--fg-subtle);
+  font-size: 11px;
+}
+.library-empty-add:hover {
+  color: var(--fg);
+}
+.library-empty-add:disabled {
+  opacity: 0.5;
+}
+.library-editor,
+.library-recovery {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  margin: 4px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-control);
+  background: var(--elevated);
+}
+.library-editor input {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-inner);
+  background: var(--field);
+  outline-offset: 2px;
+}
+.library-editor-button {
+  min-height: 27px;
+  padding: 2px 9px;
+  border-radius: var(--radius-inner);
+  background: var(--row-hover);
+  font-size: 12px;
+}
+.library-editor-button:hover {
+  background: var(--pressed);
+}
+.library-editor-button[data-primary] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.library-editor-button:disabled {
+  opacity: 0.5;
+}
+.library-recovery {
+  font-size: 12px;
+  line-height: 1.5;
 }
 
-/*
- * With no shape around it, the current row keeps its close button for the
- * pointer like every other row, and shows its marker meanwhile.
- */
-:root:is([data-current-page='dot'], [data-current-page='underline'])
-  .trail-row[data-active='true']:not(:hover, :focus-visible) {
-  .trail-trailing:not([data-marked='true']) {
-    width: 0;
+.trail-row[data-pinned-root='true'] {
+  min-height: 38px;
+  margin-bottom: 2px;
+  background: var(--field);
+}
+.trail-row[data-pinned-root='true'] .trail-favicon {
+  padding: 4px;
+  margin-left: -4px;
+  border-radius: var(--radius-inner);
+  background: var(--row-hover);
+}
+.trail-row[data-pinned-root='true'] .trail-title {
+  font-weight: 500;
+}
+.library button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .library-chevron {
+    transition: none;
   }
-  .trail-marker {
-    visibility: visible;
+}
+:root[data-motion='reduced'] .library-chevron {
+  transition: none;
+}
+.library-branch[data-deep='true'] > .library-children {
+  margin-left: 0;
+  padding-left: 2px;
+}
+@media (hover: none) {
+  .library-more {
+    opacity: 1;
   }
-  .trail-close {
-    opacity: 0;
-  }
+}
+
+.library-section-toggle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  text-align: left;
+}
+.library-section-toggle svg {
+  flex-shrink: 0;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.library-section-toggle:hover {
+  color: var(--fg);
+}
+.sidebar-resize {
+  position: absolute;
+  top: var(--toolbar-height);
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  touch-action: none;
+  outline-offset: -2px;
+}
+.sidebar-resize::after {
+  position: absolute;
+  content: '';
+  top: 8px;
+  bottom: 8px;
+  right: 1px;
+  width: 1px;
+  background: transparent;
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+.sidebar-resize:hover::after,
+.sidebar-resize:focus-visible::after,
+.sidebar-resize[data-resizing='true']::after {
+  background: var(--accent);
+}
+:root:has(.sidebar-resize[data-resizing='true']) aside,
+:root:has(.sidebar-resize[data-resizing='true']) aside > div {
+  transition: none;
+}
+
+/* The sidebar reads as a list of destinations, separated by quiet space. */
+.sidebar-new-page,
+.trail-row,
+.library-folder-toggle,
+.library-link-main {
+  font-size: var(--type-lead);
+}
+.trail-row {
+  color: var(--fg);
+}
+.sidebar-new-page > .shortcut {
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.sidebar-new-page:is(:hover, :focus-visible) > .shortcut {
+  opacity: 1;
+}
+.sidebar-section-heading {
+  font-size: var(--type-small);
+}
+:is(.library-section, .trail-section)[open] > .sidebar-section-heading,
+.library-section[data-empty='true'] > .sidebar-section-heading {
+  min-height: 24px;
+}
+.library-section + .library-section,
+.trail-section + .trail-section {
+  margin-top: 12px;
+}
+.library-folder-toggle > .library-chevron {
+  opacity: 0;
+}
+.library-folder:is(:hover, :focus-within) .library-chevron,
+.library-folder[data-collapsed='true'] .library-chevron {
+  opacity: 1;
+}
+.trail-row[data-menu-open='true'] .trail-close {
+  opacity: 1;
 }

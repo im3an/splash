@@ -65,3 +65,16 @@ describe('Toast', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 });
+
+it('keeps Undo available while it has keyboard focus', () => {
+  render(<Toast placement="sidebar" />);
+  showToast();
+  const undo = screen.getByRole('button', { name: 'Undo' });
+  act(() => undo.focus());
+  fireEvent.pointerLeave(screen.getByRole('status'));
+  act(() => vi.advanceTimersByTime(20_000));
+  expect(screen.getByRole('status')).toBeTruthy();
+  act(() => undo.blur());
+  act(() => vi.advanceTimersByTime(9000));
+  expect(screen.queryByRole('status')).toBeNull();
+});

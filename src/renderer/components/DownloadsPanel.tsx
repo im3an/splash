@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import {
   CircleAlert,
+  Download,
   FileDown,
   FolderOpen,
   Pause,
@@ -16,6 +17,7 @@ import { api } from '../splash-api';
 import { useDownloads } from '../stores/downloads-store';
 import { DownloadRing } from './DownloadRing';
 import { PanelHeader } from './PanelHeader';
+import { PanelState } from './PanelState';
 
 function status(download: DownloadSummary): string {
   const { receivedBytes: got, totalBytes: total } = download;
@@ -188,9 +190,11 @@ export function DownloadsPanel() {
         </button>
       </PanelHeader>
       {downloads.length === 0 ? (
-        <p className="px-3 py-10 text-center text-body text-fg-subtle">
-          No downloads yet. Files you download show up here.
-        </p>
+        <PanelState
+          icon={Download}
+          title="Your downloads, in one place"
+          detail="Files you download appear here. Follow their progress, open them or find them in Finder."
+        />
       ) : (
         <ul className="mt-1.5 flex min-h-0 flex-1 flex-col gap-px overflow-y-auto overscroll-contain pb-2">
           {downloads.map((download, index) => (

@@ -62,6 +62,7 @@ export interface HistoryMatch {
 }
 
 export interface HistoryRow {
+  faviconUrl?: string | null;
   url: string;
   title: string;
   visitCount: number;

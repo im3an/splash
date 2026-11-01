@@ -6,7 +6,14 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { Lock, Search, ShieldOff, TriangleAlert } from 'lucide-react';
+import {
+  Lock,
+  Search,
+  ShieldOff,
+  TriangleAlert,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import {
   addressParts,
   permissionNames,
@@ -147,17 +154,22 @@ export function AddressBar({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    const { items, selected } = useSuggestions.getState();
+    const {
+      items,
+      selected,
+      query: suggestionQuery,
+    } = useSuggestions.getState();
     // A filled-in address is the leading row's: Enter goes there.
-    const chosen = suggesting
-      ? items[selected === -1 && inline.active ? 0 : selected]
-      : undefined;
+    const chosen =
+      suggesting && suggestionQuery === typed.current
+        ? items[selected === -1 && inline.active ? 0 : selected]
+        : undefined;
     if (chosen) {
       finish();
       await runPaletteItem(chosen, 'address');
       return;
     }
-    const input = (draft ?? '').trim();
+    const input = (inputRef.current?.value ?? draft ?? '').trim();
     if (!input) return;
     const splash = api();
     stopSuggesting();
@@ -229,7 +241,7 @@ export function AddressBar({
             <div
               aria-hidden
               data-revealed={revealed && full !== null}
-              className="group/summary pointer-events-none absolute inset-0 text-body whitespace-nowrap"
+              className="group/summary pointer-events-none absolute inset-0 overflow-hidden text-body whitespace-nowrap"
             >
               <span className="absolute inset-0 flex items-center transition-opacity delay-[calc(var(--duration-fast)/2)] duration-[var(--duration-fast)] ease-[var(--ease-out)] group-data-[revealed=true]/summary:opacity-0 group-data-[revealed=true]/summary:delay-0">
                 <span
@@ -268,6 +280,24 @@ export function AddressBar({
             className="grid size-6 shrink-0 place-items-center rounded-[var(--radius-inner)] text-danger hover:bg-hover"
           >
             <ShieldOff size={13} strokeWidth={2} />
+          </button>
+        )}
+        {/* Sound stays in reach while the sidebar, and its rows, are hidden. */}
+        {!editing && page && (page.isAudible || page.isMuted) && (
+          <button
+            type="button"
+            onClick={() => void api().setMuted(page.id, !page.isMuted)}
+            onMouseDown={(event) => event.preventDefault()}
+            aria-label={page.isMuted ? 'Unmute page' : 'Mute page'}
+            title={`${page.isMuted ? 'Unmute page' : 'Mute page'} (⌃⌘M)`}
+            data-playing={page.isAudible && !page.isMuted}
+            className="press grid size-6 shrink-0 place-items-center rounded-[var(--radius-inner)] text-fg-subtle hover:bg-hover hover:text-fg data-[playing=true]:text-accent"
+          >
+            {page.isMuted ? (
+              <VolumeX size={13} strokeWidth={2} />
+            ) : (
+              <Volume2 size={13} strokeWidth={2} />
+            )}
           </button>
         )}
         {!editing && page && page.zoomPercent !== 100 && (

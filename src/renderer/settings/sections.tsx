@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import {
+  TOOLBAR_ACTIONS,
+  DEFAULT_PREFERENCES,
   AWAKE_PAGE_CHOICES,
   SEARCH_ENGINES,
   type Preferences,
@@ -14,6 +16,8 @@ import type {
   SitePermission,
   SiteSettings,
 } from '../../shared/types';
+import { Brand } from '../components/Brand';
+import { toolbarLabels } from '../components/ToolbarActions';
 import { WorkspaceIcon } from '../components/WorkspaceIcon';
 import { api } from '../splash-api';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
@@ -61,7 +65,7 @@ export function GeneralSettings() {
                 searchEngine: event.target.value as Preferences['searchEngine'],
               })
             }
-            className="h-7 rounded-[7px] bg-field px-2 text-[12px] text-fg outline-none"
+            className="h-7 rounded-[var(--radius-control)] bg-field px-2 text-small text-fg"
           >
             {SEARCH_ENGINES.map((engine) => (
               <option key={engine.id} value={engine.id}>
@@ -114,6 +118,53 @@ export function AppearanceSettings() {
   if (!preferences) return null;
   return (
     <>
+      <Section
+        title="Toolbar"
+        description="Choose which controls appear and use the arrows to arrange them."
+      >
+        {TOOLBAR_ACTIONS.map((action) => {
+          const actions =
+            preferences.toolbarActions ?? DEFAULT_PREFERENCES.toolbarActions;
+          const index = actions.indexOf(action);
+          const move = (step: number) => {
+            const next = [...actions];
+            [next[index], next[index + step]] = [
+              next[index + step]!,
+              next[index]!,
+            ];
+            update({ toolbarActions: next });
+          };
+          return (
+            <Row key={action} label={toolbarLabels[action]}>
+              <Button
+                disabled={index <= 0}
+                onClick={() => move(-1)}
+                aria-label={`Move ${toolbarLabels[action]} earlier`}
+              >
+                <ArrowUp size={13} />
+              </Button>
+              <Button
+                disabled={index < 0 || index === actions.length - 1}
+                onClick={() => move(1)}
+                aria-label={`Move ${toolbarLabels[action]} later`}
+              >
+                <ArrowDown size={13} />
+              </Button>
+              <Toggle
+                label={toolbarLabels[action]}
+                checked={index >= 0}
+                onChange={(visible) =>
+                  update({
+                    toolbarActions: visible
+                      ? [...actions, action]
+                      : actions.filter((item) => item !== action),
+                  })
+                }
+              />
+            </Row>
+          );
+        })}
+      </Section>
       <Section title="Appearance">
         <Row
           label="Theme"
@@ -170,22 +221,6 @@ export function AppearanceSettings() {
         </Row>
       </Section>
       <Section title="Sidebar">
-        <Row
-          label="Current page"
-          help="How the trail marks the page you’re looking at."
-        >
-          <Choice
-            label="Current page"
-            value={preferences.currentPage}
-            onChange={(currentPage) => update({ currentPage })}
-            options={[
-              { value: 'dot', label: 'Dot' },
-              { value: 'outline', label: 'Outline' },
-              { value: 'underline', label: 'Underline' },
-              { value: 'raised', label: 'Raised' },
-            ]}
-          />
-        </Row>
         <Row label="Density" help="Compact fits more pages in the sidebar.">
           <Choice
             label="Density"
@@ -394,21 +429,52 @@ export function PrivacySettings() {
     undoToken: string | null;
   } | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+  const [sitesError, setSitesError] = useState<string | null>(null);
 
   const loadSites = useCallback(async () => {
-    setSites(await api().listSiteSettings());
+    setSitesError(null);
+    try {
+      setSites(await api().listSiteSettings());
+    } catch {
+      setSitesError('Couldn’t load site permissions. Try again.');
+    }
   }, []);
   useEffect(() => {
     void loadSites();
   }, [loadSites]);
 
   const clear = async () => {
+    if (clearing) return;
     setClearing(true);
+    setClearError(null);
     try {
       setResult(await api().clearBrowsingData({ range, ...what }));
       await loadSites();
+    } catch {
+      setClearError('Couldn’t finish clearing browsing data. Try again.');
     } finally {
       setClearing(false);
+    }
+  };
+
+  const undoClear = async () => {
+    if (!result?.undoToken || restoring) return;
+    setRestoring(true);
+    setClearError(null);
+    try {
+      const restored = await api().undoClearBrowsingData(result.undoToken);
+      setResult({
+        summary: restored
+          ? 'History is back.'
+          : 'Too late to undo; the history is gone.',
+        undoToken: null,
+      });
+    } catch {
+      setClearError('Couldn’t restore history. Try Undo again.');
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -426,7 +492,7 @@ export function PrivacySettings() {
             aria-label="Time range"
             value={range}
             onChange={(event) => setRange(event.target.value as ClearRange)}
-            className="h-7 rounded-[7px] bg-field px-2 text-[12px] text-fg outline-none"
+            className="h-7 rounded-[var(--radius-control)] bg-field px-2 text-small text-fg"
           >
             {RANGES.map((option) => (
               <option key={option.value} value={option.value}>
@@ -477,38 +543,40 @@ export function PrivacySettings() {
           <div className="flex shrink-0 gap-2">
             {result?.undoToken && (
               <Button
-                onClick={() =>
-                  void api()
-                    .undoClearBrowsingData(result.undoToken!)
-                    .then((restored) =>
-                      setResult({
-                        summary: restored
-                          ? 'History is back.'
-                          : 'Too late to undo; the history is gone.',
-                        undoToken: null,
-                      }),
-                    )
-                }
+                disabled={restoring || clearing}
+                onClick={() => void undoClear()}
               >
-                Undo
+                {restoring ? 'Restoring…' : 'Undo'}
               </Button>
             )}
             <Button
               tone="danger"
-              disabled={nothingChosen || clearing}
+              disabled={nothingChosen || clearing || restoring}
               onClick={() => void clear()}
             >
               {clearing ? 'Clearing…' : 'Clear data'}
             </Button>
           </div>
         </div>
+        {clearError && (
+          <p
+            role="alert"
+            className="px-4 pb-3 text-small leading-relaxed text-danger"
+          >
+            {clearError}
+          </p>
+        )}
       </Section>
 
       <Section
         title="Site permissions"
         description="Choices you made for sites. A site you haven’t decided on asks the first time it needs something."
       >
-        {sites === null ? (
+        {sitesError ? (
+          <Row label="Site permissions unavailable" help={sitesError}>
+            <Button onClick={() => void loadSites()}>Try again</Button>
+          </Row>
+        ) : sites === null ? (
           <div className="h-12" aria-busy="true" />
         ) : sites.length === 0 ? (
           <Row
@@ -628,6 +696,8 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ['Actual size', '⌘0'],
       ['Mute page', '⌃⌘M'],
       ['Print', '⌘P'],
+      ['Save page as', '⇧⌘S'],
+      ['View page source', '⌥⌘U'],
     ],
   ],
   [
@@ -691,6 +761,9 @@ export function AdvancedSettings() {
       </Section>
       {about && (
         <Section title="About">
+          <div className="pb-4">
+            <Brand size={32} />
+          </div>
           <Row
             label={`Splash ${about.version}`}
             help={`Electron ${about.electron} · Chromium ${about.chromium}`}

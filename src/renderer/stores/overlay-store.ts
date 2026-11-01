@@ -7,6 +7,7 @@ import { api } from '../splash-api';
 /** Shell surfaces drawn over the page area. */
 export type Overlay =
   | { kind: 'palette'; scope: PaletteScope }
+  | { kind: 'toolbar-menu' }
   | { kind: 'suggestions' }
   | { kind: 'site-info' }
   | { kind: 'workspace-editor'; workspaceId: WorkspaceId | null };
@@ -21,6 +22,7 @@ interface OverlayState {
   close(): void;
 }
 
+let requestSerial = 0;
 let leaveTimer: ReturnType<typeof setTimeout> | undefined;
 
 const nextFrame = () =>
@@ -36,6 +38,7 @@ export const useOverlay = create<OverlayState>()((set, get) => ({
   leaving: false,
   frozenPages: null,
   open: async (overlay) => {
+    const request = ++requestSerial;
     if (get().overlay) {
       // Opening again mid-exit keeps the page stepped aside.
       clearTimeout(leaveTimer);
@@ -43,6 +46,7 @@ export const useOverlay = create<OverlayState>()((set, get) => ({
       return;
     }
     const stills = await api().freezePage();
+    if (request !== requestSerial) return;
     set({ overlay, frozenPages: stills });
     // Let the still paint before the live view leaves.
     await nextFrame();
@@ -50,6 +54,7 @@ export const useOverlay = create<OverlayState>()((set, get) => ({
     if (get().overlay) api().setOverlayActive(true);
   },
   close: () => {
+    requestSerial++;
     if (!get().overlay || get().leaving) return;
     // The overlay animates out over the still; the live page comes back
     // only once it has gone, since the page would paint over the exit.

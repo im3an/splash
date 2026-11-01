@@ -1,11 +1,7 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from 'react';
+import { useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ImagePlus } from 'lucide-react';
+import { useDialogFocus } from '../hooks/use-dialog-focus';
+import { SegmentedControl } from './SegmentedControl';
 import {
   ACCENTS,
   accentColors,
@@ -64,39 +60,6 @@ async function squareIcon(file: File): Promise<string> {
   return canvas.toDataURL('image/png');
 }
 
-function Segmented<T extends string>({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  options: { value: T; label: string }[];
-  value: T;
-  onChange(value: T): void;
-}) {
-  return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      className="flex rounded-[var(--radius-control)] bg-field p-0.5"
-    >
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={option.value === value}
-          onClick={() => onChange(option.value)}
-          className="h-7 flex-1 rounded-[var(--radius-inner)] px-2 text-small text-fg-muted transition-colors duration-[var(--duration-fast)] hover:text-fg aria-checked:bg-elevated aria-checked:text-fg aria-checked:shadow-[var(--shadow-row)]"
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function Field({
   label,
   children,
@@ -124,7 +87,14 @@ export function WorkspaceEditor({
     state.snapshot?.workspaces.find((w) => w.id === workspaceId),
   );
   const count = useShell((state) => state.snapshot?.workspaces.length ?? 0);
-  const close = useOverlay((state) => state.close);
+  const closeOverlay = useOverlay((state) => state.close);
+  const dialogRef = useDialogFocus<HTMLDivElement>();
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const close = () => {
+    if (!savingRef.current) closeOverlay();
+  };
   const [name, setName] = useState(existing?.name ?? '');
   const [appearance, setAppearance] = useState<WorkspaceAppearance>(
     () => existing?.appearance ?? newWorkspaceAppearance(count),
@@ -143,14 +113,6 @@ export function WorkspaceEditor({
   const previewDark =
     appearance.mode === 'system' ? dark : appearance.mode === 'dark';
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [close]);
-
   const update = (patch: Partial<WorkspaceAppearance>) =>
     setAppearance((current) => ({ ...current, ...patch }));
   const setIconKind = (kind: Icon['kind']) => {
@@ -166,12 +128,25 @@ export function WorkspaceEditor({
     trimmedName !== '' && otherNames.includes(trimmedName.toLowerCase());
   const displayName = trimmedName || `Workspace ${count + 1}`;
   const save = async () => {
-    if (workspaceId && existing) {
-      await api().customizeWorkspace(workspaceId, displayName, appearance);
-    } else {
-      await api().createWorkspace(displayName, appearance);
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (workspaceId && existing) {
+        await api().customizeWorkspace(workspaceId, displayName, appearance);
+      } else {
+        await api().createWorkspace(displayName, appearance);
+      }
+      closeOverlay();
+    } catch {
+      setSaveError(
+        'Couldn’t save this workspace. Your changes are still here. Try again.',
+      );
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-    close();
   };
 
   const preview = useMemo(
@@ -181,10 +156,18 @@ export function WorkspaceEditor({
 
   return (
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-label={existing ? 'Customize workspace' : 'New workspace'}
       className="scrim-in absolute inset-0 flex items-start justify-center overflow-y-auto bg-scrim p-6 pt-[8vh]"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          close();
+        }
+      }}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -194,6 +177,7 @@ export function WorkspaceEditor({
           event.preventDefault();
           void save();
         }}
+        aria-busy={saving}
         className="dialog-in flex w-[440px] max-w-full flex-col gap-5 rounded-[var(--radius-content)] bg-elevated p-5 shadow-[var(--shadow-panel)]"
       >
         <div className="flex items-center gap-3">
@@ -217,202 +201,229 @@ export function WorkspaceEditor({
           </div>
         </div>
 
-        <Field label="Name">
-          <input
-            autoFocus
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder={`Workspace ${count + 1}`}
-            maxLength={80}
-            spellCheck={false}
-            className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none placeholder:text-fg-subtle focus:bg-field-focus focus:shadow-[var(--shadow-focus)] select-text"
-          />
-          {duplicate && (
-            <p className="text-small text-fg-muted">
-              Another workspace is already called “{trimmedName}”. A different
-              name, icon or accent will help tell them apart.
-            </p>
-          )}
-        </Field>
+        <fieldset disabled={saving} className="contents">
+          <Field label="Name">
+            <input
+              autoFocus
+              aria-label="Workspace name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={`Workspace ${count + 1}`}
+              maxLength={80}
+              spellCheck={false}
+              className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none placeholder:text-fg-subtle focus:bg-field-focus focus:shadow-[var(--shadow-focus)] select-text"
+            />
+            {duplicate && (
+              <p className="text-small text-fg-muted">
+                Another workspace is already called “{trimmedName}”. A different
+                name, icon or accent will help tell them apart.
+              </p>
+            )}
+          </Field>
 
-        <Field label="Icon">
-          <Segmented
-            label="Icon type"
-            options={ICON_KINDS.map(({ kind, label }) => ({
-              value: kind,
-              label,
-            }))}
-            value={appearance.icon.kind}
-            onChange={setIconKind}
-          />
-          {appearance.icon.kind === 'symbol' && (
+          <Field label="Icon">
+            <SegmentedControl
+              stretch
+              label="Icon type"
+              options={ICON_KINDS.map(({ kind, label }) => ({
+                value: kind,
+                label,
+              }))}
+              value={appearance.icon.kind}
+              onChange={setIconKind}
+            />
+            {appearance.icon.kind === 'symbol' && (
+              <div
+                role="radiogroup"
+                aria-label="Symbol"
+                className="grid grid-cols-8 gap-1"
+              >
+                {SYMBOLS.map((symbol) => {
+                  const Symbol = SYMBOL_ICONS[symbol];
+                  const selected =
+                    appearance.icon.kind === 'symbol' &&
+                    appearance.icon.name === symbol;
+                  return (
+                    <button
+                      key={symbol}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      aria-label={symbol.replace(/-/g, ' ')}
+                      title={symbol.replace(/-/g, ' ')}
+                      onClick={() =>
+                        update({ icon: { kind: 'symbol', name: symbol } })
+                      }
+                      className="grid h-8 place-items-center rounded-[var(--radius-row)] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg aria-checked:bg-accent-soft aria-checked:text-accent"
+                    >
+                      <Symbol size={16} strokeWidth={1.75} />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {appearance.icon.kind === 'emoji' && (
+              <input
+                value={appearance.icon.value}
+                onChange={(event) =>
+                  update({
+                    icon: {
+                      kind: 'emoji',
+                      value: event.target.value.slice(0, 16),
+                    },
+                  })
+                }
+                aria-label="Emoji"
+                placeholder="Type or pick an emoji (⌃⌘Space)"
+                className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none focus:bg-field-focus focus:shadow-[var(--shadow-focus)] select-text"
+              />
+            )}
+            {appearance.icon.kind === 'image' && (
+              <button
+                type="button"
+                onClick={() => fileInput.current?.click()}
+                className="flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-field text-small text-fg-muted hover:text-fg"
+              >
+                <ImagePlus size={14} strokeWidth={1.75} />
+                Choose another image…
+              </button>
+            )}
+            {imageError && (
+              <p className="text-small text-danger">{imageError}</p>
+            )}
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              hidden
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (!file) return;
+                try {
+                  update({
+                    icon: { kind: 'image', dataUrl: await squareIcon(file) },
+                  });
+                  setImageError(null);
+                } catch {
+                  setImageError(
+                    'That image couldn’t be read. Try a PNG or JPEG.',
+                  );
+                }
+              }}
+            />
+          </Field>
+
+          <Field label="Accent">
             <div
               role="radiogroup"
-              aria-label="Symbol"
-              className="grid grid-cols-8 gap-1"
+              aria-label="Accent colour"
+              className="flex flex-wrap items-center gap-1.5"
             >
-              {SYMBOLS.map((symbol) => {
-                const Symbol = SYMBOL_ICONS[symbol];
-                const selected =
-                  appearance.icon.kind === 'symbol' &&
-                  appearance.icon.name === symbol;
-                return (
-                  <button
-                    key={symbol}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    aria-label={symbol.replace(/-/g, ' ')}
-                    title={symbol.replace(/-/g, ' ')}
-                    onClick={() =>
-                      update({ icon: { kind: 'symbol', name: symbol } })
-                    }
-                    className="grid h-8 place-items-center rounded-[var(--radius-row)] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg aria-checked:bg-accent-soft aria-checked:text-accent"
-                  >
-                    <Symbol size={16} strokeWidth={1.75} />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {appearance.icon.kind === 'emoji' && (
-            <input
-              value={appearance.icon.value}
-              onChange={(event) =>
-                update({
-                  icon: {
-                    kind: 'emoji',
-                    value: event.target.value.slice(0, 16),
-                  },
-                })
-              }
-              aria-label="Emoji"
-              placeholder="Type or pick an emoji (⌃⌘Space)"
-              className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none focus:bg-field-focus focus:shadow-[var(--shadow-focus)] select-text"
-            />
-          )}
-          {appearance.icon.kind === 'image' && (
-            <button
-              type="button"
-              onClick={() => fileInput.current?.click()}
-              className="flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-field text-small text-fg-muted hover:text-fg"
-            >
-              <ImagePlus size={14} strokeWidth={1.75} />
-              Choose another image…
-            </button>
-          )}
-          {imageError && <p className="text-small text-danger">{imageError}</p>}
-          <input
-            ref={fileInput}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            hidden
-            onChange={async (event) => {
-              const file = event.target.files?.[0];
-              event.target.value = '';
-              if (!file) return;
-              try {
-                update({
-                  icon: { kind: 'image', dataUrl: await squareIcon(file) },
-                });
-                setImageError(null);
-              } catch {
-                setImageError(
-                  'That image couldn’t be read. Try a PNG or JPEG.',
-                );
-              }
-            }}
-          />
-        </Field>
-
-        <Field label="Accent">
-          <div
-            role="radiogroup"
-            aria-label="Accent colour"
-            className="flex flex-wrap items-center gap-1.5"
-          >
-            {ACCENTS.map((accent) => (
-              <button
-                key={accent.id}
-                type="button"
-                role="radio"
-                aria-checked={appearance.accent === accent.id}
-                aria-label={accent.label}
-                title={accent.label}
-                onClick={() => update({ accent: accent.id })}
-                style={{ background: previewDark ? accent.dark : accent.light }}
-                className="size-6 rounded-full shadow-[var(--shadow-outline)] outline-offset-2 aria-checked:outline-2 aria-checked:outline-[var(--fg-muted)]"
-              />
-            ))}
-            <label
-              title="Custom colour"
-              className="relative size-6 cursor-default overflow-hidden rounded-full shadow-[var(--shadow-outline)]"
-              style={{
-                background: isCustomAccent(appearance.accent)
-                  ? appearance.accent
-                  : 'conic-gradient(#e55, #ec5, #5c7, #5ae, #85e, #e55)',
-                outline: isCustomAccent(appearance.accent)
-                  ? '2px solid var(--fg-muted)'
-                  : undefined,
-                outlineOffset: 2,
-              }}
-            >
-              <input
-                type="color"
-                aria-label="Custom accent colour"
-                value={
-                  isCustomAccent(appearance.accent)
-                    ? appearance.accent
-                    : accentColors(appearance.accent).light
-                }
-                onChange={(event) => update({ accent: event.target.value })}
-                className="absolute inset-0 opacity-0"
-              />
-            </label>
-          </div>
-        </Field>
-
-        <Field label="Frame">
-          <div
-            role="radiogroup"
-            aria-label="Frame colour"
-            className="flex flex-wrap gap-1.5"
-          >
-            {FRAMES.map((frame) => (
-              <button
-                key={frame.id}
-                type="button"
-                role="radio"
-                aria-checked={appearance.frame === frame.id}
-                aria-label={frame.label}
-                title={frame.label}
-                onClick={() => update({ frame: frame.id })}
+              {ACCENTS.map((accent) => (
+                <button
+                  key={accent.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={appearance.accent === accent.id}
+                  aria-label={accent.label}
+                  title={accent.label}
+                  onClick={() => update({ accent: accent.id })}
+                  style={{
+                    background: previewDark ? accent.dark : accent.light,
+                  }}
+                  className="size-6 rounded-full shadow-[var(--shadow-outline)] outline-offset-2 aria-checked:outline-2 aria-checked:outline-[var(--fg-muted)]"
+                />
+              ))}
+              <label
+                title="Custom colour"
+                className="relative size-6 cursor-default overflow-hidden rounded-full shadow-[var(--shadow-outline)]"
                 style={{
-                  background: previewDark
-                    ? frame.dark.chrome
-                    : frame.light.chrome,
+                  background: isCustomAccent(appearance.accent)
+                    ? appearance.accent
+                    : 'conic-gradient(#e55, #ec5, #5c7, #5ae, #85e, #e55)',
+                  outline: isCustomAccent(appearance.accent)
+                    ? '2px solid var(--fg-muted)'
+                    : undefined,
+                  outlineOffset: 2,
                 }}
-                className="h-7 w-10 rounded-[var(--radius-row)] shadow-[var(--shadow-outline)] outline-offset-2 aria-checked:outline-2 aria-checked:outline-[var(--fg-muted)]"
-              />
-            ))}
-          </div>
-        </Field>
+              >
+                <input
+                  type="color"
+                  aria-label="Custom accent colour"
+                  value={
+                    isCustomAccent(appearance.accent)
+                      ? appearance.accent
+                      : accentColors(appearance.accent).light
+                  }
+                  onChange={(event) => update({ accent: event.target.value })}
+                  className="absolute inset-0 opacity-0"
+                />
+              </label>
+            </div>
+          </Field>
 
-        <Field label="Appearance">
-          <Segmented
-            label="Light or dark"
-            options={MODES.map(({ mode, label }) => ({ value: mode, label }))}
-            value={appearance.mode}
-            onChange={(mode) => update({ mode })}
-          />
-        </Field>
+          <Field label="Frame">
+            <div
+              role="radiogroup"
+              aria-label="Frame colour"
+              className="flex flex-wrap gap-1.5"
+            >
+              {FRAMES.map((frame) => (
+                <button
+                  key={frame.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={appearance.frame === frame.id}
+                  aria-label={frame.label}
+                  title={frame.label}
+                  onClick={() => update({ frame: frame.id })}
+                  style={{
+                    background: previewDark
+                      ? frame.dark.chrome
+                      : frame.light.chrome,
+                  }}
+                  className="h-7 w-10 rounded-[var(--radius-row)] shadow-[var(--shadow-outline)] outline-offset-2 aria-checked:outline-2 aria-checked:outline-[var(--fg-muted)]"
+                />
+              ))}
+            </div>
+          </Field>
 
+          <Field label="Appearance">
+            <SegmentedControl
+              stretch
+              label="Light or dark"
+              options={MODES.map(({ mode, label }) => ({ value: mode, label }))}
+              value={appearance.mode}
+              onChange={(mode) => update({ mode })}
+            />
+          </Field>
+        </fieldset>
+
+        {saveError && (
+          <p role="alert" className="text-small leading-relaxed text-danger">
+            {saveError}
+          </p>
+        )}
         <div className="flex justify-end gap-2 pt-1">
-          <button type="button" onClick={close} className="button h-8">
+          <button
+            type="button"
+            onClick={close}
+            disabled={saving}
+            className="button h-8"
+          >
             Cancel
           </button>
-          <button type="submit" className="button button-primary h-8">
-            {existing ? 'Save' : 'Create workspace'}
+          <button
+            type="submit"
+            disabled={saving}
+            className="button button-primary h-8"
+          >
+            {saving
+              ? 'Saving…'
+              : existing
+                ? 'Save changes'
+                : 'Create workspace'}
           </button>
         </div>
       </form>

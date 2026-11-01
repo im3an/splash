@@ -93,7 +93,17 @@ function ToastCard({
       inert={leaving}
       data-leaving={leaving}
       onPointerEnter={() => hold(true)}
-      onPointerLeave={() => hold(false)}
+      onPointerLeave={(event) => {
+        if (!event.currentTarget.contains(document.activeElement)) hold(false);
+      }}
+      onFocus={() => hold(true)}
+      onBlur={(event) => {
+        if (
+          !event.currentTarget.contains(event.relatedTarget as Node | null) &&
+          !event.currentTarget.matches(':hover')
+        )
+          hold(false);
+      }}
       data-placement={placement}
       className={
         compact

@@ -19,6 +19,11 @@ function stubApi() {
       updateFailed: true,
     })),
     updatePreferences: vi.fn(async () => DEFAULT_PREFERENCES),
+    clearBrowsingData: vi.fn(async () => ({
+      summary: 'History cleared.',
+      undoToken: 'undo-1',
+    })),
+    undoClearBrowsingData: vi.fn(async () => true),
   };
   window.splash = splash as unknown as SplashApi;
   return splash;
@@ -68,4 +73,32 @@ describe('PrivacySettings', () => {
       await screen.findByText(/Couldn’t download newer lists/),
     ).toBeTruthy();
   });
+});
+
+it('shows a recoverable error when clearing data fails', async () => {
+  const splash = stubApi();
+  splash.clearBrowsingData.mockRejectedValueOnce(new Error('unavailable'));
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  useShell.setState({ preferences: DEFAULT_PREFERENCES });
+  render(<PrivacySettings />);
+  fireEvent.click(screen.getByRole('button', { name: 'Clear data' }));
+  expect(await screen.findByRole('alert')).toBeTruthy();
+  expect(
+    (screen.getByRole('button', { name: 'Clear data' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(false);
+  warn.mockRestore();
+});
+
+it('keeps the undo offer when restoring cleared history fails', async () => {
+  const splash = stubApi();
+  splash.undoClearBrowsingData.mockRejectedValueOnce(new Error('unavailable'));
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  useShell.setState({ preferences: DEFAULT_PREFERENCES });
+  render(<PrivacySettings />);
+  fireEvent.click(screen.getByRole('button', { name: 'Clear data' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+  expect(await screen.findByRole('alert')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
+  warn.mockRestore();
 });

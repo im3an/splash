@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useState, type ReactNode } from 'react';
+import { useDialogFocus } from '../hooks/use-dialog-focus';
 
 /**
  * Positions a panel inside the page area directly below the address field,
@@ -11,6 +12,7 @@ export function AnchoredPanel({
   children,
   label,
   anchor = 'address',
+  modal = false,
 }: {
   /** `null` matches the address field's width. */
   width: number | null;
@@ -18,8 +20,9 @@ export function AnchoredPanel({
   label: string;
   /** Under the address field, or at the page area's leading edge. */
   anchor?: 'address' | 'start';
+  modal?: boolean;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useDialogFocus<HTMLDivElement>(modal);
   const [position, setPosition] = useState({ left: 8, width: width ?? 480 });
 
   useLayoutEffect(() => {
@@ -42,9 +45,16 @@ export function AnchoredPanel({
         });
         return;
       }
+      const panelWidth = Math.min(
+        width ?? fieldRect.width,
+        Math.max(0, frame.width - 16),
+      );
       setPosition({
-        left: Math.max(8, fieldRect.left - frame.left),
-        width: width ?? fieldRect.width,
+        left: Math.max(
+          8,
+          Math.min(fieldRect.left - frame.left, frame.width - panelWidth - 8),
+        ),
+        width: panelWidth,
       });
     };
     measure();
@@ -56,8 +66,10 @@ export function AnchoredPanel({
     <div
       ref={ref}
       role="dialog"
+      tabIndex={modal ? -1 : undefined}
+      aria-modal={modal || undefined}
       aria-label={label}
-      className="popover-in absolute top-1.5 flex max-w-[calc(100%-16px)] flex-col overflow-hidden rounded-[var(--radius-content)] bg-elevated shadow-[var(--shadow-panel)]"
+      className="popover-in absolute top-1.5 flex max-h-[calc(100%-12px)] max-w-[calc(100%-16px)] flex-col overflow-y-auto rounded-[var(--radius-content)] bg-elevated shadow-[var(--shadow-panel)] outline-none"
       style={{ left: position.left, width: position.width }}
     >
       {children}

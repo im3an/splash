@@ -137,9 +137,8 @@ export class SettingsWindow {
               : { type: 'create-workspace' },
           );
         },
-        'settings:delete-workspace': ({ workspaceId }) => {
-          this.options.browserWindow()?.controller.deleteWorkspace(workspaceId);
-        },
+        'settings:delete-workspace': ({ workspaceId }) =>
+          this.options.browserWindow()?.controller.deleteWorkspace(workspaceId),
       },
       send: {},
     };

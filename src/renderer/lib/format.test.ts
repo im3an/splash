@@ -26,6 +26,13 @@ describe('displayUrl', () => {
 });
 
 describe('pageLabel', () => {
+  it('identifies a source page even before Chromium supplies a title', () => {
+    expect(
+      pageLabel(
+        page('a', { title: '', url: 'view-source:https://example.com/' }),
+      ),
+    ).toBe('Source · example.com');
+  });
   it('prefers the title, then the host, then a placeholder', () => {
     expect(pageLabel(page('a', { title: 'Docs' }))).toBe('Docs');
     expect(pageLabel(page('a', { title: '  ', url: 'https://x.dev/p' }))).toBe(

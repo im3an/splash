@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { CircleAlert, Globe, Hourglass, Search } from 'lucide-react';
+import { CircleAlert, Code2, Globe, Hourglass } from 'lucide-react';
+import { BrandMark } from './Brand';
 import type { PageSnapshot } from '../../shared/types';
 
 export function Favicon({ page }: { page: PageSnapshot }) {
@@ -16,10 +17,10 @@ export function Favicon({ page }: { page: PageSnapshot }) {
     content = (
       <CircleAlert size={14} strokeWidth={1.75} className="text-danger" />
     );
+  } else if (page.url?.startsWith('view-source:')) {
+    content = <Code2 size={14} strokeWidth={1.75} className="text-fg-subtle" />;
   } else if (page.url === null) {
-    content = (
-      <Search size={13} strokeWidth={1.75} className="text-fg-subtle" />
-    );
+    content = <BrandMark size={16} className="text-fg-muted" />;
   } else if (page.faviconUrl && page.faviconUrl !== failedUrl) {
     content = (
       <img

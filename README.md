@@ -1,146 +1,58 @@
 # Splash
 
-A macOS-first Chromium browser where pages form persistent parent–child
-**trails** instead of a flat row of tabs. Built with Electron, React and
-TypeScript.
+A macOS-first Chromium browser built around persistent **trails**: pages keep their parent–child relationships, so research and everyday browsing stay organized without a horizontal tab strip.
 
-This is **Phase 1 — Foundation**: a reliable shell, one real Chromium page
-view per page, and the seams the browsing-tree engine will grow from.
+Splash is a **local beta candidate**. It has real Chromium page views, workspaces, persistent history, bookmarks and folders, saved page groups, downloads, permissions, and recovery flows. Developer ID signing and notarization are still required before broad distribution. See [beta-readiness.md](docs/beta-readiness.md) for verification and remaining release checks.
 
-## Commands
+## Run and build
 
-```bash
-npm start          # run in development (Vite HMR for the shell UI)
-npm test           # unit + component tests (Vitest)
-npm run typecheck  # strict TypeScript
-npm run lint       # oxlint + oxfmt check
-npm run check      # all three
-npm run package    # build out/Splash-darwin-arm64/Splash.app
-npm run make       # zip for distribution
+```sh
+npm install
+npm start          # Electron + Vite development app
+npm run check      # TypeScript, lint, formatting, and tests
+npm run package    # out/Splash-darwin-arm64/Splash.app
+npm run make       # packaged app plus a local ZIP under out/make/
 ```
 
-## Architecture
+Build on macOS for the native app. The build fetches the bundled extension if it is missing. Local packages receive an ad-hoc signature, not a Developer ID signature or notarization. Do not describe these artifacts as notarized releases.
 
-```
-src/
-├── main/                      Electron main process
-│   ├── main.ts                app lifecycle, single-instance, sessions
-│   ├── menu.ts                application menu — owns all shortcuts
-│   ├── windows/browser-window.ts   one window: shell + controller + layout
-│   ├── browser/
-│   │   ├── browser-controller.ts   pages, active page, visibility (no Electron imports)
-│   │   ├── trail-tree.ts            pure parent/child structure
-│   │   ├── page-host.ts             interface a page view implements
-│   │   ├── electron-page-host.ts    WebContentsView implementation
-│   │   ├── url.ts                   address-bar input → http(s) URL or search
-│   │   └── layout.ts                content insets → view bounds
-│   ├── ipc/register-ipc.ts    sender checks + zod validation for every message
-│   ├── security/web-security.ts   sessions, permissions, global hardening
-│   └── storage/trail-store.ts     persistence interface (SQLite in Phase 4)
-├── preload/preload.ts         exposes `window.splash` — nothing else
-├── shared/                    contract between processes
-│   ├── types.ts               snapshots, errors, insets
-│   ├── ipc.ts                 zod schemas (main process only)
-│   └── api.ts                 `SplashApi` + event channels (zod-free, for preload)
-└── renderer/                  shell UI (React, Zustand, Tailwind v4)
-    ├── components/            Sidebar, TrailTree, Toolbar, AddressBar, ContentArea
-    ├── stores/shell-store.ts  snapshot + UI state
-    ├── lib/                   pure formatting and tree helpers
-    └── styles/                design tokens + base styles
-```
+## Daily browsing
 
-**The trail tree is the source of truth.** `BrowserController` owns a
-`TrailTree` and each page's live state; Chromium views only display pages and
-report events. The controller emits a full `BrowserSnapshot` (coalesced per
-tick) that the shell renders. Because it talks to views through the
-`PageHost` interface, it is tested in plain Node with fake hosts.
+- Open a page with **⌘T**. Ordinary links grow a child page in its trail; same-document links stay in place. Back and forward include the trail relationship.
+- **⌘L** focuses the address field. **⌘K** searches pages, workspaces, commands and history. Prefix a query with `>` to search commands.
+- Pin an important page with **⌘D**. Closing a pinned page puts it to sleep when another page can take its place. The context menu can unpin and close it.
+- The toolbar star saves a bookmark. Organize saved links into nested folders; a saved group holds a reusable set of pages. These are separate from live pinned pages.
+- Right-click a page, folder or saved link for contextual actions. Menus support arrows, type-ahead and Escape; folder actions are also available through their visible action button.
+- Drag the sidebar divider to give long titles more room. The divider supports arrow keys, Home, End, and double-click to reset. Width and toolbar layout survive restarts.
+- Workspaces keep their own trail, selected page, scroll position, appearance and split view. **⌃1–9** switches workspaces.
+- **⌘\\** compares related pages in split view. **⌘F** finds in a page; **⌘+**, **⌘−** and **⌘0** control zoom.
+- **⌘Y** opens history; **⌥⌘L** opens downloads. Failed downloads offer recovery and completed files can be revealed in Finder.
+- **⌘P** prints, **⇧⌘S** saves a web archive, **⌥⌘U** opens source, and **⇧⌘C** copies the page address.
 
-**Layout.** The shell reports where the content frame sits as window
-_insets_. The main process turns those into view bounds itself, so the page
-follows live window resizing without an IPC round trip.
+Settings contains General, Appearance, Workspaces, Privacy, Downloads, Shortcuts and Advanced. The address field can live in the top toolbar or sidebar. Workspace accents remain quiet against neutral surfaces; system and in-app reduced motion are respected.
 
-**Visibility.** Only the active page's view is attached. A page with no
-address, or whose load failed or crashed, is detached so the shell can draw
-its own surface (new-page hint, error with Try again) in the same frame.
+## Protecting work
 
-## Security
+Normal page, branch, workspace, window and application close paths consult each live page before destroying its view. Sites can veto leaving through Chromium's `beforeunload` lifecycle. Pages with edited fields receive a conservative leave warning and are kept awake rather than automatically suspended. The flag contains no field values and does not claim to know whether a site saved the work.
 
-- Shell window: `sandbox`, `contextIsolation`, no Node integration, strict CSP
-  (no inline script in production), cannot navigate or open windows.
-- Web pages: separate `persist:web` session, sandboxed, no preload, only
-  `http:`/`https:` navigations and redirects allowed.
-- `window.open` / `target=_blank` never creates an Electron window — it
-  creates a child page in the trail.
-- IPC: a fixed set of channels; each message must come from the shell's main
-  frame at the shell's own URL, and is parsed with a strict zod schema.
-- Permissions: web pages get only fullscreen, pointer lock and sanitized
-  clipboard writes; everything else (camera, mic, location, notifications,
-  devices…) is denied until a permission prompt exists. The shell gets none.
-- Address-bar input can only ever resolve to an http(s) URL or a search.
-- Packaged builds flip Electron fuses (no `RunAsNode`, ASAR integrity, …).
+A canceled close retains the trail and the page that refused to leave. During a canceled bulk close, already approved views can be restored from captured Chromium history. Recovery after a crash is best effort; unsaved web application content is not guaranteed to survive a crash or forced termination.
 
-## Keyboard
+Trail changes are saved to SQLite, with visible save failures and retry. Failed preference writes do not replace the in-memory settings or announce success. Damaged preferences are recovered field by field; valid bookmarks are retained where possible, and the original value is backed up in the local database as `preferences:recovery`.
 
-| Shortcut             | Action                                              |
-| -------------------- | --------------------------------------------------- |
-| ⌘T                   | New page                                            |
-| ⌘L                   | Focus address bar (the palette on a new page)       |
-| ⌘W                   | Close page (closes the window when no pages remain) |
-| ⌘R / ⌘.              | Reload / stop                                       |
-| ⌘[ / ⌘]              | Back / forward                                      |
-| ⌘S                   | Toggle sidebar                                      |
-| ⌥⌘I                  | Developer tools for the page                        |
-| Esc (in address bar) | Cancel editing, return focus to the page            |
+## Extensions and sharing
 
-Appearance (System / Light / Dark) is under **View → Appearance**.
+The bundled extension and unpacked Chrome extensions run through Electron and `electron-chrome-extensions`. Load and remove unpacked extensions through Customize toolbar → Manage Extensions. Some Chrome APIs are unavailable, and Chrome Web Store installation is not implemented. Only load extensions you trust.
 
-## Known limitations (by design for Phase 1)
+The share control uses the native macOS share menu. Folder and group menus can copy their links for sharing; this does not create a public or synchronized collection.
 
-- **No persistence.** Pages are lost on quit; `TrailStore` is only an interface.
-- **Link clicks navigate in place.** Only `window.open`, `target=_blank` and
-  ⌘-click branch the trail. Making ordinary link clicks branch is Phase 2.
-- **One window** is the tested path; IPC is routed per window but multiple
-  windows are not exposed in the UI.
-- **Views stay alive** when inactive (no discarding/suspension yet).
-- **No address-bar suggestions.** Anything drawn over the content area would
-  sit under the Chromium view; suggestions need an overlay view.
-- **No permission prompts, downloads UI, context menus, find-in-page, zoom,
-  or HTML fullscreen layout** (video fullscreen keeps the chrome visible).
-- **No tree reordering, drag-and-drop or undo** (Phase 3).
-- Sidebar rows support Enter/Space/←/→, but not arrow-key movement between
-  rows yet.
-- Appearance choice is not remembered between launches.
+## Architecture and security
 
-## Next: Phase 2 — browsing engine
+`BrowserController` owns workspace trees, page state, history and view visibility. `PageHost` isolates Electron view operations from the testable controller. The shell renders snapshots through React and Zustand. `SessionPersister` writes sessions through the SQLite storage boundary.
 
-1. Decide the branching rule: which in-page navigations create a child page
-   (likely: user-initiated cross-document link clicks) vs. navigate in place
-   (redirects, form posts, same-document, back/forward). Implement it in
-   `will-frame-navigate` → `BrowserController`, test it with fake hosts.
-2. Track per-page history explicitly so back/forward and branching agree.
-3. View lifecycle: discard inactive views past a budget and restore them on
-   activation; handle `render-process-gone` with auto-recovery.
-4. Redirect and popup edge cases (OAuth popups that need `window.opener`,
-   `noopener`, downloads triggered by navigation).
+The shell and web pages use separate sessions, sandboxing and context isolation. Web content has no Node.js API or shell bridge. Page preloads report only narrowly defined interactions. Shell IPC is origin-checked and validated against strict schemas; ordinary navigation is restricted to HTTP(S), with explicit handling for approved extension pages and web source. Permissions are decided per site. Packaged builds use a strict content security policy and hardened Electron fuses.
 
-## Extensions
+## QA without touching daily browsing
 
-Splash runs Chrome extensions in the page session through
-[electron-chrome-extensions](https://github.com/samuelmaddock/electron-browser-shell/tree/master/packages/electron-chrome-extensions),
-which adds the extension APIs Electron lacks. It ships with
-[uBlock Origin](https://github.com/gorhill/uBlock). `npm start` and
-`npm run package` fetch the pinned release into `extensions/` and check its
-SHA-256 (see `scripts/fetch-extensions.mjs`). Its button sits in the toolbar
-and "Block element" is in a page's context menu.
+For a separate test profile, create an empty directory and set `SPLASH_USER_DATA_DIR` to its **absolute path** when launching Splash. The test profile gets its own database and web session. Never point two running processes at the same profile. Tests should use local, disposable content and avoid entering real credentials.
 
-On Electron 45.0.0, an extension's blocking `chrome.webRequest` listeners never
-answer ([electron/electron#55234](https://github.com/electron/electron/pull/55234),
-fixed in 45.0.1). Until Splash moves to 45.0.1, Splash's built-in blocker
-handles network requests, using uBlock Origin's and EasyList's filter lists. uBlock Origin
-hides page elements and runs its popup, picker and dashboard.
-
-## License
-
-Splash is licensed under the [GNU General Public License v3.0](LICENSE),
-as required by electron-chrome-extensions (GPL-3.0) and uBlock Origin
-(GPL-3.0).
+The current beta checklist and known limitations live in [docs/beta-readiness.md](docs/beta-readiness.md).

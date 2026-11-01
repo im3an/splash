@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ACCENTS, FRAMES, SYMBOLS } from './appearance';
-import { SEARCH_ENGINES } from './preferences';
+import { SEARCH_ENGINES, TOOLBAR_ACTIONS } from './preferences';
 
 /**
  * The single contract between the shell UI and the main process.
@@ -16,6 +16,55 @@ const pageTitle = z.string().max(300).nullable();
 const workspaceId = z.uuid();
 
 export const preferencesSchema = z.strictObject({
+  sidebarWidth: z.number().int().min(220).max(420),
+  toolbarActions: z
+    .array(z.enum(TOOLBAR_ACTIONS))
+    .max(5)
+    .refine((items) => new Set(items).size === items.length),
+  collections: z
+    .array(
+      z.strictObject({
+        id: z.uuid(),
+        name: z.string().trim().min(1).max(100),
+        kind: z.enum(['folder', 'group']),
+        collapsed: z.boolean(),
+        parentId: z.uuid().nullable().optional(),
+        links: z
+          .array(
+            z.strictObject({
+              id: z.uuid(),
+              title: z.string().max(300),
+              faviconUrl: z.string().max(8192).nullable().optional(),
+              url: z
+                .url()
+                .max(8192)
+                .refine((value) =>
+                  ['https:', 'http:'].includes(new URL(value).protocol),
+                ),
+            }),
+          )
+          .max(1000),
+      }),
+    )
+    .max(200)
+    .refine((items) => {
+      const byId = new Map(items.map((item) => [item.id, item]));
+      if (byId.size !== items.length) return false;
+      return items.every((item) => {
+        const visited = new Set([item.id]);
+        let parent = item.parentId;
+        while (parent) {
+          const node = byId.get(parent);
+          if (!node || node.kind !== 'folder' || visited.has(parent))
+            return false;
+          visited.add(parent);
+          parent = node.parentId;
+        }
+        return (
+          new Set(item.links.map((link) => link.id)).size === item.links.length
+        );
+      });
+    }, 'Collections must have unique IDs and valid folder ancestry'),
   searchEngine: z.enum(
     SEARCH_ENGINES.map((engine) => engine.id) as [
       (typeof SEARCH_ENGINES)[number]['id'],
@@ -25,7 +74,6 @@ export const preferencesSchema = z.strictObject({
   searchSuggestions: z.boolean(),
   theme: z.enum(['system', 'light', 'dark']),
   density: z.enum(['comfortable', 'compact']),
-  currentPage: z.enum(['dot', 'outline', 'underline', 'raised']),
   showSiteNames: z.boolean(),
   showBranchLines: z.boolean(),
   reduceMotion: z.boolean(),
@@ -91,6 +139,13 @@ export const workspaceAppearanceSchema = z.strictObject({
 });
 
 export const invokeContract = {
+  'auth:challenge': z.undefined(),
+  'auth:respond': z
+    .strictObject({
+      username: z.string().max(4096),
+      password: z.string().max(4096),
+    })
+    .nullable(),
   'browser:get-snapshot': z.undefined(),
   'storage:status': z.undefined(),
   'page:create': z.strictObject({ input: addressInput.optional() }),
@@ -102,7 +157,10 @@ export const invokeContract = {
   'page:reload': z.strictObject({ pageId }),
   'page:stop': z.strictObject({ pageId }),
   'page:set-collapsed': z.strictObject({ pageId, collapsed: z.boolean() }),
-  'page:create-child': z.strictObject({ pageId }),
+  'page:create-child': z.strictObject({
+    pageId,
+    input: addressInput.optional(),
+  }),
   'page:close-branch': z.strictObject({ pageId }),
   'page:reopen-closed': z.undefined(),
   'page:move': z.strictObject({
@@ -131,7 +189,7 @@ export const invokeContract = {
       .optional(),
   }),
   'page:duplicate': z.strictObject({ pageId }),
-  'page:show-menu': z.strictObject({ pageId }),
+  'page:move-to-workspace': z.strictObject({ pageId, workspaceId }),
   'page:open-split': z.strictObject({ pageId, otherId: pageId }),
   'page:toggle-split': z.strictObject({ pageId }),
   'split:close': z.undefined(),
@@ -205,6 +263,7 @@ export const invokeContract = {
       title: z.string().max(1000),
       visitCount: z.number().int().min(1),
       lastVisitedAt: z.number().int().min(0),
+      faviconUrl: z.string().max(16_384).nullable().optional(),
     }),
   }),
   'settings:sites': z.undefined(),
@@ -227,6 +286,8 @@ export const invokeContract = {
     workspaceId: workspaceId.nullable(),
   }),
   'settings:delete-workspace': z.strictObject({ workspaceId }),
+  'extensions:manage': z.undefined(),
+  'page:share': z.strictObject({ pageId }),
   'preferences:get': z.undefined(),
   'preferences:update': z.strictObject({ patch: preferencesSchema.partial() }),
   'app:open-settings': z.undefined(),

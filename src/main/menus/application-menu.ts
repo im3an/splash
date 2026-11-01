@@ -1,5 +1,6 @@
 import {
   app,
+  BrowserWindow,
   clipboard,
   Menu,
   nativeTheme,
@@ -10,7 +11,9 @@ import type { HistoryMatch, TrailStore } from '../storage/trail-store';
 import type { ClosedSummary } from '../../shared/types';
 import type { TrailWindow } from '../windows/browser-window';
 import { workspaceMenuItems } from './workspace-menu';
-import { isPageUrl } from '../browser/url';
+import { isNavigableUrl, isPageUrl } from '../browser/url';
+import { contentsForPage } from '../browser/electron-page-host';
+import { savePage } from '../browser/save-page';
 
 export interface MenuActions {
   /** The window menu commands act on, creating one if none is open. */
@@ -204,6 +207,13 @@ export function installApplicationMenu(actions: MenuActions): void {
           accelerator: 'CmdOrCtrl+W',
           click: () => {
             const window = actions.currentWindow();
+            // A utility window owns its close shortcut; never close a
+            // browser page behind Settings or an extension popup.
+            const focused = BrowserWindow.getFocusedWindow();
+            if (focused && focused !== window?.window) {
+              focused.close();
+              return;
+            }
             if (!window) return;
             const pageId = window.controller.activePageId;
             if (pageId) window.controller.closePage(pageId);
@@ -218,6 +228,18 @@ export function installApplicationMenu(actions: MenuActions): void {
         },
         { role: 'close', accelerator: 'CmdOrCtrl+Shift+W' },
         { type: 'separator' },
+        {
+          label: 'Save Page As…',
+          accelerator: 'Shift+CmdOrCtrl+S',
+          enabled: Boolean(activePage?.url) && !activePage?.isLoading,
+          click: withActivePage((w, id) => {
+            const contents = contentsForPage(id);
+            if (contents)
+              void savePage(w.window, contents, (filename) =>
+                w.notify({ kind: 'page-saved', filename }),
+              );
+          }),
+        },
         {
           label: 'Print…',
           accelerator: 'CmdOrCtrl+P',
@@ -369,6 +391,19 @@ export function installApplicationMenu(actions: MenuActions): void {
         { type: 'separator' },
         { role: 'togglefullscreen' },
         { type: 'separator' },
+        {
+          label: 'View Page Source',
+          accelerator: 'Alt+CmdOrCtrl+U',
+          enabled: Boolean(activePage?.url && isNavigableUrl(activePage.url)),
+          click: withActivePage((w, id) => {
+            const url = w.controller.snapshot().pages[id]?.url;
+            if (url && isNavigableUrl(url))
+              w.controller.createPage({
+                parentId: id,
+                url: `view-source:${url}`,
+              });
+          }),
+        },
         {
           label: 'Developer Tools for Page',
           accelerator: 'Alt+CmdOrCtrl+I',

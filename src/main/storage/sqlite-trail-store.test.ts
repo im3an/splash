@@ -242,6 +242,14 @@ describe('SqliteTrailStore history and preferences', () => {
     expect(store.frequentHistory(1)[0]?.faviconUrl).toBe(
       'https://www.youtube.com/favicon.ico',
     );
+    expect(store.listHistory('', 10)[0]?.faviconUrl).toBe(
+      'https://www.youtube.com/favicon.ico',
+    );
+    const removed = store.deleteHistory(0);
+    store.restoreHistory(removed);
+    expect(store.listHistory('', 10)[0]?.faviconUrl).toBe(
+      'https://www.youtube.com/favicon.ico',
+    );
   });
 
   it('offers history used most recently and most often', () => {
@@ -289,6 +297,7 @@ describe('SqliteTrailStore history and preferences', () => {
         title: 'New',
         visitCount: 1,
         lastVisitedAt: 500,
+        faviconUrl: null,
       },
     ]);
     expect(store.searchHistory('example', 10)).toHaveLength(1);

@@ -1,7 +1,9 @@
 import {
   Fragment,
   memo,
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -30,11 +32,12 @@ import {
   CircleAlert,
   Columns2,
   Moon,
+  MoreHorizontal,
   Pin,
+  PencilLine,
   StickyNote,
   Volume2,
   VolumeX,
-  X,
 } from 'lucide-react';
 import type { PageId } from '../../shared/types';
 import {
@@ -43,12 +46,23 @@ import {
   type DropProjection,
 } from '../lib/drop-projection';
 import { pageLabel, pageParts } from '../lib/format';
+import { renamedToast, trailMoveToast } from '../lib/notices';
 import {
+  trailSectionCounts,
   hiddenSummary,
+  guideHalves,
+  pathGuides,
+  planGuides,
+  pruneGuides,
+  treeFocusTarget,
   visibleRows,
+  type DrawnHalf,
+  type GuideStroke,
   type HiddenSummary,
   type TrailRow as Row,
+  type TreeKey,
 } from '../lib/trail';
+import { durationMs, easing } from '../lib/motion';
 import { api } from '../splash-api';
 import {
   selectFlatTrail,
@@ -57,8 +71,11 @@ import {
   useShell,
 } from '../stores/shell-store';
 import { useDownloads } from '../stores/downloads-store';
+import { useToast } from '../stores/toast-store';
+import { openPageMenu, usePageMenu } from '../stores/page-menu-store';
 import { DownloadRing } from './DownloadRing';
 import { Favicon } from './Favicon';
+import { usePagePreview } from './PagePreview';
 import { PageNote } from './PageNote';
 
 const INDENT = 14;
@@ -67,6 +84,16 @@ const CHEVRON_CENTER = 6 + 8;
 /** Where a top-level favicon starts, after the chevron column or without it. */
 const LEAD = 6 + 16 + 8;
 const FLAT_LEAD = 10;
+/**
+ * A nested row's box starts just past its parent's branch line, so its
+ * fill wraps the row rather than running out to the sidebar's edge.
+ */
+const NEST_INSET = 3;
+
+/** How far a row's box sits in from the trail's edge. */
+function rowOffset(depth: number): number {
+  return depth === 0 ? 0 : depth * INDENT + NEST_INSET;
+}
 
 interface DragState {
   activeId: PageId;
@@ -103,6 +130,69 @@ export function TrailTree() {
     }
     return summaries;
   }, [snapshot, allRows]);
+  const activeId = snapshot?.activePageId ?? null;
+  const guides = useMemo(
+    () => pathGuides(allRows, activeId),
+    [allRows, activeId],
+  );
+  // Opening another page draws the new part of its path down the trail and
+  // retracts the part it left. Not when the trail first shows: it's there.
+  const drawn = useRef(new Map<string, DrawnHalf>());
+  const hadRows = useRef(false);
+  const [pruned, setPruned] = useState(0);
+  const lines = useMemo(() => {
+    const plan = planGuides(
+      drawn.current,
+      guideHalves(guides),
+      hadRows.current && durationMs('--duration-base') > 0,
+    );
+    drawn.current = plan;
+    hadRows.current = allRows.length > 0;
+    const byRow = new Map<PageId, DrawnHalf[]>();
+    for (const half of plan.values()) {
+      byRow.set(half.rowId, [...(byRow.get(half.rowId) ?? []), half]);
+    }
+    return byRow;
+    // `pruned` recomputes once retracted halves are dropped.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [guides, allRows.length, pruned]);
+  // Retracted halves stay at nothing until they're dropped here.
+  useEffect(() => {
+    let serial = 0;
+    for (const half of drawn.current.values()) {
+      serial = Math.max(serial, half.leavingSince ?? 0);
+    }
+    if (serial === 0) return;
+    const timer = setTimeout(
+      () => {
+        drawn.current = pruneGuides(drawn.current, serial);
+        setPruned((count) => count + 1);
+      },
+      durationMs('--duration-exit') + 50,
+    );
+    return () => clearTimeout(timer);
+  }, [lines]);
+  // The row keyboard focus rests on; Tab comes back to it. Until the
+  // arrows move it, that's the current page.
+  const [focusedId, setFocusedId] = useState<PageId | null>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
+  const rowsRef = useRef(allRows);
+  rowsRef.current = allRows;
+  const navigate = useCallback((id: PageId, key: TreeKey) => {
+    const visible = rowsRef.current.filter((row) => {
+      const item = treeRef.current?.querySelector<HTMLElement>(
+        `[data-page-id="${CSS.escape(row.id)}"]`,
+      );
+      const section = item?.closest('details');
+      return !section || section.open;
+    });
+    const target = treeFocusTarget(visible, id, key);
+    if (!target) return;
+    setFocusedId(target);
+    treeRef.current
+      ?.querySelector<HTMLElement>(`[data-page-id="${CSS.escape(target)}"]`)
+      ?.focus();
+  }, []);
   const rows = drag ? rowsWhileDragging(allRows, drag.activeId) : allRows;
   const projection: DropProjection | null = drag
     ? projectDrop(allRows, drag.activeId, drag.overId, drag.offsetX, INDENT)
@@ -111,7 +201,12 @@ export function TrailTree() {
   if (snapshot === null) return <TrailSkeleton />;
   if (allRows.length === 0) return <TrailEmpty />;
 
+  const sectionCounts = trailSectionCounts(snapshot);
   const split = snapshot.split;
+  const tabStop =
+    focusedId && allRows.some((row) => row.id === focusedId)
+      ? focusedId
+      : (activeId ?? allRows[0]!.id);
   const isInSplit = (id: PageId) =>
     split !== null && (split.leftId === id || split.rightId === id);
 
@@ -141,8 +236,13 @@ export function TrailTree() {
     const unchanged =
       current?.parentId === target.parentId &&
       target.afterId === previousSiblingId(allRows, String(active.id));
-    if (!unchanged) {
-      void api().movePage(String(active.id), target.parentId, target.afterId);
+    if (!unchanged && current) {
+      void moveWithUndo(
+        current,
+        previousSiblingId(allRows, current.id),
+        target.parentId,
+        target.afterId,
+      );
     }
   };
 
@@ -160,41 +260,112 @@ export function TrailTree() {
         items={rows.map((row) => row.id)}
         strategy={verticalListSortingStrategy}
       >
-        <div role="tree" aria-label="Pages" className="flex flex-col gap-px">
-          {rows.map((row) => (
-            <Fragment key={row.id}>
-              <TrailRow
-                row={row}
-                depth={
-                  row.id === drag?.activeId && projection
-                    ? projection.depth
-                    : row.depth
-                }
-                active={row.id === snapshot.activePageId}
-                inSplit={isInSplit(row.id)}
-                paired={
-                  visibleSplit !== null &&
-                  row.id !== snapshot.activePageId &&
-                  isInSplit(row.id)
-                }
-                dragging={row.id === drag?.activeId}
-                hidden={hidden.get(row.id) ?? null}
-                flat={flat}
-                appear={painted.current}
-              />
-              {!drag && (
-                <PageNote
-                  pageId={row.id}
-                  depth={row.depth}
-                  indent={INDENT}
-                  lead={flat ? FLAT_LEAD : LEAD}
-                />
-              )}
-            </Fragment>
-          ))}
+        <div
+          ref={treeRef}
+          role="tree"
+          aria-label="Pages"
+          className="flex flex-col gap-px"
+          onBlur={(event) => {
+            // Leaving the trail hands the tab stop back to the current page.
+            if (!event.currentTarget.contains(event.relatedTarget)) {
+              setFocusedId(null);
+            }
+          }}
+        >
+          {[true, false].map((pinned) => {
+            let inSection = false;
+            const sectionRows = rows.filter((row) => {
+              if (row.depth === 0)
+                inSection = snapshot.pages[row.id]?.isPinned === pinned;
+              return inSection;
+            });
+            if (!sectionRows.length) return null;
+            return (
+              <details key={String(pinned)} className="trail-section" open>
+                <summary className="sidebar-section-heading mt-2">
+                  <span className="sidebar-section-label">
+                    <ChevronRight size={12} />
+                    {pinned ? 'Pinned' : 'Tabs'}
+                    <span className="sidebar-folded-count">
+                      {pinned ? sectionCounts.pinned : sectionCounts.open}
+                    </span>
+                  </span>
+                </summary>
+                <div className="sidebar-section-content flex flex-col gap-px">
+                  {sectionRows.map((row) => (
+                    <Fragment key={row.id}>
+                      <TrailRow
+                        row={row}
+                        depth={
+                          row.id === drag?.activeId && projection
+                            ? projection.depth
+                            : row.depth
+                        }
+                        active={row.id === snapshot.activePageId}
+                        tabStop={row.id === tabStop}
+                        lines={
+                          drag ? NO_LINES : (lines.get(row.id) ?? NO_LINES)
+                        }
+                        onNavigate={navigate}
+                        onFocusRow={setFocusedId}
+                        inSplit={isInSplit(row.id)}
+                        paired={
+                          visibleSplit !== null &&
+                          row.id !== snapshot.activePageId &&
+                          isInSplit(row.id)
+                        }
+                        dragging={row.id === drag?.activeId}
+                        hidden={hidden.get(row.id) ?? null}
+                        flat={flat}
+                        appear={painted.current}
+                      />
+                      {!drag && (
+                        <PageNote
+                          pageId={row.id}
+                          depth={row.depth}
+                          indent={INDENT}
+                          lead={flat ? FLAT_LEAD : LEAD}
+                        />
+                      )}
+                    </Fragment>
+                  ))}
+                </div>
+              </details>
+            );
+          })}
         </div>
       </SortableContext>
     </DndContext>
+  );
+}
+
+/**
+ * Moves a dragged page and confirms where it went, with an undo that puts
+ * it back between the same neighbours.
+ */
+async function moveWithUndo(
+  row: Row,
+  previousAfterId: PageId | null,
+  parentId: PageId | null,
+  afterId: PageId | null,
+): Promise<void> {
+  const splash = api();
+  await splash.movePage(row.id, parentId, afterId);
+  const pages = useShell.getState().snapshot?.pages;
+  const page = pages?.[row.id];
+  if (!page) return;
+  const parent = parentId ? pages[parentId] : undefined;
+  useToast.getState().show(
+    trailMoveToast({
+      label: pageParts(page).title,
+      parentLabel: parent ? pageParts(parent).title : null,
+      sameParent: row.parentId === parentId,
+      undo: () =>
+        void splash
+          .movePage(row.id, row.parentId, previousAfterId)
+          // The old spot may be gone (its neighbour closed); then it stays.
+          .catch(() => undefined),
+    }),
   );
 }
 
@@ -215,6 +386,10 @@ const TrailRow = memo(function TrailRow({
   row,
   depth,
   active,
+  tabStop,
+  lines,
+  onNavigate,
+  onFocusRow,
   inSplit,
   paired,
   dragging,
@@ -225,6 +400,12 @@ const TrailRow = memo(function TrailRow({
   row: Row;
   depth: number;
   active: boolean;
+  /** The row Tab lands on in the trail. */
+  tabStop: boolean;
+  /** Its pieces of the line down to the current page, drawn or leaving. */
+  lines: readonly DrawnHalf[];
+  onNavigate(id: PageId, key: TreeKey): void;
+  onFocusRow(id: PageId): void;
   /** One of the two pages of the workspace's split view. */
   inSplit: boolean;
   /** On screen beside the active page. */
@@ -250,6 +431,11 @@ const TrailRow = memo(function TrailRow({
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: row.id, disabled: renaming });
   const rowRef = useRef<HTMLDivElement | null>(null);
+  const preview = usePagePreview(
+    rowRef,
+    page ? pageLabel(page) : '',
+    page?.url ?? null,
+  );
   const [appearing, setAppearing] = useState(appear);
 
   // A page activated from elsewhere (the palette, a link, ⌘1–9) is
@@ -277,6 +463,7 @@ const TrailRow = memo(function TrailRow({
     />
   ) : null;
 
+  const menuOpen = usePageMenu((state) => state.menu?.pageId === row.id);
   const activate = () => void api().activatePage(row.id);
   const close = (event: MouseEvent) => {
     event.stopPropagation();
@@ -286,14 +473,30 @@ const TrailRow = memo(function TrailRow({
     void api().setCollapsed(row.id, collapsed);
 
   const onKeyDown = (event: KeyboardEvent) => {
-    if (renaming) return;
-    if (event.key === 'Enter' || event.key === ' ') {
+    if (renaming || event.metaKey || event.altKey || event.ctrlKey) return;
+    const key = event.key;
+    if (key === 'Enter' || key === ' ') {
       event.preventDefault();
       activate();
-    } else if (event.key === 'ArrowLeft' && expanded) {
+    } else if (key === 'ArrowLeft' && expanded) {
+      event.preventDefault();
       setCollapsed(true);
-    } else if (event.key === 'ArrowRight' && expanded === false) {
+    } else if (key === 'ArrowRight' && expanded === false) {
+      event.preventDefault();
       setCollapsed(false);
+    } else if (
+      key === 'ArrowUp' ||
+      key === 'ArrowDown' ||
+      key === 'ArrowLeft' ||
+      key === 'ArrowRight' ||
+      key === 'Home' ||
+      key === 'End'
+    ) {
+      event.preventDefault();
+      onNavigate(row.id, key);
+    } else if (key === 'F2') {
+      event.preventDefault();
+      startRename(row.id);
     }
   };
 
@@ -318,37 +521,41 @@ const TrailRow = memo(function TrailRow({
         .filter(Boolean)
         .join(', ')}
       aria-roledescription="page"
-      tabIndex={active ? 0 : -1}
-      // Rows truncate, so the tooltip leads with the whole title.
-      title={[
-        label,
-        page.url,
-        page.isPinned && 'Pinned. Closing puts it to sleep instead.',
-        page.isDiscarded && 'Asleep to save memory. Opens where you left it.',
-        inSplit &&
-          (paired
-            ? 'Beside the current page in split view.'
-            : 'In split view. Opens beside its pair.'),
-      ]
-        .filter(Boolean)
-        .join('\n')}
+      tabIndex={tabStop ? 0 : -1}
+      data-page-id={row.id}
+      onFocus={(event) => {
+        if (event.target === event.currentTarget) {
+          onFocusRow(row.id);
+          preview.show();
+        }
+      }}
+      aria-describedby={preview.describedBy}
+      onMouseEnter={preview.show}
+      onMouseLeave={preview.hide}
+      onPointerDown={preview.hide}
+      onBlur={preview.hide}
       onClick={activate}
       onAuxClick={(event) => event.button === 1 && close(event)}
       onContextMenu={(event) => {
         event.preventDefault();
-        void api().showPageMenu(row.id);
+        openPageMenu(row.id, event);
       }}
       onKeyDown={onKeyDown}
       data-active={active}
+      data-flat={flat}
+      data-pinned-root={page.isPinned && row.depth === 0}
       data-paired={paired}
+      data-menu-open={menuOpen}
       data-dragging={dragging}
       data-discarded={page.isDiscarded}
       onAnimationEnd={(event) => {
         if (event.target === event.currentTarget) setAppearing(false);
       }}
-      className={`${appearing && !dragging ? 'row-in' : ''} trail-row group relative flex h-[var(--row-height)] shrink-0 items-center gap-2 rounded-[var(--radius-row)] pr-1.5 text-fg-muted outline-offset-[-2px] transition-[background-color,color,box-shadow,scale] duration-[var(--duration-fast)] ease-[var(--ease-out)] hover:bg-row-hover hover:text-fg active:bg-row-pressed data-[paired=true]:bg-row-hover data-[paired=true]:text-fg data-[active=true]:text-fg data-[dragging=true]:z-10 data-[dragging=true]:bg-selected data-[dragging=true]:text-fg data-[dragging=true]:scale-[1.02] data-[dragging=true]:shadow-[var(--shadow-panel)]`}
+      className={`${appearing && !dragging ? 'row-in' : ''} trail-row group relative flex h-[var(--row-height)] shrink-0 items-center gap-2 rounded-[var(--radius-row)] pr-1.5 text-fg-muted outline-offset-[-2px] transition-[background-color,color,box-shadow,scale] duration-[var(--duration-fast)] ease-[var(--ease-out)] hover:bg-row-hover hover:text-fg active:bg-row-pressed data-[paired=true]:bg-row-hover data-[paired=true]:text-fg data-[menu-open=true]:bg-row-hover data-[menu-open=true]:text-fg data-[active=true]:text-fg data-[dragging=true]:z-10 data-[dragging=true]:bg-selected data-[dragging=true]:text-fg data-[dragging=true]:scale-[1.02] data-[dragging=true]:shadow-[var(--shadow-panel)]`}
       style={{
-        paddingLeft: (flat ? FLAT_LEAD : 6) + depth * INDENT,
+        // The content keeps its place; only the box moves in.
+        marginLeft: rowOffset(depth),
+        paddingLeft: (flat ? FLAT_LEAD : 6) + depth * INDENT - rowOffset(depth),
         // Rows only ever slide vertically; depth comes from the projection.
         transform: transform
           ? `translate3d(0, ${transform.y}px, 0)`
@@ -356,7 +563,8 @@ const TrailRow = memo(function TrailRow({
         transition,
       }}
     >
-      {!dragging && <IndentGuides depth={depth} />}
+      {preview.preview}
+      {!dragging && <IndentGuides depth={depth} lines={lines} />}
       {row.hasChildren && !dragging ? (
         <button
           type="button"
@@ -367,7 +575,7 @@ const TrailRow = memo(function TrailRow({
             setCollapsed(!page.collapsed);
           }}
           onPointerDown={(event) => event.stopPropagation()}
-          className="-mx-0.5 grid size-5 shrink-0 place-items-center rounded-[var(--radius-inner)] text-fg-subtle transition-colors duration-[var(--duration-fast)] hover:bg-pressed hover:text-fg"
+          className="trail-branch-toggle -mx-0.5 grid size-5 shrink-0 place-items-center rounded-[var(--radius-inner)] text-fg-subtle transition-colors duration-[var(--duration-fast)] hover:bg-pressed hover:text-fg"
         >
           <ChevronRight
             size={12}
@@ -384,10 +592,15 @@ const TrailRow = memo(function TrailRow({
         <Favicon page={page} />
       </span>
       {renaming ? (
-        <RenameField pageId={row.id} initial={label} />
+        <RenameField
+          pageId={row.id}
+          initial={label}
+          previous={page.customTitle}
+        />
       ) : (
         <span
-          className="min-w-0 flex-1 truncate"
+          className="trail-label min-w-0 flex-1"
+          title={label}
           onDoubleClick={(event) => {
             event.stopPropagation();
             startRename(row.id);
@@ -395,8 +608,17 @@ const TrailRow = memo(function TrailRow({
         >
           <span className="trail-title">{parts.title}</span>
           {parts.site && showSiteNames && (
-            <span className="ml-1.5 text-fg-subtle">{parts.site}</span>
+            <span className="trail-site text-fg-subtle">{parts.site}</span>
           )}
+        </span>
+      )}
+      {page.hasFormEdits && !renaming && (
+        <span
+          className="grid size-5 shrink-0 place-items-center text-fg-subtle"
+          title="Edited fields. This page stays awake to protect your work."
+          aria-label="Edited fields; kept awake"
+        >
+          <PencilLine size={11} aria-hidden />
         </span>
       )}
       {page.isPinned && !renaming && (
@@ -450,29 +672,27 @@ const TrailRow = memo(function TrailRow({
       {!renaming && (
         <span
           data-marked={marker !== null}
-          className="trail-trailing relative -ml-1 grid h-6 w-0 shrink-0 place-items-center group-hover:w-6 group-data-[active=true]:w-6 data-[marked=true]:w-6"
+          className="trail-trailing relative -ml-1 grid size-6 shrink-0 place-items-center"
         >
           {marker && (
-            <span className="trail-marker text-fg-subtle group-hover:invisible group-data-[active=true]:invisible">
+            <span className="trail-marker text-fg-subtle group-hover:invisible group-focus-within:invisible">
               {marker}
             </span>
           )}
           <button
             type="button"
-            tabIndex={-1}
-            aria-label={
-              page.isPinned ? `Put ${label} to sleep` : `Close ${label}`
-            }
-            title={
-              page.isPinned
-                ? 'Put to sleep (⌘W). Pinned pages stay in the trail.'
-                : 'Close page (⌘W)'
-            }
-            onClick={close}
+            tabIndex={0}
+            aria-label={`Actions for ${label}`}
+            title="Page actions"
+            aria-haspopup="menu"
+            onClick={(event) => {
+              event.stopPropagation();
+              openPageMenu(row.id, event);
+            }}
             onPointerDown={(event) => event.stopPropagation()}
-            className="trail-close absolute inset-y-0 right-0 grid w-6 place-items-center rounded-[var(--radius-inner)] text-fg-subtle opacity-0 transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 group-data-[active=true]:opacity-100 hover:bg-pressed hover:text-fg"
+            className="trail-close absolute inset-y-0 right-0 grid w-6 place-items-center rounded-[var(--radius-inner)] text-fg-subtle opacity-0 transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-pressed hover:text-fg"
           >
-            <X size={12} strokeWidth={2} />
+            <MoreHorizontal size={14} strokeWidth={1.75} />
           </button>
         </span>
       )}
@@ -484,24 +704,103 @@ const TrailRow = memo(function TrailRow({
  * Hairlines down from each ancestor's chevron, so a deep branch still reads
  * as one branch. Each reaches across the gap below its row to join the next.
  */
-function IndentGuides({ depth }: { depth: number }) {
+function IndentGuides({
+  depth,
+  lines,
+}: {
+  depth: number;
+  lines: readonly DrawnHalf[];
+}) {
   const shown = useShell((state) => state.preferences?.showBranchLines ?? true);
   if (depth === 0 || !shown) return null;
   return (
-    // A raised or outlined current row breaks its branch's lines (app.css).
+    // A marked current row breaks its branch's lines (app.css). Measured
+    // from the trail's edge, out past the row's inset box.
     <span
       aria-hidden
-      className="indent-guides pointer-events-none absolute inset-y-0 left-0"
+      className="indent-guides pointer-events-none absolute inset-y-0"
+      style={{ left: -rowOffset(depth) }}
     >
-      {Array.from({ length: depth }, (_, level) => (
+      {[depth - 1].map((level) => (
         <span
           key={level}
-          className="absolute top-0 -bottom-px w-px bg-divider"
+          className="absolute top-0 -bottom-px w-px bg-[var(--guide)]"
           style={{ left: CHEVRON_CENTER + level * INDENT }}
         />
       ))}
+      {/* The way down to the current page, ending where it turns in. */}
+      {lines.map(
+        (line) => line.level < depth && <PathHalf key={line.id} line={line} />,
+      )}
     </span>
   );
+}
+
+const NO_LINES: readonly DrawnHalf[] = Object.freeze([]);
+
+/**
+ * Half a row of lit line. While a stroke runs, it moves only during its
+ * share of the stroke's eased progress, so the halves of a path move as
+ * one line. A retract starts from wherever the line is, so turning back
+ * mid-stroke never jumps.
+ */
+function PathHalf({ line }: { line: DrawnHalf }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const { stroke } = line;
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || !stroke) return;
+    const at = scaleOf(element);
+    for (const running of element.getAnimations()) running.cancel();
+    element.animate(strokeFrames(stroke, at), {
+      duration: strokeMs(stroke),
+      easing: easing('--ease-out'),
+      fill: stroke.direction === 'out' ? 'forwards' : 'none',
+    });
+  }, [stroke]);
+  const top = line.half === 'top';
+  return (
+    <span
+      ref={ref}
+      className="absolute w-px origin-top bg-[var(--guide-path)]"
+      style={{
+        left: CHEVRON_CENTER + line.level * INDENT,
+        top: top ? 0 : '50%',
+        bottom: top ? '50%' : -1,
+      }}
+    />
+  );
+}
+
+/** Still for `from`, moving until `to`, still after. */
+function strokeFrames(stroke: GuideStroke, at: number): Keyframe[] {
+  const [start, end] = stroke.direction === 'in' ? [0, 1] : [at, 0];
+  const scale = (value: number) => `scaleY(${value})`;
+  return [
+    { offset: 0, transform: scale(start) },
+    { offset: stroke.from, transform: scale(start) },
+    { offset: stroke.to, transform: scale(end) },
+    { offset: 1, transform: scale(end) },
+  ];
+}
+
+/**
+ * Tight: a stroke takes a little longer the more of the trail it covers,
+ * within the fast and base durations; retracting stays within the exit.
+ */
+function strokeMs({ direction, count }: GuideStroke): number {
+  const fast = durationMs('--duration-fast');
+  const most = durationMs(
+    direction === 'in' ? '--duration-base' : '--duration-exit',
+  );
+  return Math.min(most, Math.max(fast, count * (direction === 'in' ? 40 : 30)));
+}
+
+/** The vertical scale an element is drawn at right now. */
+function scaleOf(element: HTMLElement): number {
+  const transform = getComputedStyle(element).transform;
+  if (!transform || transform === 'none') return 1;
+  return new DOMMatrixReadOnly(transform).d;
 }
 
 const NO_PAGES: readonly PageId[] = Object.freeze([]);
@@ -599,7 +898,16 @@ function HiddenState({
   );
 }
 
-function RenameField({ pageId, initial }: { pageId: PageId; initial: string }) {
+function RenameField({
+  pageId,
+  initial,
+  previous,
+}: {
+  pageId: PageId;
+  initial: string;
+  /** The page's own name before this rename, for undo. */
+  previous: string | null;
+}) {
   const finishRename = useShell((state) => state.finishRename);
   // Enter commits, then the field unmounts and blurs; commit only once.
   const settled = useRef(false);
@@ -608,7 +916,19 @@ function RenameField({ pageId, initial }: { pageId: PageId; initial: string }) {
     if (settled.current) return;
     settled.current = true;
     finishRename();
-    if (value.trim() !== initial) void api().renamePage(pageId, value);
+    const name = value.trim();
+    if (name === initial) return;
+    const splash = api();
+    void splash.renamePage(pageId, name || null).then(() => {
+      useToast
+        .getState()
+        .show(
+          renamedToast(
+            name || null,
+            () => void splash.renamePage(pageId, previous),
+          ),
+        );
+    });
   };
   const cancel = () => {
     settled.current = true;

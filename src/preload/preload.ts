@@ -33,6 +33,10 @@ function subscribe<T>(channel: string, listener: (value: T) => void) {
 }
 
 const api: SplashApi = {
+  manageExtensions: () => invoke('extensions:manage'),
+  sharePage: (pageId) => invoke('page:share', { pageId }),
+  getAuthChallenge: () => invoke('auth:challenge'),
+  respondAuth: (credentials) => invoke('auth:respond', credentials),
   platform: process.platform,
   getSnapshot: () => invoke('browser:get-snapshot'),
   createPage: (input) =>
@@ -47,7 +51,8 @@ const api: SplashApi = {
   stop: (pageId) => invoke('page:stop', { pageId }),
   setCollapsed: (pageId, collapsed) =>
     invoke('page:set-collapsed', { pageId, collapsed }),
-  createChildPage: (pageId) => invoke('page:create-child', { pageId }),
+  createChildPage: (pageId, input) =>
+    invoke('page:create-child', { pageId, input }),
   closeBranch: (pageId) => invoke('page:close-branch', { pageId }),
   reopenClosed: () => invoke('page:reopen-closed'),
   movePage: (pageId, parentId, afterId) =>
@@ -58,7 +63,8 @@ const api: SplashApi = {
   openSettings: () => invoke('app:open-settings'),
   renamePage: (pageId, title) => invoke('page:rename', { pageId, title }),
   duplicatePage: (pageId) => invoke('page:duplicate', { pageId }),
-  showPageMenu: (pageId) => invoke('page:show-menu', { pageId }),
+  movePageToWorkspace: (pageId, workspaceId) =>
+    invoke('page:move-to-workspace', { pageId, workspaceId }),
   setNote: (pageId, note) => invoke('page:set-note', { pageId, note }),
   openSplit: (pageId, otherId) =>
     invoke('page:open-split', { pageId, otherId }),

@@ -10,8 +10,15 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    // Keep Forge's Vite allowlist and include only the license/readme alongside
+    // runtime bundles. Local configuration and environment files never ship.
+    ignore: (file: string) =>
+      Boolean(file) &&
+      !file.startsWith('/.vite') &&
+      !['/LICENSE', '/README.md'].includes(file),
+    icon: 'assets/macos/Splash',
     // Bundled extensions load from disk, outside the asar archive.
-    extraResource: ['extensions'],
+    extraResource: ['extensions', 'assets/macos/Splash.png'],
     appBundleId: 'app.splash.browser',
     appCategoryType: 'public.app-category.productivity',
     darwinDarkModeSupport: true,

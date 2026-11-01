@@ -9,7 +9,9 @@ import {
   Shield,
   type LucideIcon,
 } from 'lucide-react';
+import { Brand } from '../components/Brand';
 import { useWorkspaceTheme } from '../hooks/use-workspace-theme';
+import { useInterfacePreferences } from '../hooks/use-interface-preferences';
 import {
   AdvancedSettings,
   AppearanceSettings,
@@ -66,6 +68,7 @@ const SECTIONS: {
 /** The Settings window: sections on the left, the chosen one on the right. */
 export function SettingsApp() {
   useWorkspaceTheme();
+  useInterfacePreferences();
   const [active, setActive] = useState(SECTIONS[0]!.id);
   const section =
     SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0]!;
@@ -77,6 +80,9 @@ export function SettingsApp() {
         aria-label="Settings sections"
         className="drag flex w-[220px] shrink-0 flex-col gap-px px-2 pt-[52px]"
       >
+        <div className="px-2.5 pb-5">
+          <Brand />
+        </div>
         {SECTIONS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}

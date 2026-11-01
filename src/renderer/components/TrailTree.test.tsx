@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { SplashApi } from '../../shared/api';
+import { usePageMenu } from '../stores/page-menu-store';
 import { useShell } from '../stores/shell-store';
+import { useToast } from '../stores/toast-store';
 import { sampleSnapshot } from '../test-fixtures';
 import { TrailTree } from './TrailTree';
 
@@ -10,7 +12,6 @@ function stubApi() {
     activatePage: vi.fn(async () => undefined),
     closePage: vi.fn(async () => undefined),
     setCollapsed: vi.fn(async () => undefined),
-    showPageMenu: vi.fn(async () => undefined),
     renamePage: vi.fn(async () => undefined),
     setMuted: vi.fn(async () => undefined),
   };
@@ -101,8 +102,9 @@ describe('TrailTree', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Collapse b' }));
     expect(splash.setCollapsed).toHaveBeenCalledWith('b', true);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close e' }));
-    expect(splash.closePage).toHaveBeenCalledWith('e');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for e' }));
+    expect(usePageMenu.getState().menu?.pageId).toBe('e');
+    expect(splash.closePage).not.toHaveBeenCalled();
     expect(splash.activatePage).toHaveBeenCalledTimes(1);
   });
 
@@ -110,8 +112,16 @@ describe('TrailTree', () => {
     const splash = stubApi();
     useShell.setState({ snapshot: sampleSnapshot() });
     render(<TrailTree />);
-    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'c' }));
-    expect(splash.showPageMenu).toHaveBeenCalledWith('c');
+    const row = screen.getByRole('treeitem', { name: 'c' });
+    fireEvent.contextMenu(row, { clientX: 40, clientY: 90 });
+    expect(usePageMenu.getState().menu).toMatchObject({
+      pageId: 'c',
+      x: 40,
+      y: 90,
+      fromKeyboard: false,
+    });
+    expect(row.dataset.menuOpen).toBe('true');
+    expect(splash.activatePage).not.toHaveBeenCalled();
   });
 
   it('renames a page in place', () => {
@@ -125,6 +135,49 @@ describe('TrailTree', () => {
     expect(splash.renamePage).toHaveBeenCalledWith('c', 'Reading list');
     expect(splash.renamePage).toHaveBeenCalledTimes(1);
     expect(useShell.getState().renamingPageId).toBeNull();
+  });
+
+  it('confirms a rename with an undo back to the old name', async () => {
+    const splash = stubApi();
+    useShell.setState({
+      snapshot: sampleSnapshot({ c: { customTitle: 'Old' } }),
+      renamingPageId: 'c',
+    });
+    render(<TrailTree />);
+    const field = screen.getByLabelText('Page name');
+    fireEvent.change(field, { target: { value: 'New' } });
+    await act(async () => fireEvent.keyDown(field, { key: 'Enter' }));
+    const toast = useToast.getState().toast!;
+    expect(toast.message).toBe('Renamed to “New”.');
+    toast.actions[0]!.run();
+    expect(splash.renamePage).toHaveBeenLastCalledWith('c', 'Old');
+  });
+
+  it('walks the trail from the keyboard without opening pages', () => {
+    const splash = stubApi();
+    useShell.setState({ snapshot: sampleSnapshot(), renamingPageId: null });
+    render(<TrailTree />);
+    const row = (name: string) => screen.getByRole('treeitem', { name });
+    // Only the current page is in the tab order to begin with.
+    expect(row('a').tabIndex).toBe(0);
+    expect(row('b').tabIndex).toBe(-1);
+
+    row('a').focus();
+    fireEvent.keyDown(row('a'), { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(row('b'));
+    expect(row('b').tabIndex).toBe(0);
+    expect(row('a').tabIndex).toBe(-1);
+
+    fireEvent.keyDown(row('b'), { key: 'End' });
+    expect(document.activeElement).toBe(row('e'));
+    fireEvent.keyDown(row('e'), { key: 'Home' });
+    expect(document.activeElement).toBe(row('a'));
+    fireEvent.keyDown(row('a'), { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(row('b'));
+    expect(splash.activatePage).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(row('b'), { key: 'Enter' });
+    expect(splash.activatePage).toHaveBeenCalledWith('b');
   });
 
   it('shows custom names instead of titles', () => {
@@ -168,4 +221,20 @@ describe('TrailTree', () => {
     fireEvent.click(screen.getByLabelText('Show “d”, which has a problem'));
     expect(splash.activatePage).toHaveBeenCalledWith('d');
   });
+});
+
+it('separates pinned branches from open pages and counts hidden descendants', () => {
+  stubApi();
+  useShell.setState({
+    snapshot: sampleSnapshot({ a: { isPinned: true, collapsed: true } }),
+  });
+  render(<TrailTree />);
+  expect(screen.getByText('Pinned')).toBeTruthy();
+  expect(screen.getByText('Tabs')).toBeTruthy();
+  expect(
+    screen
+      .getByRole('treeitem', { name: /a, pinned/ })
+      .getAttribute('data-pinned-root'),
+  ).toBe('true');
+  expect(screen.queryByRole('treeitem', { name: 'b' })).toBeNull();
 });

@@ -82,13 +82,15 @@ the user:
 3. ~~**Silent actions.**~~ Done: Copy Link, Copy Image and Copy Image Address
    are confirmed; Move to Workspace says where the branch went, with Go there
    and Undo.
-4. **The trail can't be walked from the keyboard.** Only the active row is
-   focusable, and ↑ ↓ Home End do nothing, so keyboard and VoiceOver users
-   can't move through pages. Port the keyboard navigation and ⌥⌘arrow moves
-   from `prototype-02-shell`.
-5. **Undo is partial.** Closing can be undone. Dragging a page, moving it to
-   another workspace and renaming it can't. ⌘Z in the sidebar doesn't undo a
-   close, though the toast offers ⇧⌘T. Decide on one undo for trail edits.
+4. ~~**The trail can't be walked from the keyboard.**~~ Done: ↑ ↓ step
+   through rows without opening them, ← → go to the parent or first child
+   (collapsing and expanding first), Home and End jump to the ends, Enter
+   opens and F2 renames. Tab returns to the row last focused. The ⌥⌘arrow
+   moves from `prototype-02-shell` are still to port.
+5. **Undo is partial.** Closing, dragging a page in the trail, renaming it
+   and moving it to another workspace can be undone from their toasts. ⌘Z in
+   the sidebar still doesn't undo any of them. Decide on one undo for trail
+   edits.
 6. ~~**Offline doesn't recover.**~~ Done: "You're offline" pages reload by
    themselves once the Mac is back online.
 7. ~~**Menus don't reflect state.**~~ Done: Back, Forward, Close Branch,
@@ -103,15 +105,12 @@ the user:
 
 ### Browser basics still missing
 
-Found in the 25 October feature check; none blocks daily use:
+Found in the 25 October feature check. Unsaved-form protection is a release blocker:
 
-- **Sign-in prompts for HTTP authentication.** Sites behind basic auth
-  (routers, staging servers) show their error page; there's no username and
-  password prompt.
+- **HTTP authentication — implemented.** A page-owned native sign-in window identifies the requesting server, masks the password, cancels on navigation or page close, and keeps credentials out of saved state. Verified against a local protected server in the packaged app.
 - **"Leave site?" on close.** Closing a page with unsaved form input closes
   it at once. Reopen Closed brings the address back, not what was typed.
-- **Save Page As, View Source, Open File (⌘O).** Developer Tools covers the
-  source for now.
+- **Save Page As and View Source — implemented.** ⇧⌘S saves a single-file web archive, with retry and completion feedback. ⌥⌘U opens web source as a child page. Both were exercised in the packaged app. Open File (⌘O) remains missing.
 - **Picture in picture from the context menu** and video controls such as
   Loop.
 - Not yet checked by hand: a mouse's back and forward buttons and the

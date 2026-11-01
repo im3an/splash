@@ -12,7 +12,7 @@ import { useToast } from '../stores/toast-store';
  * the current page from the address bar or the location palette, and in a
  * new page from ⌘K.
  */
-export async function runPaletteItem(
+async function performPaletteItem(
   item: PaletteItem,
   from: PaletteScope,
 ): Promise<void> {
@@ -43,7 +43,6 @@ export async function runPaletteItem(
     }
   }
 
-  overlay.close();
   switch (item.kind) {
     case 'page':
       await splash.activatePage(item.pageId);
@@ -136,5 +135,27 @@ export async function runPaletteItem(
         default:
           return;
       }
+  }
+}
+
+/** Keep the query and overlay until an action actually succeeds. */
+export async function runPaletteItem(
+  item: PaletteItem,
+  from: PaletteScope,
+): Promise<boolean> {
+  const original = useOverlay.getState().overlay;
+  try {
+    await performPaletteItem(item, from);
+    if (useOverlay.getState().overlay === original)
+      useOverlay.getState().close();
+    return true;
+  } catch {
+    useToast.getState().show({
+      message: 'Could not complete that action.',
+      detail: 'Your search is kept. Try again.',
+      actions: [],
+      durationMs: 5000,
+    });
+    return false;
   }
 }

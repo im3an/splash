@@ -7,10 +7,12 @@ import {
   selectFlatTrail,
   useShell,
 } from '../stores/shell-store';
+import { SidebarResize } from './SidebarResize';
 import { AddressBar } from './AddressBar';
-import { ExtensionActions } from './ExtensionActions';
+import { ToolbarActions } from './ToolbarActions';
+import { BookmarkLibrary } from './BookmarkLibrary';
 import { SidebarPanel } from './SidebarPanel';
-import { NavigationButtons, SplitButton } from './Toolbar';
+import { NavigationButtons } from './Toolbar';
 import { TrailTree } from './TrailTree';
 import { Toast } from './Toast';
 import { WorkspaceBar } from './WorkspaceBar';
@@ -77,7 +79,7 @@ export function Sidebar() {
       aria-label="Sidebar"
       aria-hidden={!open}
       inert={!open}
-      className="shrink-0 overflow-hidden transition-[width] duration-[var(--duration-slow)] ease-[var(--ease-emphasized)]"
+      className="relative shrink-0 overflow-hidden transition-[width] duration-[var(--duration-slow)] ease-[var(--ease-emphasized)]"
       style={{ width: open ? width : 0 }}
     >
       {/* Keeps its width while the sidebar closes, so nothing reflows. */}
@@ -106,16 +108,11 @@ export function Sidebar() {
         </div>
 
         {addressHere && (
-          <div className="mb-3 flex shrink-0">
-            <AddressBar
-              variant="sidebar"
-              trailing={
-                <>
-                  <ExtensionActions />
-                  <SplitButton compact />
-                </>
-              }
-            />
+          <div className="mb-3 flex shrink-0 flex-col gap-1">
+            <AddressBar variant="sidebar" />
+            <div className="flex justify-end">
+              <ToolbarActions />
+            </div>
           </div>
         )}
 
@@ -134,14 +131,14 @@ export function Sidebar() {
             type="button"
             onClick={newPage}
             data-flat={flat}
-            className="mb-px flex h-[var(--row-height)] shrink-0 items-center gap-2 rounded-[var(--radius-row)] pr-2 pl-[30px] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-row-hover hover:text-fg active:bg-row-pressed data-[flat=true]:pl-2.5"
+            className="sidebar-new-page mb-px flex h-[var(--row-height)] shrink-0 items-center gap-2 rounded-[var(--radius-row)] pr-2 pl-[30px] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-row-hover hover:text-fg active:bg-row-pressed data-[flat=true]:pl-2.5"
           >
             {/* Sits in the favicon column of a top-level row, wherever that is. */}
             <span className="grid size-4 shrink-0 place-items-center">
               <Plus size={15} strokeWidth={1.75} />
             </span>
             <span className="flex-1 text-left">New page</span>
-            <kbd className="font-sans text-caption text-fg-subtle">⌘T</kbd>
+            <kbd className="shortcut">⌘T</kbd>
           </button>
 
           {/* Padded so the active row's edge is never clipped by the scroller. */}
@@ -150,6 +147,7 @@ export function Sidebar() {
             className="min-h-0 flex-1 scroll-py-1 overflow-x-hidden overflow-y-auto overscroll-contain pt-px pb-2"
           >
             <div key={workspaceId} className={slide.current}>
+              <BookmarkLibrary />
               <TrailTree />
             </div>
           </nav>
@@ -158,6 +156,7 @@ export function Sidebar() {
         <Toast placement="sidebar" />
         <WorkspaceBar />
       </div>
+      {open && !panel && <SidebarResize />}
     </aside>
   );
 }

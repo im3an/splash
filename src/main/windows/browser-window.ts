@@ -1,8 +1,10 @@
 import path from 'node:path';
 import {
   app,
+  dialog,
   BrowserWindow,
   nativeTheme,
+  ShareMenu,
   net,
   shell,
   screen,
@@ -34,7 +36,6 @@ import { contentBounds } from '../browser/layout';
 import { OfflineRetry } from '../browser/offline-retry';
 import { isSameDocument, shellUrl } from './shell-url';
 import type { IpcTarget } from '../ipc/register-ipc';
-import { showPageMenu } from '../menus/page-menu';
 import { showWorkspaceMenu } from '../menus/workspace-menu';
 import {
   decisionOf,
@@ -128,6 +129,8 @@ export class TrailWindow {
   readonly window: BrowserWindow;
   readonly controller: BrowserController;
   readonly ipc: IpcTarget;
+  private closeApproved = false;
+  private closePending: Promise<boolean> | null = null;
   private insets: ContentInsets | null = null;
   private readonly persister: SessionPersister;
   private workspaceKey = '';
@@ -201,6 +204,7 @@ export class TrailWindow {
         // and the History menu's lists by these.
         const menuState = JSON.stringify([
           active?.isPinned,
+          active?.isLoading,
           active?.isMuted,
           active?.canGoBack,
           active?.canGoForward,
@@ -264,8 +268,8 @@ export class TrailWindow {
         'page:stop': ({ pageId }) => this.controller.stop(pageId),
         'page:set-collapsed': ({ pageId, collapsed }) =>
           this.controller.setCollapsed(pageId, collapsed),
-        'page:create-child': ({ pageId }) =>
-          this.controller.createChildPage(pageId),
+        'page:create-child': ({ pageId, input }) =>
+          this.controller.createChildPage(pageId, input),
         'page:close-branch': ({ pageId }) =>
           this.controller.closeBranch(pageId),
         'page:reopen-closed': () => this.controller.reopenClosed(),
@@ -279,7 +283,8 @@ export class TrailWindow {
           this.controller.setPinned(pageId, pinned, origin),
         'app:open-settings': () => this.options.openSettings(),
         'page:duplicate': ({ pageId }) => this.controller.duplicatePage(pageId),
-        'page:show-menu': ({ pageId }) => showPageMenu(this, pageId),
+        'page:move-to-workspace': ({ pageId, workspaceId }) =>
+          this.controller.movePageToWorkspace(pageId, workspaceId),
         'page:set-note': ({ pageId, note }) =>
           this.controller.setNote(pageId, note),
         'page:open-split': ({ pageId, otherId }) =>
@@ -328,13 +333,26 @@ export class TrailWindow {
         'downloads:open-folder': () => {
           void shell.openPath(app.getPath('downloads'));
         },
-        'history:list': ({ query, limit }) =>
-          this.safely(() => store.listHistory(query, limit)) ?? [],
+        'history:list': ({ query, limit }) => store.listHistory(query, limit),
         'history:delete': ({ url }) => {
-          this.safely(() => store.deleteHistoryEntry(url));
+          store.deleteHistoryEntry(url);
         },
         'history:restore': ({ entry }) => {
-          this.safely(() => store.restoreHistory([entry]));
+          store.restoreHistory([entry]);
+        },
+        'extensions:manage': () => {
+          if (!this.options.extensions)
+            throw new Error('Extensions are unavailable');
+          return this.options.extensions.manage(this.window);
+        },
+        'page:share': ({ pageId }) => {
+          const page = this.controller.snapshot().pages[pageId];
+          if (page?.url && /^https?:/.test(page.url)) {
+            new ShareMenu({
+              urls: [page.url],
+              texts: [page.customTitle ?? page.title],
+            }).popup({ window: this.window });
+          }
         },
         'preferences:get': () => this.options.preferences.get(),
         'preferences:update': ({ patch }) =>
@@ -409,7 +427,18 @@ export class TrailWindow {
     );
     this.window.once('ready-to-show', () => this.window.show());
     // Save while every page view still exists, so their history is current.
-    this.window.on('close', () => {
+    this.window.on('close', (event) => {
+      if (!this.closeApproved) {
+        event.preventDefault();
+        void this.confirmCloseWindow()
+          .then((allowed) => {
+            if (allowed && !this.window.isDestroyed()) this.window.close();
+          })
+          .catch((error) =>
+            dialog.showErrorBox('Could not close Splash', String(error)),
+          );
+        return;
+      }
       this.safely(() =>
         store.setPreference(
           BOUNDS_KEY,
@@ -425,6 +454,43 @@ export class TrailWindow {
     });
 
     void this.window.loadURL(url);
+  }
+
+  /** Preserve form edits and save failures before destroying a browser window. */
+  confirmCloseWindow(): Promise<boolean> {
+    if (this.closeApproved || this.window.isDestroyed())
+      return Promise.resolve(true);
+    if (this.closePending) return this.closePending;
+    this.closePending = (async () => {
+      if (!(await this.controller.prepareWindowClose())) return false;
+      if (!this.flush()) {
+        const choice = dialog.showMessageBoxSync(this.window, {
+          type: 'warning',
+          message: 'Your latest changes couldn’t be saved.',
+          detail:
+            'Closing now loses trail changes since the last successful save. Keep this window open to retry.',
+          buttons: ['Keep Window Open', 'Close Anyway'],
+          defaultId: 0,
+          cancelId: 0,
+        });
+        if (choice === 0) {
+          this.resumeAfterCanceledClose();
+          return false;
+        }
+      }
+      this.closeApproved = true;
+      return true;
+    })().finally(() => {
+      this.closePending = null;
+    });
+    return this.closePending;
+  }
+
+  resumeAfterCanceledClose(): void {
+    this.closeApproved = false;
+    const active = this.controller.activePageId;
+    if (active && this.controller.hasPage(active))
+      this.controller.activatePage(active);
   }
 
   /** Writes any pending session changes now; false if that failed. */

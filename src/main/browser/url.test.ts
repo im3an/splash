@@ -12,6 +12,7 @@ describe('resolveAddressInput', () => {
     ['example.com/path?q=1', 'https://example.com/path?q=1'],
     ['sub.example.co.uk', 'https://sub.example.co.uk/'],
     ['https://example.com/a', 'https://example.com/a'],
+    ['view-source:https://example.com/', 'view-source:https://example.com/'],
     ['http://example.com', 'http://example.com/'],
     ['localhost:5173', 'http://localhost:5173/'],
     ['127.0.0.1:8080/x', 'http://127.0.0.1:8080/x'],
@@ -84,4 +85,17 @@ describe('search engines', () => {
       'https://search.brave.com/search?q=a%26b',
     );
   });
+});
+
+it('permits source inspection only for web addresses', () => {
+  expect(isPageUrl('view-source:https://example.com/')).toBe(true);
+  expect(isPageUrl('view-source:http://localhost/')).toBe(true);
+  for (const address of [
+    'view-source:file:///etc/hosts',
+    'view-source:javascript:alert(1)',
+    'view-source:chrome://settings',
+    'view-source:view-source:https://example.com/',
+  ]) {
+    expect(isPageUrl(address)).toBe(false);
+  }
 });

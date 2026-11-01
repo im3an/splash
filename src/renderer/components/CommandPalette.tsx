@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
+import { useDialogFocus } from '../hooks/use-dialog-focus';
 import { COMMAND_PREFIX, type PaletteScope } from '../../shared/palette';
 import type { PaletteItem } from '../../shared/types';
 import {
@@ -43,16 +44,24 @@ function actionOf(
 export function CommandPalette({ scope }: { scope: PaletteScope }) {
   const close = useOverlay((state) => state.close);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useDialogFocus<HTMLDivElement>();
   const [query, setQuery] = useState(() =>
     scope === 'location'
       ? (selectActivePage(useShell.getState())?.url ?? '')
       : '',
   );
+  const latestTyped = useRef(query);
+  const resolvedQuery = useRef<string | null>(null);
   const [local, setLocal] = useState<PaletteItem[]>([]);
   // The engine's suggestions, which only the location field asks for.
   const [search, setSearch] = useState<PaletteItem[]>([]);
   const [selected, setSelected] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [queryError, setQueryError] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [actionError, setActionError] = useState(false);
+  const runningRef = useRef(false);
   const isLocation = scope === 'location';
   const inline = useInlineCompletion(inputRef, query);
   const { offer } = inline;
@@ -70,19 +79,28 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
 
   useEffect(() => {
     let current = true;
+    setQueryError(false);
+    setLoaded(false);
     void api()
       .queryPalette(query, scope, complete)
       .then((results) => {
         if (!current) return;
         if (isLocation) offer(results, query);
+        resolvedQuery.current = query;
         setLocal(results);
         setSelected(0);
         setLoaded(true);
+      })
+      .catch(() => {
+        if (current) {
+          setQueryError(true);
+          setLoaded(true);
+        }
       });
     return () => {
       current = false;
     };
-  }, [query, scope, complete, isLocation, offer]);
+  }, [query, scope, complete, isLocation, offer, retry]);
 
   useEffect(() => {
     if (!isLocation || commandsOnly || !query.trim()) {
@@ -102,6 +120,9 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
           const index = next.findIndex((item) => item.id === pickedId.current);
           setSearch(found);
           setSelected(Math.max(0, index));
+        })
+        .catch(() => {
+          if (current) setSearch([]);
         });
     }, 120);
     return () => {
@@ -116,7 +137,19 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
   const words = commandsOnly
     ? query.trimStart().slice(COMMAND_PREFIX.length)
     : query;
-  const run = (item: PaletteItem) => void runPaletteItem(item, scope);
+  const run = (item: PaletteItem, typedNavigation = false) => {
+    if (runningRef.current || ((!loaded || queryError) && !typedNavigation))
+      return;
+    runningRef.current = true;
+    setRunning(true);
+    setActionError(false);
+    void runPaletteItem(item, scope)
+      .then((success) => setActionError(!success))
+      .finally(() => {
+        runningRef.current = false;
+        setRunning(false);
+      });
+  };
   const action = actionOf(items[selected], scope);
   const label =
     scope === 'location'
@@ -125,10 +158,12 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
 
   return (
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
-      className="absolute inset-0 flex justify-center px-6 pt-[10vh]"
+      className="absolute inset-0 flex justify-center overflow-y-auto px-4 pt-[min(10vh,64px)] pb-4 outline-none"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -152,6 +187,7 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
             maxLength={8192}
             onChange={(event) => {
               inline.onInput(event);
+              latestTyped.current = event.target.value;
               setQuery(event.target.value);
             }}
             onKeyDown={(event) => {
@@ -171,7 +207,31 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
                 );
               } else if (event.key === 'Enter') {
                 event.preventDefault();
+                const typed = latestTyped.current.trim();
                 const item = items[selected];
+                // Enter must never navigate a result from the preceding
+                // keystroke while the latest result request is still pending.
+                if (
+                  isLocation &&
+                  typed &&
+                  !typed.startsWith(COMMAND_PREFIX) &&
+                  (!loaded ||
+                    queryError ||
+                    resolvedQuery.current !== latestTyped.current ||
+                    item?.id === 'navigate')
+                ) {
+                  return run(
+                    {
+                      id: 'typed',
+                      kind: 'navigate',
+                      input: typed,
+                      title: typed,
+                      subtitle: '',
+                      section: 'go',
+                    },
+                    true,
+                  );
+                }
                 // A completion just typed past goes where the text says.
                 if (item?.id === 'complete' && !inline.active) {
                   const typedOut = items.find((i) => i.id === 'navigate');
@@ -194,43 +254,93 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
             spellCheck={false}
             className="h-full min-w-0 flex-1 bg-transparent text-lead text-fg outline-none placeholder:text-fg-subtle select-text"
           />
-          <kbd className="shrink-0 font-sans text-caption text-fg-subtle">
+          <button
+            type="button"
+            onClick={close}
+            className="keycap shrink-0 hover:bg-pressed"
+            aria-label="Close command palette"
+            title="Close (esc)"
+          >
             esc
-          </kbd>
+          </button>
         </div>
-        <div id="palette-results">
+        <div id="palette-results" aria-busy={!loaded || running}>
+          {!loaded && (
+            <p className="px-3.5 py-3 text-small text-fg-muted" role="status">
+              Searching your pages and history…
+            </p>
+          )}
+          {running && (
+            <p className="px-3.5 py-2 text-small text-fg-muted" role="status">
+              Opening…
+            </p>
+          )}
+          {queryError && (
+            <div
+              className="flex items-center justify-between gap-3 px-3.5 py-3 text-small"
+              role="alert"
+            >
+              <span>Couldn’t load results. Your search is kept.</span>
+              <button
+                type="button"
+                className="button button-raised"
+                onClick={() => setRetry((value) => value + 1)}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {actionError && (
+            <p role="alert" className="px-3.5 py-2 text-small text-danger">
+              That action failed. Choose it again to retry.
+            </p>
+          )}
           <PaletteList
-            items={items}
+            items={queryError ? [] : items}
             selected={selected}
             onSelect={setSelected}
             onRun={run}
             query={words}
             sectioned
             emptyLabel={
-              loaded && query.trim()
+              loaded && !queryError && query.trim()
                 ? commandsOnly
-                  ? `No command matches “${words.trim()}”`
+                  ? words.trim()
+                    ? `No command matches “${words.trim()}”`
+                    : 'No commands apply here'
                   : `Nothing matches “${query.trim()}”`
                 : null
             }
+            emptyHint={
+              commandsOnly
+                ? `Delete “${COMMAND_PREFIX}” to search pages and history too.`
+                : 'Try fewer words, or part of an address.'
+            }
           />
         </div>
-        <div className="flex h-8 items-center gap-3 border-t border-divider px-3.5 text-caption text-fg-subtle">
-          <span>
-            <kbd className="font-sans">↑↓</kbd> move
-          </span>
-          {action && (
-            <span>
-              <kbd className="font-sans">↵</kbd> {action}
+        <div className="flex h-9 items-center gap-4 border-t border-divider px-3.5 text-caption text-fg-subtle">
+          {items.length > 1 && (
+            <span className="flex items-center gap-1.5">
+              <kbd className="keycap" aria-label="Up and down arrows">
+                ↑↓
+              </kbd>
+              Move
             </span>
           )}
-          <span className="ml-auto">
+          {action && (
+            <span className="flex min-w-0 items-center gap-1.5">
+              <kbd className="keycap" aria-label="Return">
+                ↵
+              </kbd>
+              <span className="truncate">{action}</span>
+            </span>
+          )}
+          <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {commandsOnly ? (
               'Commands only'
             ) : (
               <>
-                Type <kbd className="font-sans">{COMMAND_PREFIX}</kbd> for
-                commands
+                Type <kbd className="keycap">{COMMAND_PREFIX}</kbd> for commands
               </>
             )}
           </span>

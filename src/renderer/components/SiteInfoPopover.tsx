@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Lock, LockOpen, RotateCw } from 'lucide-react';
+import { CircleAlert, Lock, LockOpen, RotateCw } from 'lucide-react';
 import type {
   PermissionDecision,
   SiteInfo,
@@ -9,6 +9,8 @@ import { api } from '../splash-api';
 import { useOverlay } from '../stores/overlay-store';
 import { selectActivePage, useShell } from '../stores/shell-store';
 import { AnchoredPanel } from './AnchoredPanel';
+import { PanelState } from './PanelState';
+import { SegmentedControl } from './SegmentedControl';
 
 /** Decided by Splash itself, so a site never asks for them. */
 const NEVER_ASKED = new Set<SitePermission>(['sound', 'ads']);
@@ -25,10 +27,18 @@ export function SiteInfoPopover() {
   const close = useOverlay((state) => state.close);
   const [info, setInfo] = useState<SiteInfo | null | undefined>(undefined);
   const [changed, setChanged] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pageId = page?.id;
 
   const load = useCallback(async () => {
-    setInfo(page ? await api().getSiteInfo(page.id) : null);
-  }, [page]);
+    setError(null);
+    try {
+      setInfo(pageId ? await api().getSiteInfo(pageId) : null);
+    } catch {
+      setError('Couldn’t load site settings. Try again.');
+    }
+  }, [pageId]);
 
   useEffect(() => {
     void load();
@@ -46,25 +56,60 @@ export function SiteInfoPopover() {
     permission: SitePermission,
     decision: PermissionDecision,
   ) => {
-    if (!info) return;
-    await api().setSitePermission(info.origin, permission, decision);
-    setChanged(true);
-    await load();
+    if (!info || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api().setSitePermission(info.origin, permission, decision);
+      setChanged(true);
+      await load();
+    } catch {
+      setError('Couldn’t change this permission. Try again.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const reset = async () => {
-    if (!info) return;
-    await api().resetSite(info.origin);
-    setChanged(true);
-    await load();
+    if (!info || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api().resetSite(info.origin);
+      setChanged(true);
+      await load();
+    } catch {
+      setError('Couldn’t reset permissions. Try again.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <>
       <div className="absolute inset-0" onMouseDown={close} aria-hidden />
-      <AnchoredPanel width={320} label="Site settings">
-        {info === undefined ? (
-          <div className="h-24" aria-busy="true" />
+      <AnchoredPanel width={340} label="Site settings" modal>
+        {info === undefined && error ? (
+          <PanelState
+            icon={CircleAlert}
+            title="Site settings unavailable"
+            detail={error}
+            action="Try again"
+            onAction={() => void load()}
+            error
+          />
+        ) : info === undefined ? (
+          <div
+            role="status"
+            aria-label="Loading site settings"
+            aria-busy="true"
+            className="space-y-3 p-4"
+          >
+            <div className="skeleton h-3 w-1/2" />
+            <div className="skeleton h-3 w-3/4" />
+            <div className="skeleton h-3 w-2/3" />
+            <span className="sr-only">Loading site settings…</span>
+          </div>
         ) : info === null ? (
           <p className="p-4 text-fg-muted">This page has no site settings.</p>
         ) : (
@@ -87,7 +132,7 @@ export function SiteInfoPopover() {
                 <p className="truncate font-medium">{info.host}</p>
                 <p className="text-[12px] text-fg-subtle">
                   {info.security === 'secure'
-                    ? 'Connection is secure. What you send stays private.'
+                    ? 'Your connection to this site is encrypted.'
                     : 'Connection is not secure. Don’t enter passwords or payment details.'}
                 </p>
               </div>
@@ -108,31 +153,29 @@ export function SiteInfoPopover() {
                         </span>
                       )}
                   </span>
-                  <div
-                    role="radiogroup"
-                    aria-label={label}
-                    className="flex rounded-[6px] bg-field p-0.5"
-                  >
-                    {DECISIONS.filter(
+                  <SegmentedControl
+                    compact
+                    label={label}
+                    value={decision}
+                    disabled={busy}
+                    options={DECISIONS.filter(
                       (option) =>
                         !NEVER_ASKED.has(permission) || option.value !== 'ask',
-                    ).map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        role="radio"
-                        aria-checked={decision === option.value}
-                        onClick={() => void decide(permission, option.value)}
-                        className="h-6 rounded-[4px] px-2 text-[11px] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:text-fg aria-checked:bg-elevated aria-checked:text-fg aria-checked:shadow-[var(--shadow-row)]"
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
+                    )}
+                    onChange={(value) => void decide(permission, value)}
+                  />
                 </div>
               ))}
             </div>
-            <div className="flex items-center justify-between gap-2 border-t border-divider px-4 py-2.5">
+            {error && (
+              <p
+                role="alert"
+                className="px-4 pb-2 text-small leading-relaxed text-danger"
+              >
+                {error}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider px-4 py-2.5">
               {changed && page ? (
                 <button
                   type="button"
@@ -152,6 +195,7 @@ export function SiteInfoPopover() {
               )}
               <button
                 type="button"
+                disabled={busy}
                 onClick={() => void reset()}
                 className="h-7 rounded-[var(--radius-control)] px-2 text-[12px] text-fg-muted hover:bg-hover hover:text-fg"
               >

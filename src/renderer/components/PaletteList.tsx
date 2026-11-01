@@ -108,7 +108,9 @@ function SiteIcon({
 }
 
 function ItemIcon({ item }: { item: PaletteItem }) {
-  const className = 'shrink-0 text-fg-subtle';
+  // Brightens with its row when picked.
+  const className =
+    'shrink-0 text-fg-subtle transition-colors duration-[var(--duration-fast)] group-aria-selected/option:text-fg-muted';
   const props = { size: 15, strokeWidth: 1.75, className, 'aria-hidden': true };
   switch (item.kind) {
     case 'page':
@@ -187,6 +189,7 @@ export function PaletteList({
   onSelect,
   onRun,
   emptyLabel,
+  emptyHint,
   query = '',
   sectioned = false,
 }: {
@@ -195,6 +198,8 @@ export function PaletteList({
   onSelect(index: number): void;
   onRun(item: PaletteItem): void;
   emptyLabel: string | null;
+  /** What to try instead, under the empty label. */
+  emptyHint?: string | null;
   /** Words to mark in titles. */
   query?: string;
   /** Show section headers (the palette) or one plain list (suggestions). */
@@ -210,9 +215,12 @@ export function PaletteList({
 
   if (items.length === 0) {
     return emptyLabel ? (
-      <p className="px-3 py-6 text-center text-body text-fg-subtle">
-        {emptyLabel}
-      </p>
+      <div role="status" className="px-4 py-7 text-center">
+        <p className="text-body text-fg-muted">{emptyLabel}</p>
+        {emptyHint && (
+          <p className="mt-1 text-small text-fg-subtle">{emptyHint}</p>
+        )}
+      </div>
     ) : null;
   }
 
@@ -235,7 +243,7 @@ export function PaletteList({
           event.preventDefault();
           onRun(item);
         }}
-        className="flex h-9 shrink-0 cursor-default items-center gap-2.5 rounded-[var(--radius-row)] px-2.5 text-fg-muted transition-colors duration-[var(--duration-fast)] ease-[var(--ease-out)] aria-selected:bg-hover aria-selected:text-fg"
+        className="group/option flex h-9 shrink-0 cursor-default items-center gap-2.5 rounded-[var(--radius-row)] px-2.5 text-fg-muted transition-colors duration-[var(--duration-fast)] ease-[var(--ease-out)] aria-selected:bg-option-selected aria-selected:text-fg"
       >
         <ItemIcon item={item} />
         <span className="min-w-0 flex-1 truncate">
@@ -252,7 +260,7 @@ export function PaletteList({
           </span>
         )}
         {shortcut && (
-          <kbd className="shrink-0 font-sans text-caption text-fg-subtle tabular-nums">
+          <kbd className="shortcut group-aria-selected/option:text-fg-muted">
             {shortcut}
           </kbd>
         )}
@@ -275,12 +283,12 @@ export function PaletteList({
                 key={`${section}-${groupIndex}`}
                 role="group"
                 aria-label={label ?? undefined}
-                className="flex flex-col gap-px not-first:mt-1.5"
+                className="flex flex-col gap-px not-first:mt-2"
               >
                 {label && (
                   <div
                     aria-hidden
-                    className="px-2.5 pt-1 pb-0.5 text-caption font-medium text-fg-subtle"
+                    className="px-2.5 pt-1 pb-1 text-caption font-medium tracking-[0.02em] text-fg-subtle"
                   >
                     {label}
                   </div>

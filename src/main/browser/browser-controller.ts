@@ -149,6 +149,7 @@ const EMPTY_STATE: PageRuntimeState = {
   zoomPercent: 100,
   find: null,
   isUnresponsive: false,
+  hasFormEdits: false,
 };
 
 /**
@@ -175,6 +176,7 @@ export class BrowserController {
   private focusWhenRevealed = false;
   private flushPending = false;
   private disposed = false;
+  private readonly closingIds = new Set<PageId>();
   private closed: ClosedRecord[] = [];
   private closedSerial = 0;
 
@@ -263,7 +265,24 @@ export class BrowserController {
    * only goes to sleep, unless `unpin` says to close it anyway. Reopening
    * brings it back pinned.
    */
-  closePage(id: PageId, { unpin = false }: { unpin?: boolean } = {}): void {
+  closePage(
+    id: PageId,
+    { unpin = false }: { unpin?: boolean } = {},
+  ): void | Promise<void> {
+    if (!this.pages.has(id) || this.closingIds.has(id)) return;
+    const page = this.require(id);
+    const workspace = this.workspaceOf(id);
+    if (
+      page.pinned &&
+      !unpin &&
+      workspace.activePageId === id &&
+      workspace.tree.successorOf(id) === null
+    )
+      return this.keepPinned(id);
+    return this.guardRemoval([id], () => this.closePageNow(id, unpin));
+  }
+
+  private closePageNow(id: PageId, unpin: boolean): void {
     if (this.require(id).pinned && !unpin) return this.keepPinned(id);
     const workspace = this.workspaceOf(id);
     const { tree } = workspace;
@@ -278,7 +297,18 @@ export class BrowserController {
   }
 
   /** Closes a page together with every page beneath it, like `closePage`. */
-  closeBranch(id: PageId, { unpin = false }: { unpin?: boolean } = {}): void {
+  closeBranch(
+    id: PageId,
+    { unpin = false }: { unpin?: boolean } = {},
+  ): void | Promise<void> {
+    if (!this.pages.has(id) || this.closingIds.has(id)) return;
+    if (this.require(id).pinned && !unpin) return this.closePage(id);
+    return this.guardRemoval(this.workspaceOf(id).tree.branch(id), () =>
+      this.closeBranchNow(id, unpin),
+    );
+  }
+
+  private closeBranchNow(id: PageId, unpin: boolean): void {
     if (this.require(id).pinned && !unpin) return this.keepPinned(id);
     const workspace = this.workspaceOf(id);
     const { tree } = workspace;
@@ -434,10 +464,10 @@ export class BrowserController {
     this.changed();
   }
 
-  /** Opens an empty page beneath `parentId`, ready for an address. */
-  createChildPage(parentId: PageId): PageId {
+  /** Opens a child, optionally loading its destination before activation. */
+  createChildPage(parentId: PageId, input?: string): PageId {
     this.require(parentId);
-    return this.createPage({ parentId });
+    return this.createPage({ parentId, input });
   }
 
   /** A copy of a page, right after it, with the same history. */
@@ -619,7 +649,7 @@ export class BrowserController {
   /** Frees a page's view, keeping its address and history for later. */
   discard(id: PageId): void {
     const page = this.require(id);
-    if (!page.host) return;
+    if (!page.host || page.state.hasFormEdits) return;
     page.history = page.host.captureHistory() ?? page.history;
     this.cancelPermissionRequests(page);
     page.host.destroy();
@@ -785,7 +815,16 @@ export class BrowserController {
    * Deletes a workspace with all its pages; reopening closed pages brings
    * it back. The last workspace cannot go.
    */
-  deleteWorkspace(id: WorkspaceId): void {
+  deleteWorkspace(id: WorkspaceId): void | Promise<void> {
+    if (this.workspaces.size === 1)
+      throw new Error('The last workspace cannot be deleted');
+    const workspace = this.requireWorkspace(id);
+    return this.guardRemoval(workspace.tree.order(), () =>
+      this.deleteWorkspaceNow(id),
+    );
+  }
+
+  private deleteWorkspaceNow(id: WorkspaceId): void {
     const workspace = this.requireWorkspace(id);
     if (this.workspaces.size === 1) {
       throw new Error('The last workspace cannot be deleted');
@@ -1062,6 +1101,65 @@ export class BrowserController {
       }),
       activeWorkspaceId: workspace.id,
     };
+  }
+
+  /** Also used before closing a window or quitting; leaves trail records intact. */
+  async prepareWindowClose(): Promise<boolean> {
+    return this.prepareClose([...this.pages.keys()]);
+  }
+
+  private guardRemoval(
+    ids: PageId[],
+    commit: () => void,
+  ): void | Promise<void> {
+    if (ids.some((id) => this.closingIds.has(id))) return;
+    if (!ids.some((id) => this.pages.get(id)?.host?.requestClose))
+      return commit();
+    return this.prepareClose(ids).then((allowed) => {
+      if (allowed && !this.disposed && ids.every((id) => this.pages.has(id)))
+        commit();
+    });
+  }
+
+  private async prepareClose(ids: PageId[]): Promise<boolean> {
+    if (ids.some((id) => this.closingIds.has(id))) return false;
+    ids.forEach((id) => this.closingIds.add(id));
+    let allowed = false;
+    try {
+      for (const id of ids) {
+        const page = this.pages.get(id);
+        const host = page?.host;
+        if (!page || !host?.requestClose) continue;
+        // Capture before asking: an approved close destroys the native contents.
+        const history = host.captureHistory();
+        if (!(await host.requestClose())) return false;
+        if (page.host === host) {
+          page.history = history ?? page.history;
+          page.host = null;
+          host.destroy();
+          this.visibleIds.delete(id);
+          page.state = {
+            ...page.state,
+            isLoading: false,
+            isAudible: false,
+            hasFormEdits: false,
+            find: null,
+          };
+        }
+      }
+      allowed = true;
+      return true;
+    } finally {
+      ids.forEach((id) => this.closingIds.delete(id));
+      // A canceled bulk close keeps every trail node. Restore approved views
+      // from captured Chromium state if they were visible before cancellation.
+      if (!allowed && !this.disposed) {
+        const active = this.activePageId;
+        if (active && this.pages.has(active)) this.activatePage(active);
+        this.syncVisibleHost();
+      }
+      this.changed();
+    }
   }
 
   dispose(): void {
@@ -1368,7 +1466,8 @@ export class BrowserController {
         ([id, page]) =>
           id !== activeId &&
           !this.visibleIds.has(id) &&
-          !page.host?.isAudible(),
+          !page.host?.isAudible() &&
+          !page.state.hasFormEdits,
       )
       .sort(([, a], [, b]) => a.lastActiveAt - b.lastActiveAt);
     for (const [id] of candidates) {

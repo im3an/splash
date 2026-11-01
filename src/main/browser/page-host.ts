@@ -26,6 +26,8 @@ export interface PageRuntimeState {
   find: FindResult | null;
   /** The page's renderer has stopped responding. */
   isUnresponsive: boolean;
+  /** Edited documents are kept awake; this does not claim a save status. */
+  hasFormEdits?: boolean;
 }
 
 export interface HistoryEntry {
@@ -101,6 +103,8 @@ export interface PageHost {
   stopFind(): void;
   /** A still image of what the page shows, as a data URL. */
   capture(): Promise<string | null>;
+  /** Runs the native beforeunload lifecycle. True means the view has closed. */
+  requestClose?(): Promise<boolean>;
   destroy(): void;
 }
 

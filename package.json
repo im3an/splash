@@ -16,7 +16,8 @@
     "lint:fix": "oxlint --fix && oxfmt --write",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run lint && npm test"
+    "check": "npm run typecheck && npm run lint && npm test",
+    "brand:icons": "electron scripts/generate-brand-icons.cjs"
   },
   "devDependencies": {
     "@electron-forge/cli": "^8.0.1",

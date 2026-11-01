@@ -26,6 +26,15 @@ import type { PaletteScope } from './palette';
 import type { Preferences } from './preferences';
 
 export interface InvokeOutputs {
+  'extensions:manage': void;
+  'page:share': void;
+  'auth:challenge': {
+    origin: string;
+    host: string;
+    isProxy: boolean;
+    secure: boolean;
+  };
+  'auth:respond': void;
   'browser:get-snapshot': BrowserSnapshot;
   'storage:status': StorageStatus;
   'page:create': PageId;
@@ -46,7 +55,7 @@ export interface InvokeOutputs {
   'page:set-pinned': void;
   'app:open-settings': void;
   'page:duplicate': PageId;
-  'page:show-menu': void;
+  'page:move-to-workspace': void;
   'page:open-split': void;
   'page:toggle-split': void;
   'split:close': void;
@@ -101,6 +110,12 @@ export const eventChannels = {
 
 /** The API the preload script exposes on `window.splash`. */
 export interface SplashApi {
+  getAuthChallenge(): Promise<InvokeOutputs['auth:challenge']>;
+  respondAuth(
+    credentials: { username: string; password: string } | null,
+  ): Promise<void>;
+  manageExtensions(): Promise<void>;
+  sharePage(pageId: PageId): Promise<void>;
   platform: NodeJS.Platform;
   getSnapshot(): Promise<BrowserSnapshot>;
   createPage(input?: string): Promise<PageId>;
@@ -113,7 +128,7 @@ export interface SplashApi {
   reload(pageId: PageId): Promise<void>;
   stop(pageId: PageId): Promise<void>;
   setCollapsed(pageId: PageId, collapsed: boolean): Promise<void>;
-  createChildPage(pageId: PageId): Promise<PageId>;
+  createChildPage(pageId: PageId, input?: string): Promise<PageId>;
   closeBranch(pageId: PageId): Promise<void>;
   reopenClosed(): Promise<PageId | null>;
   /** Moves a page under `parentId`, right after `afterId` (first if null). */
@@ -133,8 +148,8 @@ export interface SplashApi {
   openSettings(): Promise<void>;
   renamePage(pageId: PageId, title: string | null): Promise<void>;
   duplicatePage(pageId: PageId): Promise<PageId>;
-  /** Opens the native context menu for a page in the sidebar. */
-  showPageMenu(pageId: PageId): Promise<void>;
+  /** Moves a page with its branch to the end of another workspace. */
+  movePageToWorkspace(pageId: PageId, workspaceId: WorkspaceId): Promise<void>;
   setNote(pageId: PageId, note: string | null): Promise<void>;
   /** Shows `pageId` beside `otherId` and makes it active. */
   openSplit(pageId: PageId, otherId: PageId): Promise<void>;

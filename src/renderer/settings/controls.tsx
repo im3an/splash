@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { SegmentedControl } from '../components/SegmentedControl';
 
 /** A titled group of settings. */
 export function Section({
@@ -66,24 +67,12 @@ export function Choice<T extends string | number>({
   onChange(value: T): void;
 }) {
   return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      className="flex rounded-[var(--radius-control)] bg-field p-0.5"
-    >
-      {options.map((option) => (
-        <button
-          key={String(option.value)}
-          type="button"
-          role="radio"
-          aria-checked={option.value === value}
-          onClick={() => onChange(option.value)}
-          className="h-7 rounded-[var(--radius-inner)] px-2.5 text-small text-fg-muted transition-colors duration-[var(--duration-fast)] hover:text-fg aria-checked:bg-elevated aria-checked:text-fg aria-checked:shadow-[var(--shadow-row)]"
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
+    <SegmentedControl
+      label={label}
+      options={options}
+      value={value}
+      onChange={onChange}
+    />
   );
 }
 

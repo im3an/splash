@@ -16,6 +16,7 @@ import {
   selectVisibleSplit,
   useShell,
 } from '../stores/shell-store';
+import { Brand } from './Brand';
 import { AddressSuggestions } from './AddressSuggestions';
 import { CommandPalette } from './CommandPalette';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -205,6 +206,9 @@ function Centered({ children }: { children: ReactNode }) {
 function NoPages() {
   return (
     <Centered>
+      <div className="mb-6">
+        <Brand size={32} />
+      </div>
       <h1 className="text-title font-semibold tracking-[-0.01em]">
         Start a trail
       </h1>
@@ -219,7 +223,7 @@ function NoPages() {
       >
         <Plus size={14} strokeWidth={1.75} />
         New page
-        <kbd className="ml-1 font-sans text-caption text-fg-subtle">⌘T</kbd>
+        <kbd className="shortcut ml-1">⌘T</kbd>
       </button>
     </Centered>
   );
@@ -229,6 +233,9 @@ function NoPages() {
 function NewPage() {
   return (
     <Centered>
+      <div className="mb-6">
+        <Brand size={32} />
+      </div>
       <button
         type="button"
         onClick={() => void openLocation()}
@@ -236,7 +243,7 @@ function NewPage() {
       >
         <Search size={14} strokeWidth={1.75} />
         Search or enter address
-        <kbd className="ml-1 font-sans text-caption text-fg-subtle">⌘L</kbd>
+        <kbd className="shortcut ml-1">⌘L</kbd>
       </button>
     </Centered>
   );

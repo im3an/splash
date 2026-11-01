@@ -429,7 +429,7 @@ export class SqliteTrailStore implements TrailStore {
     if (query.trim()) return this.searchHistory(query, limit);
     const rows = this.db
       .prepare(
-        `SELECT url, title, visit_count, last_visited_at FROM history
+        `SELECT url, title, visit_count, last_visited_at, favicon_url FROM history
          ORDER BY last_visited_at DESC LIMIT ?`,
       )
       .all(limit) as unknown as {
@@ -437,12 +437,14 @@ export class SqliteTrailStore implements TrailStore {
       title: string;
       visit_count: number;
       last_visited_at: number;
+      favicon_url: string | null;
     }[];
     return rows.map((row) => ({
       url: row.url,
       title: row.title,
       visitCount: row.visit_count,
       lastVisitedAt: row.last_visited_at,
+      faviconUrl: row.favicon_url,
     }));
   }
 
@@ -456,19 +458,21 @@ export class SqliteTrailStore implements TrailStore {
       removed = (
         this.db
           .prepare(
-            'SELECT url, title, visit_count, last_visited_at FROM history WHERE last_visited_at >= ?',
+            'SELECT url, title, visit_count, last_visited_at, favicon_url FROM history WHERE last_visited_at >= ?',
           )
           .all(since) as unknown as {
           url: string;
           title: string;
           visit_count: number;
           last_visited_at: number;
+          favicon_url: string | null;
         }[]
       ).map((row) => ({
         url: row.url,
         title: row.title,
         visitCount: row.visit_count,
         lastVisitedAt: row.last_visited_at,
+        faviconUrl: row.favicon_url,
       }));
       this.db
         .prepare('DELETE FROM history WHERE last_visited_at >= ?')
@@ -479,16 +483,23 @@ export class SqliteTrailStore implements TrailStore {
 
   restoreHistory(rows: HistoryRow[]): void {
     const insert = this.db.prepare(
-      `INSERT INTO history (url, title, visit_count, last_visited_at)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO history (url, title, visit_count, last_visited_at, favicon_url)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (url) DO UPDATE SET
          title = excluded.title,
+         favicon_url = coalesce(history.favicon_url, excluded.favicon_url),
          visit_count = history.visit_count + excluded.visit_count,
          last_visited_at = max(history.last_visited_at, excluded.last_visited_at)`,
     );
     this.transaction(() => {
       for (const row of rows) {
-        insert.run(row.url, row.title, row.visitCount, row.lastVisitedAt);
+        insert.run(
+          row.url,
+          row.title,
+          row.visitCount,
+          row.lastVisitedAt,
+          row.faviconUrl ?? null,
+        );
       }
     });
   }

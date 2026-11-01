@@ -162,7 +162,7 @@ export function accentColors(accent: string): { light: string; dark: string } {
 }
 
 /** How much of the accent tints the window frame, like an Arc space. */
-const FRAME_TINT = { light: 0.13, dark: 0.09 };
+const FRAME_TINT = { light: 0.06, dark: 0.05 };
 
 function mixHex(a: string, b: string, amountOfA: number): string {
   const channel = (hex: string, i: number) =>

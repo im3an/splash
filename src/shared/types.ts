@@ -43,6 +43,7 @@ export interface PageSnapshot {
   zoomPercent: number;
   find: FindResult | null;
   isUnresponsive: boolean;
+  hasFormEdits?: boolean;
   /** Permissions this page asked for and was refused, for the address bar. */
   blockedPermissions: SitePermission[];
   /** A permission request waiting for the user's answer. */
@@ -171,6 +172,7 @@ export type DownloadState =
 
 /** A site in the browsing history: one entry per address. */
 export interface HistoryEntry {
+  faviconUrl?: string | null;
   url: string;
   title: string;
   visitCount: number;
@@ -338,6 +340,7 @@ export interface TrailPosition {
 
 /** Something done outside the shell UI that the shell confirms in a toast. */
 export type Notice =
+  | { kind: 'page-saved'; filename: string }
   | {
       kind: 'copied';
       what: 'link' | 'image' | 'image-address';

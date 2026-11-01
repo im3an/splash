@@ -23,7 +23,33 @@ export function searchEngine(id: SearchEngineId) {
   return SEARCH_ENGINES.find((engine) => engine.id === id) ?? SEARCH_ENGINES[0];
 }
 
+export const TOOLBAR_ACTIONS = [
+  'bookmark',
+  'share',
+  'extensions',
+  'split',
+  'downloads',
+] as const;
+export type ToolbarAction = (typeof TOOLBAR_ACTIONS)[number];
+export interface SavedCollection {
+  id: string;
+  name: string;
+  kind: 'folder' | 'group';
+  collapsed: boolean;
+  /** Nested collections live under bookmark folders. Missing means root. */
+  parentId?: string | null;
+  links: {
+    id: string;
+    title: string;
+    url: string;
+    faviconUrl?: string | null;
+  }[];
+}
+
 export interface Preferences {
+  sidebarWidth: number;
+  toolbarActions: ToolbarAction[];
+  collections: SavedCollection[];
   searchEngine: SearchEngineId;
   /** Ask the search engine for suggestions while typing in the address field. */
   searchSuggestions: boolean;
@@ -31,10 +57,10 @@ export interface Preferences {
   theme: 'system' | 'light' | 'dark';
   density: 'comfortable' | 'compact';
   /**
-   * How the sidebar marks the page on screen: a dot under its icon, a
-   * hairline outline, an underlined title, or a raised card.
+   * How the sidebar marks the page on screen: a soft fill with an accent
+   * bar at its edge, a dot under its icon, a hairline outline, an
+   * underlined title, or a raised card.
    */
-  currentPage: 'dot' | 'outline' | 'underline' | 'raised';
   /** The site's name, quieter, after each page's title in the sidebar. */
   showSiteNames: boolean;
   /** Hairlines down each branch of the trail. */
@@ -59,11 +85,13 @@ export interface Preferences {
 export const AWAKE_PAGE_CHOICES = [6, 12, 24, 48] as const;
 
 export const DEFAULT_PREFERENCES: Preferences = {
+  sidebarWidth: 260,
+  toolbarActions: ['bookmark', 'share', 'extensions', 'split'],
+  collections: [],
   searchEngine: 'duckduckgo',
   searchSuggestions: true,
   theme: 'system',
   density: 'comfortable',
-  currentPage: 'dot',
   showSiteNames: true,
   showBranchLines: true,
   reduceMotion: false,

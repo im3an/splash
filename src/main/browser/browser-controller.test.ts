@@ -1343,3 +1343,79 @@ describe('BrowserController', () => {
     });
   });
 });
+
+describe('protected close lifecycle', () => {
+  it('keeps a page and its live view when leaving is canceled', async () => {
+    const { controller, hosts } = setup();
+    const id = controller.createPage({ url: 'https://forms.example/' });
+    const host = hosts[0]! as FakeHost & { requestClose(): Promise<boolean> };
+    host.requestClose = vi.fn(async () => false);
+    await controller.closePage(id);
+    expect(controller.hasPage(id)).toBe(true);
+    expect(host.destroyed).toBe(false);
+  });
+  it('records history before an approved native close destroys the view', async () => {
+    const { controller, hosts } = setup();
+    const id = controller.createPage({ url: 'https://forms.example/' });
+    const host = hosts[0]! as FakeHost & { requestClose(): Promise<boolean> };
+    host.requestClose = vi.fn(async () => true);
+    await controller.closePage(id);
+    expect(controller.hasPage(id)).toBe(false);
+    controller.reopenClosed();
+    expect(controller.hasPage(id)).toBe(true);
+    expect(hosts.at(-1)!.restored?.entries[0]!.url).toBe(
+      'https://forms.example/',
+    );
+  });
+  it('keeps the entire branch if a child refuses to close', async () => {
+    const { controller, hosts } = setup();
+    const root = controller.createPage({ url: 'https://a.example/' });
+    const child = controller.createPage({
+      url: 'https://b.example/',
+      parentId: root,
+    });
+    const first = hosts[0]! as FakeHost & { requestClose(): Promise<boolean> };
+    const second = hosts[1]! as FakeHost & { requestClose(): Promise<boolean> };
+    first.requestClose = vi.fn(async () => true);
+    second.requestClose = vi.fn(async () => false);
+    await controller.closeBranch(root);
+    expect(controller.hasPage(root)).toBe(true);
+    expect(controller.hasPage(child)).toBe(true);
+    expect(second.destroyed).toBe(false);
+  });
+  it('does not issue duplicate prompts for repeated close requests', async () => {
+    const { controller, hosts } = setup();
+    const id = controller.createPage({ url: 'https://forms.example/' });
+    let resolve: (allowed: boolean) => void = () => {};
+    const pending = new Promise<boolean>((done) => {
+      resolve = done;
+    });
+    const host = hosts[0]! as FakeHost & { requestClose(): Promise<boolean> };
+    host.requestClose = vi.fn(() => pending);
+    const closing = controller.closePage(id);
+    controller.closePage(id);
+    expect(host.requestClose).toHaveBeenCalledTimes(1);
+    resolve(false);
+    await closing;
+    expect(controller.hasPage(id)).toBe(true);
+  });
+  it('does not discard edited pages to meet the memory budget', () => {
+    const { controller, hosts } = setup({ maxLiveViews: 1 });
+    const first = controller.createPage({ url: 'https://forms.example/' });
+    hosts[0]!.events.onStateChange({ hasFormEdits: true });
+    controller.createPage({ url: 'https://other.example/' });
+    expect(hosts[0]!.destroyed).toBe(false);
+    controller.discard(first);
+    expect(hosts[0]!.destroyed).toBe(false);
+    expect(controller.snapshot().pages[first]!.hasFormEdits).toBe(true);
+  });
+});
+
+it('opens a restored child with its destination before publishing it as active', () => {
+  const { controller, latest, hosts } = setup();
+  const root = controller.createPage({ url: 'https://example.com/' });
+  const child = controller.createChildPage(root, 'https://www.wikipedia.org/');
+  expect(latest().activePageId).toBe(child);
+  expect(latest().pages[child]?.url).toBe('https://www.wikipedia.org/');
+  expect(hosts.at(-1)?.loaded).toEqual(['https://www.wikipedia.org/']);
+});
