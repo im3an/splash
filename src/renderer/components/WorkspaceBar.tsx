@@ -177,7 +177,7 @@ function WorkspaceChip({
         transition,
       }}
       // Arc's space dots: the others fade back, the current one is solid.
-      className="grid size-7 shrink-0 place-items-center rounded-[var(--radius-control)] text-small font-semibold text-fg-subtle opacity-70 transition-[color,background-color,opacity,scale] duration-[var(--duration-fast)] ease-[var(--ease-out)] hover:bg-row-hover active:scale-[0.9] hover:text-fg hover:opacity-100 data-[active=true]:bg-row-hover data-[active=true]:text-accent data-[active=true]:opacity-100"
+      className="grid size-7 shrink-0 place-items-center rounded-control text-small font-semibold text-fg-subtle opacity-70 transition-[color,background-color,opacity,scale] duration-fast ease-out hover:bg-row-hover active:scale-[0.9] hover:text-fg hover:opacity-100 data-[active=true]:bg-row-hover data-[active=true]:text-accent data-[active=true]:opacity-100"
     >
       <WorkspaceIcon icon={workspace.appearance.icon} name={workspace.name} />
     </button>

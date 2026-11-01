@@ -551,7 +551,7 @@ const TrailRow = memo(function TrailRow({
       onAnimationEnd={(event) => {
         if (event.target === event.currentTarget) setAppearing(false);
       }}
-      className={`${appearing && !dragging ? 'row-in' : ''} trail-row group relative flex h-[var(--row-height)] shrink-0 items-center gap-2 rounded-[var(--radius-row)] pr-1.5 text-fg-muted outline-offset-[-2px] transition-[background-color,color,box-shadow,scale] duration-[var(--duration-fast)] ease-[var(--ease-out)] hover:bg-row-hover hover:text-fg active:bg-row-pressed data-[paired=true]:bg-row-hover data-[paired=true]:text-fg data-[menu-open=true]:bg-row-hover data-[menu-open=true]:text-fg data-[active=true]:text-fg data-[dragging=true]:z-10 data-[dragging=true]:bg-selected data-[dragging=true]:text-fg data-[dragging=true]:scale-[1.02] data-[dragging=true]:shadow-[var(--shadow-panel)]`}
+      className={`${appearing && !dragging ? 'row-in' : ''} trail-row group relative flex h-(--row-height) shrink-0 items-center gap-2 rounded-row pr-1.5 text-fg-muted outline-offset-[-2px] transition-[background-color,color,box-shadow,scale] duration-fast ease-out hover:bg-row-hover hover:text-fg active:bg-row-pressed data-[paired=true]:bg-row-hover data-[paired=true]:text-fg data-[menu-open=true]:bg-row-hover data-[menu-open=true]:text-fg data-[active=true]:text-fg data-[dragging=true]:z-10 data-[dragging=true]:bg-selected data-[dragging=true]:text-fg data-[dragging=true]:scale-[1.02] data-[dragging=true]:shadow-panel`}
       style={{
         // The content keeps its place; only the box moves in.
         marginLeft: rowOffset(depth),
@@ -575,12 +575,12 @@ const TrailRow = memo(function TrailRow({
             setCollapsed(!page.collapsed);
           }}
           onPointerDown={(event) => event.stopPropagation()}
-          className="trail-branch-toggle -mx-0.5 grid size-5 shrink-0 place-items-center rounded-[var(--radius-inner)] text-fg-subtle transition-colors duration-[var(--duration-fast)] hover:bg-pressed hover:text-fg"
+          className="trail-branch-toggle -mx-0.5 grid size-5 shrink-0 place-items-center rounded-inner text-fg-subtle transition-colors duration-fast hover:bg-pressed hover:text-fg"
         >
           <ChevronRight
             size={12}
             strokeWidth={2}
-            className="transition-transform duration-[var(--duration-base)] ease-[var(--ease-emphasized)]"
+            className="transition-transform duration-base ease-emphasized"
             style={{ transform: expanded ? 'rotate(90deg)' : undefined }}
           />
         </button>
@@ -652,7 +652,7 @@ const TrailRow = memo(function TrailRow({
             void api().setMuted(row.id, !page.isMuted);
           }}
           onPointerDown={(event) => event.stopPropagation()}
-          className="-my-1 grid size-6 shrink-0 place-items-center rounded-[var(--radius-inner)] text-fg-subtle hover:bg-pressed hover:text-fg data-[playing=true]:text-accent"
+          className="-my-1 grid size-6 shrink-0 place-items-center rounded-inner text-fg-subtle hover:bg-pressed hover:text-fg data-[playing=true]:text-accent"
           data-playing={page.isAudible && !page.isMuted}
         >
           {page.isMuted ? (
@@ -690,7 +690,7 @@ const TrailRow = memo(function TrailRow({
               openPageMenu(row.id, event);
             }}
             onPointerDown={(event) => event.stopPropagation()}
-            className="trail-close absolute inset-y-0 right-0 grid w-6 place-items-center rounded-[var(--radius-inner)] text-fg-subtle opacity-0 transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-pressed hover:text-fg"
+            className="trail-close absolute inset-y-0 right-0 grid w-6 place-items-center rounded-inner text-fg-subtle opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-pressed hover:text-fg"
           >
             <MoreHorizontal size={14} strokeWidth={1.75} />
           </button>
@@ -724,7 +724,7 @@ function IndentGuides({
       {[depth - 1].map((level) => (
         <span
           key={level}
-          className="absolute top-0 -bottom-px w-px bg-[var(--guide)]"
+          className="absolute top-0 -bottom-px w-px bg-(--guide)"
           style={{ left: CHEVRON_CENTER + level * INDENT }}
         />
       ))}
@@ -762,7 +762,7 @@ function PathHalf({ line }: { line: DrawnHalf }) {
   return (
     <span
       ref={ref}
-      className="absolute w-px origin-top bg-[var(--guide-path)]"
+      className="absolute w-px origin-top bg-(--guide-path)"
       style={{
         left: CHEVRON_CENTER + line.level * INDENT,
         top: top ? 0 : '50%',
@@ -866,7 +866,7 @@ function HiddenState({
             for (const id of playing) void api().setMuted(id, true);
           }}
           onPointerDown={(event) => event.stopPropagation()}
-          className="-my-1 grid size-6 shrink-0 place-items-center rounded-[var(--radius-inner)] text-accent hover:bg-pressed"
+          className="-my-1 grid size-6 shrink-0 place-items-center rounded-inner text-accent hover:bg-pressed"
         >
           <Volume2 size={13} strokeWidth={2} />
         </button>
@@ -882,7 +882,7 @@ function HiddenState({
             void api().activatePage(failedId);
           }}
           onPointerDown={(event) => event.stopPropagation()}
-          className="-my-1 grid size-6 shrink-0 place-items-center rounded-[var(--radius-inner)] text-danger hover:bg-pressed"
+          className="-my-1 grid size-6 shrink-0 place-items-center rounded-inner text-danger hover:bg-pressed"
         >
           <CircleAlert size={13} strokeWidth={2} />
         </button>
@@ -951,7 +951,7 @@ function RenameField({
         if (event.key === 'Escape') cancel();
       }}
       onBlur={(event) => commit(event.currentTarget.value)}
-      className="editing-field h-[22px] min-w-0 flex-1 rounded-[var(--radius-inner)] px-1.5 text-fg select-text"
+      className="editing-field h-[22px] min-w-0 flex-1 rounded-inner px-1.5 text-fg select-text"
     />
   );
 }
@@ -967,7 +967,7 @@ function TrailSkeleton() {
       {widths.map((width, index) => (
         <div
           key={width}
-          className="flex h-[var(--row-height)] items-center gap-2"
+          className="flex h-(--row-height) items-center gap-2"
           style={{
             paddingLeft: FLAT_LEAD + (index === 1 || index === 2 ? INDENT : 0),
           }}
@@ -990,7 +990,7 @@ function TrailEmpty() {
       <p className="text-fg-muted">
         {several && name ? `“${name}” is empty` : 'No pages yet'}
       </p>
-      <p className="mt-1 text-small leading-[1.45] text-fg-subtle">
+      <p className="mt-1 text-small leading-copy text-fg-subtle">
         {several
           ? 'Pages you open here stay in this workspace, nested under the page they came from.'
           : 'Pages you open appear here, nested under the page they came from.'}

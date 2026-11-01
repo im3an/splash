@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CircleAlert, Plus, Search } from 'lucide-react';
 import type { ContentInsets, PageId, PageSnapshot } from '../../shared/types';
 import { useContentInsets } from '../hooks/use-content-insets';
@@ -17,6 +11,7 @@ import {
   useShell,
 } from '../stores/shell-store';
 import { Brand } from './Brand';
+import { PageState, PageStateActions } from './PanelState';
 import { AddressSuggestions } from './AddressSuggestions';
 import { CommandPalette } from './CommandPalette';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -24,7 +19,7 @@ import { SiteInfoPopover } from './SiteInfoPopover';
 import { WorkspaceEditor } from './WorkspaceEditor';
 
 const PANE =
-  'relative overflow-hidden rounded-[var(--radius-content)] bg-surface shadow-[var(--shadow-content)]';
+  'relative overflow-hidden rounded-content bg-surface shadow-content';
 
 /**
  * The frame the active page's Chromium view is placed over, or the two views
@@ -42,13 +37,13 @@ export function ContentArea() {
   const activeId = useShell((state) => state.snapshot?.activePageId ?? null);
 
   return (
-    <div className="min-h-0 flex-1 px-[var(--gutter)] pb-[var(--gutter)]">
+    <div className="min-h-0 flex-1 px-(--gutter) pb-(--gutter)">
       {/* The page views are placed by the main process using the same gap. */}
       <div
         ref={frameRef}
         className={
           split
-            ? 'relative grid h-full grid-cols-2 gap-[var(--gutter)]'
+            ? 'relative grid h-full grid-cols-2 gap-(--gutter)'
             : `${PANE} h-full`
         }
       >
@@ -83,7 +78,7 @@ function SplitPane({ pageId, side }: { pageId: PageId; side: string }) {
       onPointerDown={() => {
         if (!active) void api().activatePage(pageId);
       }}
-      className={`${PANE} transition-shadow duration-[var(--duration-fast)] data-[active=true]:shadow-[var(--shadow-focus)]`}
+      className={`${PANE} transition-shadow duration-fast data-[active=true]:shadow-focus`}
     >
       {page && <PageSurface page={page} />}
       <FrozenPage pageId={pageId} />
@@ -132,7 +127,7 @@ function OverlayBoundary() {
       {failedPanel && (
         <p
           role="alert"
-          className="overlay-in absolute top-2 left-1/2 -translate-x-1/2 rounded-[var(--radius-control)] bg-elevated px-3 py-1.5 text-small text-fg-muted shadow-[var(--shadow-row)]"
+          className="overlay-in absolute top-2 left-1/2 -translate-x-1/2 rounded-control bg-elevated px-3 py-1.5 text-small text-fg-muted shadow-row"
         >
           That panel ran into a problem and was closed. Your pages are
           unaffected.
@@ -195,57 +190,42 @@ function PageSurface({ page }: { page: PageSnapshot }) {
   return null;
 }
 
-function Centered({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex h-full items-center justify-center p-8">
-      <div className="max-w-[380px] text-center">{children}</div>
-    </div>
-  );
-}
-
 function NoPages() {
   return (
-    <Centered>
-      <div className="mb-6">
-        <Brand size={32} />
-      </div>
-      <h1 className="text-title font-semibold tracking-[-0.01em]">
-        Start a trail
-      </h1>
-      <p className="mt-1.5 text-fg-muted">
-        Open a page, and every page you reach from it branches beneath it in the
-        sidebar.
-      </p>
-      <button
-        type="button"
-        onClick={() => void openLocation()}
-        className="button button-raised mt-5 h-8"
-      >
-        <Plus size={14} strokeWidth={1.75} />
-        New page
-        <kbd className="shortcut ml-1">⌘T</kbd>
-      </button>
-    </Centered>
+    <PageState
+      lead={<Brand size={32} />}
+      title="Start a trail"
+      detail="Open a page, and every page you reach from it branches beneath it in the sidebar."
+    >
+      <PageStateActions>
+        <button
+          type="button"
+          onClick={() => void openLocation()}
+          className="button button-raised button-lg"
+        >
+          <Plus size={14} strokeWidth={1.75} />
+          New page
+          <kbd className="shortcut ml-1">⌘T</kbd>
+        </button>
+      </PageStateActions>
+    </PageState>
   );
 }
 
 /** A new page with the location field dismissed: one way back to it. */
 function NewPage() {
   return (
-    <Centered>
-      <div className="mb-6">
-        <Brand size={32} />
-      </div>
+    <PageState lead={<Brand size={32} />}>
       <button
         type="button"
         onClick={() => void openLocation()}
-        className="button button-raised h-8"
+        className="button button-raised button-lg"
       >
         <Search size={14} strokeWidth={1.75} />
         Search or enter address
         <kbd className="shortcut ml-1">⌘L</kbd>
       </button>
-    </Centered>
+    </PageState>
   );
 }
 
@@ -253,20 +233,22 @@ function PageFailed({ page }: { page: PageSnapshot }) {
   const error = page.error!;
   const { title, detail } = describeError(error);
   return (
-    <Centered>
-      <CircleAlert
-        size={20}
-        strokeWidth={1.5}
-        className="mx-auto mb-3 text-fg-subtle"
-        aria-hidden
-      />
-      <h1 className="text-title font-semibold tracking-[-0.01em] wrap-anywhere">
-        {title}
-      </h1>
-      <p className="mt-1.5 text-fg-muted">{detail}</p>
+    <PageState
+      role="alert"
+      lead={
+        <CircleAlert
+          size={20}
+          strokeWidth={1.5}
+          className="text-fg-subtle"
+          aria-hidden
+        />
+      }
+      title={title}
+      detail={detail}
+    >
       {/* The specifics, for a search or a support request: never cut off. */}
       {error.url && (
-        <p className="mt-4 font-mono text-caption leading-[1.6] text-fg-subtle select-text">
+        <p className="mt-4 font-mono text-caption leading-loose text-fg-subtle select-text">
           <span className="block truncate" title={error.url}>
             {error.url}
           </span>
@@ -275,12 +257,12 @@ function PageFailed({ page }: { page: PageSnapshot }) {
           )}
         </p>
       )}
-      <div className="mt-5 flex justify-center gap-2">
+      <PageStateActions>
         {page.canGoBack && (
           <button
             type="button"
             onClick={() => void api().goBack(page.id)}
-            className="button h-8"
+            className="button button-lg"
           >
             Go back
           </button>
@@ -288,11 +270,11 @@ function PageFailed({ page }: { page: PageSnapshot }) {
         <button
           type="button"
           onClick={() => void api().reload(page.id)}
-          className="button button-raised h-8"
+          className="button button-raised button-lg"
         >
           Try again
         </button>
-      </div>
-    </Centered>
+      </PageStateActions>
+    </PageState>
   );
 }

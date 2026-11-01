@@ -37,7 +37,7 @@ export function Toolbar() {
 
   return (
     <header
-      className="drag flex h-[var(--toolbar-height)] shrink-0 items-center gap-0.5 pr-2 transition-[padding] duration-[var(--duration-base)] ease-[var(--ease-out)]"
+      className="drag flex h-(--toolbar-height) shrink-0 items-center gap-0.5 pr-2 transition-[padding] duration-base ease-out"
       style={{
         paddingLeft: sidebarOpen ? 'var(--gutter)' : 'var(--traffic-lights)',
       }}

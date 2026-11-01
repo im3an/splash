@@ -172,7 +172,7 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
         className="scrim-in pointer-events-none absolute inset-0 bg-scrim"
         aria-hidden
       />
-      <div className="dialog-in relative flex h-fit w-[600px] max-w-full flex-col overflow-hidden rounded-[var(--radius-content)] bg-elevated shadow-[var(--shadow-panel)]">
+      <div className="dialog-in relative flex h-fit w-(--palette-width) max-w-full flex-col overflow-hidden rounded-content bg-elevated shadow-panel">
         <div className="flex h-12 items-center gap-2.5 border-b border-divider px-3.5">
           <Search
             size={16}

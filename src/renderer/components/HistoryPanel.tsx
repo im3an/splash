@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, useLayoutEffect, useRef } from 'react';
 import { useHistoryView } from '../stores/history-view-store';
-import { CircleAlert, Globe, History, Search, X } from 'lucide-react';
+import { CircleAlert, History, Search, X } from 'lucide-react';
 import type { HistoryEntry } from '../../shared/types';
 import { displayUrl, hostOf } from '../lib/format';
 import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';
 import { PanelHeader } from './PanelHeader';
 import { PanelState } from './PanelState';
+import { SiteIcon } from './Favicon';
 
 const LIMIT = 300;
 const DAY = 24 * 60 * 60 * 1000;
@@ -52,25 +53,6 @@ function useSiteIcons(entries: HistoryEntry[] | null): Map<string, string> {
     }
     return icons;
   }, [pages, entries]);
-}
-
-function SiteIcon({ src }: { src: string | undefined }) {
-  const [failed, setFailed] = useState<string>();
-  if (!src || failed === src) {
-    return <Globe size={14} strokeWidth={1.75} className="text-fg-subtle" />;
-  }
-  return (
-    <img
-      src={src}
-      alt=""
-      width={16}
-      height={16}
-      referrerPolicy="no-referrer"
-      draggable={false}
-      className="size-4 rounded-[var(--radius-mark)] object-contain"
-      onError={() => setFailed(src)}
-    />
-  );
 }
 
 /** Every site visited, newest first, grouped by day, searchable. */
@@ -229,12 +211,12 @@ export function HistoryPanel() {
         <button
           type="button"
           onClick={() => void api().openSettings()}
-          className="h-7 shrink-0 rounded-[var(--radius-control)] px-2 text-small text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-row-hover hover:text-fg"
+          className="button button-sm shrink-0"
         >
           Clear data…
         </button>
       </PanelHeader>
-      <div className="mt-1.5 mb-1 flex h-8 shrink-0 items-center gap-2 rounded-[var(--radius-control)] bg-field pr-1 pl-2.5 transition-[background-color,box-shadow] duration-[var(--duration-base)] ease-[var(--ease-out)] focus-within:bg-field-focus focus-within:shadow-[var(--shadow-focus)]">
+      <div className="mt-1.5 mb-1 flex h-8 shrink-0 items-center gap-2 rounded-control bg-field pr-1 pl-2.5 transition-[background-color,box-shadow] duration-base ease-out focus-within:bg-field-focus focus-within:shadow-focus">
         <span className="grid size-4 shrink-0 place-items-center text-fg-subtle">
           {loading ? (
             <span
@@ -347,18 +329,18 @@ export function HistoryPanel() {
                     onClick={() => void open(entry)}
                     onMouseMove={() => setSelected(index)}
                     data-selected={index === selected}
-                    className="group relative flex cursor-default items-center gap-2 rounded-[var(--radius-row)] py-1.5 pr-1.5 pl-2.5 transition-colors duration-[var(--duration-fast)] data-[selected=true]:bg-row-hover"
+                    className="group relative flex cursor-default items-center gap-2 rounded-row py-1.5 pr-1.5 pl-2.5 transition-colors duration-fast data-[selected=true]:bg-row-hover"
                   >
                     <span className="grid size-4 shrink-0 place-items-center">
                       <SiteIcon
-                        src={entry.faviconUrl ?? icons.get(hostOf(entry.url))}
+                        url={entry.faviconUrl ?? icons.get(hostOf(entry.url))}
                       />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-fg">
                         {entry.title.trim() || hostOf(entry.url)}
                       </span>
-                      <span className="block truncate text-small leading-[1.4] text-fg-subtle">
+                      <span className="block truncate text-small leading-copy text-fg-subtle">
                         {displayUrl(entry.url)}
                       </span>
                     </span>
@@ -397,7 +379,7 @@ export function HistoryPanel() {
       {removed && (
         <div
           role="status"
-          className="toast-in mb-2 flex shrink-0 items-center gap-2 rounded-[var(--radius-row)] bg-row-hover py-1.5 pr-1.5 pl-3 text-small text-fg-muted"
+          className="toast-in mb-2 flex shrink-0 items-center gap-2 rounded-row bg-row-hover py-1.5 pr-1.5 pl-3 text-small text-fg-muted"
         >
           <span className="min-w-0 flex-1 truncate">
             Removed {removed.title.trim() || hostOf(removed.url)}

@@ -248,7 +248,7 @@ export function ContextMenu({
         inert={leaving}
         onKeyDown={onKeyDown}
         onContextMenu={(event) => event.preventDefault()}
-        className="popover-in fixed z-50 flex w-[236px] max-w-[calc(100vw-12px)] flex-col rounded-[var(--radius-content)] bg-elevated p-1 text-fg shadow-[var(--shadow-panel)] outline-none select-none"
+        className="popover-in fixed z-50 flex w-(--menu-width) max-w-[calc(100vw-12px)] flex-col rounded-content bg-elevated p-1 text-fg shadow-panel outline-none select-none"
         style={{
           left: position?.left ?? x,
           top: position?.top ?? y,
@@ -348,7 +348,7 @@ function MenuRow({
       onClick={() => {
         if (!disabled) onPick();
       }}
-      className={`group/item flex h-7 w-full shrink-0 cursor-default items-center gap-2 rounded-[var(--radius-inner)] px-2 text-left outline-none focus:bg-option-selected aria-disabled:opacity-40 ${muted ? 'text-fg-muted' : ''}`}
+      className={`group/item flex h-7 w-full shrink-0 cursor-default items-center gap-2 rounded-inner px-2 text-left outline-none focus:bg-option-selected aria-disabled:opacity-40 ${muted ? 'text-fg-muted' : ''}`}
     >
       <span
         aria-hidden

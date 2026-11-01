@@ -21,7 +21,7 @@ export function StorageBar() {
           strokeWidth={1.75}
           className="shrink-0 text-danger"
         />
-        <p className="min-w-0 flex-1 text-small leading-[1.45]">
+        <p className="min-w-0 flex-1 text-small leading-copy">
           <span className="font-medium">
             Splash can’t save your trails right now
           </span>

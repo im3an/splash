@@ -78,7 +78,7 @@ export function SettingsApp() {
     <div className="flex h-full">
       <nav
         aria-label="Settings sections"
-        className="drag flex w-[220px] shrink-0 flex-col gap-px px-2 pt-[52px]"
+        className="drag flex w-(--settings-nav-width) shrink-0 flex-col gap-px px-2 pt-[calc(var(--toolbar-height)+var(--space-1))]"
       >
         <div className="px-2.5 pb-5">
           <Brand />
@@ -89,7 +89,7 @@ export function SettingsApp() {
             type="button"
             aria-current={id === active ? 'page' : undefined}
             onClick={() => setActive(id)}
-            className="flex h-8 items-center gap-2.5 rounded-[var(--radius-row)] px-2.5 text-left text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg aria-[current=page]:bg-elevated aria-[current=page]:text-fg aria-[current=page]:shadow-[var(--shadow-row)]"
+            className="flex h-8 items-center gap-2.5 rounded-row px-2.5 text-left text-fg-muted transition-colors duration-fast hover:bg-hover hover:text-fg aria-[current=page]:bg-elevated aria-[current=page]:text-fg aria-[current=page]:shadow-row"
           >
             <Icon size={15} strokeWidth={1.75} className="shrink-0" />
             <span className="truncate">{label}</span>
@@ -97,8 +97,8 @@ export function SettingsApp() {
         ))}
       </nav>
       <main className="min-w-0 flex-1 overflow-y-auto bg-surface">
-        <div className="drag h-[48px]" />
-        <div className="mx-auto flex max-w-[620px] flex-col gap-7 px-8 pb-10 select-text">
+        <div className="drag h-(--toolbar-height)" />
+        <div className="mx-auto flex max-w-(--settings-measure) flex-col gap-7 px-8 pb-10 select-text">
           <h1 className="text-display font-semibold tracking-[-0.01em]">
             {section.title ?? section.label}
           </h1>

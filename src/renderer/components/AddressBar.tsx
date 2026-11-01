@@ -188,7 +188,7 @@ export function AddressBar({
         onMouseLeave={endReveal}
         data-resting={!pill && Boolean(url) && !editing && !revealed}
         data-variant={variant}
-        className="group/address relative flex h-8 items-center gap-1.5 rounded-[var(--radius-control)] bg-field pr-1.5 pl-1 transition-[background-color,box-shadow] duration-[var(--duration-base)] ease-[var(--ease-out)] focus-within:bg-field-focus focus-within:shadow-[var(--shadow-focus)] data-[resting=true]:bg-transparent data-[variant=sidebar]:h-9 data-[variant=sidebar]:rounded-[var(--radius-pill)] data-[variant=sidebar]:bg-pill data-[variant=sidebar]:pr-1 data-[variant=sidebar]:pl-1.5 data-[variant=sidebar]:focus-within:bg-field-focus"
+        className="group/address relative flex h-8 items-center gap-1.5 rounded-control bg-field pr-1.5 pl-1 transition-[background-color,box-shadow] duration-base ease-out focus-within:bg-field-focus focus-within:shadow-focus data-[resting=true]:bg-transparent data-[variant=sidebar]:h-9 data-[variant=sidebar]:rounded-pill data-[variant=sidebar]:bg-pill data-[variant=sidebar]:pr-1 data-[variant=sidebar]:pl-1.5 data-[variant=sidebar]:focus-within:bg-field-focus"
       >
         <SecurityButton
           security={editing ? 'none' : security}
@@ -243,7 +243,7 @@ export function AddressBar({
               data-revealed={revealed && full !== null}
               className="group/summary pointer-events-none absolute inset-0 overflow-hidden text-body whitespace-nowrap"
             >
-              <span className="absolute inset-0 flex items-center transition-opacity delay-[calc(var(--duration-fast)/2)] duration-[var(--duration-fast)] ease-[var(--ease-out)] group-data-[revealed=true]/summary:opacity-0 group-data-[revealed=true]/summary:delay-0">
+              <span className="absolute inset-0 flex items-center transition-opacity delay-[calc(var(--duration-fast)/2)] duration-fast ease-out group-data-[revealed=true]/summary:opacity-0 group-data-[revealed=true]/summary:delay-0">
                 <span
                   className={
                     pill ? 'min-w-0 truncate text-fg' : 'shrink-0 text-fg'
@@ -260,7 +260,7 @@ export function AddressBar({
                 )}
               </span>
               {full && (
-                <span className="absolute inset-0 flex items-center opacity-0 transition-opacity duration-[var(--duration-fast)] ease-[var(--ease-out)] group-data-[revealed=true]/summary:opacity-100 group-data-[revealed=true]/summary:delay-[calc(var(--duration-fast)/2)]">
+                <span className="absolute inset-0 flex items-center opacity-0 transition-opacity duration-fast ease-out group-data-[revealed=true]/summary:opacity-100 group-data-[revealed=true]/summary:delay-[calc(var(--duration-fast)/2)]">
                   <span className="min-w-0 truncate">
                     <span className="text-fg-subtle">{full.scheme}</span>
                     <span className="text-fg">{full.host}</span>
@@ -277,7 +277,7 @@ export function AddressBar({
             onClick={() => void openOverlay({ kind: 'site-info' })}
             aria-label={`Blocked: ${permissionNames(blocked)}`}
             title={`Blocked: ${permissionNames(blocked)}. Click to change.`}
-            className="grid size-6 shrink-0 place-items-center rounded-[var(--radius-inner)] text-danger hover:bg-hover"
+            className="icon-button icon-button-sm shrink-0 text-danger hover:text-danger"
           >
             <ShieldOff size={13} strokeWidth={2} />
           </button>
@@ -291,7 +291,7 @@ export function AddressBar({
             aria-label={page.isMuted ? 'Unmute page' : 'Mute page'}
             title={`${page.isMuted ? 'Unmute page' : 'Mute page'} (⌃⌘M)`}
             data-playing={page.isAudible && !page.isMuted}
-            className="press grid size-6 shrink-0 place-items-center rounded-[var(--radius-inner)] text-fg-subtle hover:bg-hover hover:text-fg data-[playing=true]:text-accent"
+            className="icon-button icon-button-sm shrink-0 data-[playing=true]:text-accent"
           >
             {page.isMuted ? (
               <VolumeX size={13} strokeWidth={2} />
@@ -306,7 +306,7 @@ export function AddressBar({
             onClick={() => void api().zoom(page.id, 'reset')}
             aria-label={`Zoom ${page.zoomPercent}%. Reset to 100%`}
             title="Reset zoom (⌘0)"
-            className="h-6 shrink-0 rounded-[var(--radius-inner)] px-1.5 text-caption font-medium text-fg-muted tabular-nums hover:bg-hover hover:text-fg"
+            className="button button-sm rounded-inner px-1.5 text-caption font-medium tabular-nums"
           >
             {page.zoomPercent}%
           </button>
@@ -358,7 +358,7 @@ function SecurityButton({
       // finds it. "Not secure" always shows.
       data-secure={secure}
       data-tucked={secure && tucked}
-      className="flex h-6 shrink-0 items-center gap-1 overflow-hidden rounded-[var(--radius-inner)] px-1.5 text-fg-subtle transition-[width,margin,color,background-color,opacity] duration-[var(--duration-base)] ease-[var(--ease-out)] hover:bg-hover hover:text-fg data-[secure=true]:w-6 data-[secure=true]:justify-center data-[secure=true]:px-0 data-[tucked=true]:-mr-1.5 data-[tucked=true]:w-0 data-[tucked=true]:opacity-0 data-[tucked=true]:focus-visible:mr-0 data-[tucked=true]:focus-visible:w-6 data-[tucked=true]:focus-visible:opacity-100"
+      className="flex h-6 shrink-0 items-center gap-1 overflow-hidden rounded-inner px-1.5 text-fg-subtle transition-[width,margin,color,background-color,opacity] duration-base ease-out hover:bg-hover hover:text-fg data-[secure=true]:w-6 data-[secure=true]:justify-center data-[secure=true]:px-0 data-[tucked=true]:-mr-1.5 data-[tucked=true]:w-0 data-[tucked=true]:opacity-0 data-[tucked=true]:focus-visible:mr-0 data-[tucked=true]:focus-visible:w-6 data-[tucked=true]:focus-visible:opacity-100"
     >
       {secure ? (
         <Lock size={12} strokeWidth={2} />

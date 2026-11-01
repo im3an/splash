@@ -1,4 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { BrandMark } from './Brand';
+import { PageState, PageStateActions } from './PanelState';
 
 interface Props {
   /** Shown instead of the children once they have thrown. */
@@ -35,23 +37,21 @@ export class ErrorBoundary extends Component<Props, { failed: boolean }> {
 /** The last resort: the whole window failed to render. */
 export function ShellCrashed() {
   return (
-    <div className="flex h-full items-center justify-center p-8">
-      <div className="max-w-[360px] text-center">
-        <h1 className="text-title font-semibold">
-          This window ran into a problem
-        </h1>
-        <p className="mt-1.5 text-fg-muted">
-          Your workspaces and pages are safe. Reloading the window brings it
-          back.
-        </p>
+    <PageState
+      role="alert"
+      lead={<BrandMark size={24} className="text-fg-subtle" />}
+      title="This window ran into a problem"
+      detail="Your workspaces and pages are safe. Reloading the window brings it back."
+    >
+      <PageStateActions>
         <button
           type="button"
           onClick={() => location.reload()}
-          className="mt-5 h-8 rounded-[var(--radius-control)] bg-elevated px-3 shadow-[var(--shadow-row)] hover:bg-field-focus"
+          className="button button-raised button-lg"
         >
           Reload window
         </button>
-      </div>
-    </div>
+      </PageStateActions>
+    </PageState>
   );
 }

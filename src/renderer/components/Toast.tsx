@@ -77,7 +77,7 @@ function ToastCard({
       type="button"
       onClick={() => act(action)}
       title={action.title}
-      className="press flex h-6 shrink-0 items-center gap-1 rounded-[var(--radius-inner)] px-2 text-fg hover:bg-hover"
+      className="press flex h-6 shrink-0 items-center gap-1 rounded-inner px-2 text-fg hover:bg-hover"
     >
       {action.icon === 'undo' && <RotateCcw size={12} strokeWidth={2} />}
       {action.label}
@@ -107,15 +107,15 @@ function ToastCard({
       data-placement={placement}
       className={
         compact
-          ? 'toast-in ml-1.5 flex h-7 max-w-[360px] min-w-0 shrink items-center gap-1 rounded-[var(--radius-control)] bg-elevated pr-0.5 pl-3 text-small text-fg-muted shadow-[var(--shadow-row)]'
-          : `toast-in mx-1 mb-2 flex gap-2 rounded-[var(--radius-control)] bg-elevated py-1.5 pr-1 pl-3 text-small text-fg-muted shadow-[var(--shadow-row)] ${stacked ? 'flex-col gap-1' : 'items-start'}`
+          ? 'toast-in ml-1.5 flex h-7 max-w-(--notice-width) min-w-0 shrink items-center gap-1 rounded-control bg-elevated pr-0.5 pl-3 text-small text-fg-muted shadow-row'
+          : `toast-in mx-1 mb-2 flex gap-2 rounded-control bg-elevated py-1.5 pr-1 pl-3 text-small text-fg-muted shadow-row ${stacked ? 'flex-col gap-1' : 'items-start'}`
       }
     >
       <span
         className={
           compact
             ? 'min-w-0 flex-1 truncate'
-            : `min-w-0 flex-1 leading-[1.4] ${stacked ? 'pt-0.5 pr-2' : ''}`
+            : `min-w-0 flex-1 leading-copy ${stacked ? 'pt-0.5 pr-2' : ''}`
         }
         title={toast.detail ? `${toast.message} ${toast.detail}` : undefined}
       >

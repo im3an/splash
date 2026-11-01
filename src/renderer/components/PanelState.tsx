@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 /** Shared hierarchy for a sidebar's empty and recoverable error states. */
@@ -42,4 +43,44 @@ export function PanelState({
       )}
     </div>
   );
+}
+
+/**
+ * The same hierarchy at page scale: what fills the page card (or a whole
+ * window) when there's no page to show, a page failed, or the shell broke.
+ */
+export function PageState({
+  lead,
+  title,
+  detail,
+  children,
+  role,
+}: {
+  lead?: ReactNode;
+  title?: string;
+  detail?: ReactNode;
+  children?: ReactNode;
+  role?: 'alert' | 'status';
+}) {
+  return (
+    <div role={role} className="flex h-full items-center justify-center p-8">
+      <div className="max-w-(--measure) text-center">
+        {lead && <div className="mb-5 flex justify-center">{lead}</div>}
+        {title && (
+          <h1 className="text-title font-semibold tracking-[-0.01em] wrap-anywhere">
+            {title}
+          </h1>
+        )}
+        {detail && (
+          <div className="mt-1.5 leading-copy text-fg-muted">{detail}</div>
+        )}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** The row of next steps under a PageState. */
+export function PageStateActions({ children }: { children: ReactNode }) {
+  return <div className="mt-5 flex justify-center gap-2">{children}</div>;
 }

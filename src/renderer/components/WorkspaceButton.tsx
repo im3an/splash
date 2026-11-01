@@ -47,7 +47,7 @@ export function WorkspaceButton() {
           }
         }}
         onBlur={(event) => commit(event.currentTarget.value)}
-        className="editing-field mb-0.5 h-7 shrink-0 rounded-[var(--radius-control)] px-2.5 text-small font-semibold text-fg select-text"
+        className="editing-field mb-0.5 h-7 shrink-0 rounded-control px-2.5 text-small font-semibold text-fg select-text"
       />
     );
   }
@@ -58,7 +58,7 @@ export function WorkspaceButton() {
       onClick={() => void api().showWorkspaceMenu()}
       onDoubleClick={() => setRenaming(true)}
       title="Workspaces (⌃1–9 to switch)"
-      className="group mb-0.5 flex h-7 max-w-full shrink-0 items-center gap-1.5 self-start rounded-[var(--radius-control)] pr-1.5 pl-2.5 text-small font-semibold text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-row-hover hover:text-fg"
+      className="group mb-0.5 flex h-7 max-w-full shrink-0 items-center gap-1.5 self-start rounded-control pr-1.5 pl-2.5 text-small font-semibold text-fg-muted transition-colors duration-fast hover:bg-row-hover hover:text-fg"
     >
       <span className="grid size-4 shrink-0 place-items-center text-accent">
         <WorkspaceIcon
@@ -71,7 +71,7 @@ export function WorkspaceButton() {
       <ChevronDown
         size={12}
         strokeWidth={2}
-        className="shrink-0 text-fg-subtle opacity-0 transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 group-focus-visible:opacity-100"
+        className="shrink-0 text-fg-subtle opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-visible:opacity-100"
       />
     </button>
   );

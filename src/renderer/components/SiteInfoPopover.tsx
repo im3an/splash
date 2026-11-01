@@ -130,7 +130,7 @@ export function SiteInfoPopover() {
               )}
               <div className="min-w-0">
                 <p className="truncate font-medium">{info.host}</p>
-                <p className="text-[12px] text-fg-subtle">
+                <p className="text-small text-fg-subtle">
                   {info.security === 'secure'
                     ? 'Your connection to this site is encrypted.'
                     : 'Connection is not secure. Don’t enter passwords or payment details.'}
@@ -141,14 +141,14 @@ export function SiteInfoPopover() {
               {info.permissions.map(({ permission, label, decision }) => (
                 <div
                   key={permission}
-                  className="flex h-9 items-center justify-between gap-3 rounded-[var(--radius-row)] px-2"
+                  className="flex h-9 items-center justify-between gap-3 rounded-row px-2"
                 >
                   <span className="min-w-0 text-fg-muted">
                     {label}
                     {permission === 'ads' &&
                       decision === 'block' &&
                       info.blockedCount > 0 && (
-                        <span className="block text-[11px] text-fg-subtle">
+                        <span className="block text-caption text-fg-subtle">
                           {info.blockedCount} blocked on this page
                         </span>
                       )}
@@ -183,13 +183,13 @@ export function SiteInfoPopover() {
                     void api().reload(page.id);
                     close();
                   }}
-                  className="flex h-7 items-center gap-1.5 rounded-[var(--radius-control)] px-2 text-[12px] text-fg hover:bg-hover"
+                  className="button button-sm text-fg"
                 >
                   <RotateCw size={12} strokeWidth={2} />
                   Reload to apply
                 </button>
               ) : (
-                <span className="text-[12px] text-fg-subtle">
+                <span className="text-small text-fg-subtle">
                   Choices apply to all of {info.host}.
                 </span>
               )}
@@ -197,7 +197,7 @@ export function SiteInfoPopover() {
                 type="button"
                 disabled={busy}
                 onClick={() => void reset()}
-                className="h-7 rounded-[var(--radius-control)] px-2 text-[12px] text-fg-muted hover:bg-hover hover:text-fg"
+                className="button button-sm"
               >
                 Reset permissions
               </button>

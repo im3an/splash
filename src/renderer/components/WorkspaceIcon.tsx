@@ -92,7 +92,7 @@ export function WorkspaceIcon({
           width={size + 2}
           height={size + 2}
           draggable={false}
-          className="rounded-[var(--radius-mark)] object-cover"
+          className="rounded-mark object-cover"
         />
       );
     default:

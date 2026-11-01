@@ -76,7 +76,7 @@ function DownloadRow({
   return (
     <li
       style={{ '--i': index } as React.CSSProperties}
-      className="rise-in group flex items-start gap-2 rounded-[var(--radius-row)] py-2 pr-1.5 pl-2.5 transition-colors duration-[var(--duration-fast)] hover:bg-row-hover"
+      className="rise-in group flex items-start gap-2 rounded-row py-2 pr-1.5 pl-2.5 transition-colors duration-fast hover:bg-row-hover"
     >
       <span className="mt-0.5 grid size-4 shrink-0 place-items-center">
         {download.state === 'progressing' ? (
@@ -102,12 +102,12 @@ function DownloadRow({
           {download.filename}
         </button>
         <p
-          className={`text-small leading-[1.4] ${failed ? 'text-danger' : 'text-fg-subtle'}`}
+          className={`text-small leading-copy ${failed ? 'text-danger' : 'text-fg-subtle'}`}
         >
           {status(download)}
         </p>
         {download.runnable && done && (
-          <p className="mt-1 flex items-start gap-1 text-small leading-[1.4] text-fg-muted">
+          <p className="mt-1 flex items-start gap-1 text-small leading-copy text-fg-muted">
             <TriangleAlert
               size={12}
               strokeWidth={2}
@@ -174,7 +174,7 @@ export function DownloadsPanel() {
           <button
             type="button"
             onClick={() => void api().clearDownloads()}
-            className="h-7 rounded-[var(--radius-control)] px-2 text-small text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-row-hover hover:text-fg"
+            className="button button-sm"
           >
             Clear finished
           </button>

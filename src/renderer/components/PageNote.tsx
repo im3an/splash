@@ -52,7 +52,7 @@ export function PageNote({
         }}
         onBlur={(event) => commit(event.currentTarget.value)}
         style={inset}
-        className="editing-field mr-1 mb-1 resize-none rounded-[var(--radius-control)] px-2 py-1.5 text-small leading-[1.45] text-fg placeholder:text-fg-subtle select-text"
+        className="editing-field mr-1 mb-1 resize-none rounded-control px-2 py-1.5 text-small leading-copy text-fg placeholder:text-fg-subtle select-text"
       />
     );
   }
@@ -64,7 +64,7 @@ export function PageNote({
       onClick={() => editNote(pageId)}
       title="Edit note"
       style={inset}
-      className="mr-1 mb-1 line-clamp-2 rounded-[var(--radius-inner)] px-1.5 py-0.5 text-left text-small leading-[1.4] text-fg-subtle transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg-muted"
+      className="mr-1 mb-1 line-clamp-2 rounded-inner px-1.5 py-0.5 text-left text-small leading-copy text-fg-subtle transition-colors duration-fast hover:bg-hover hover:text-fg-muted"
     >
       {note}
     </button>

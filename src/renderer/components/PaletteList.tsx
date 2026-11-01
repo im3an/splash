@@ -1,10 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import {
   ArrowRight,
   Columns2,
@@ -45,6 +39,7 @@ import type {
 } from '../../shared/types';
 import { highlightParts } from '../lib/highlight';
 import { WorkspaceIcon } from './WorkspaceIcon';
+import { SiteIcon } from './Favicon';
 
 const COMMAND_ICONS: Record<PaletteCommand, LucideIcon> = {
   'new-page': Plus,
@@ -83,34 +78,10 @@ const SECTION_LABELS: Record<PaletteSection, string | null> = {
   search: 'Suggestions',
 };
 
-/** A site's favicon, or `fallback` when there is none or it won't load. */
-function SiteIcon({
-  url,
-  fallback,
-}: {
-  url: string | null | undefined;
-  fallback: ReactNode;
-}) {
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  if (!url || url === failedUrl) return fallback;
-  return (
-    <img
-      src={url}
-      alt=""
-      width={16}
-      height={16}
-      referrerPolicy="no-referrer"
-      draggable={false}
-      className="size-4 shrink-0 rounded-[var(--radius-mark)] object-contain"
-      onError={() => setFailedUrl(url)}
-    />
-  );
-}
-
 function ItemIcon({ item }: { item: PaletteItem }) {
   // Brightens with its row when picked.
   const className =
-    'shrink-0 text-fg-subtle transition-colors duration-[var(--duration-fast)] group-aria-selected/option:text-fg-muted';
+    'shrink-0 text-fg-subtle transition-colors duration-fast group-aria-selected/option:text-fg-muted';
   const props = { size: 15, strokeWidth: 1.75, className, 'aria-hidden': true };
   switch (item.kind) {
     case 'page':
@@ -243,7 +214,7 @@ export function PaletteList({
           event.preventDefault();
           onRun(item);
         }}
-        className="group/option flex h-9 shrink-0 cursor-default items-center gap-2.5 rounded-[var(--radius-row)] px-2.5 text-fg-muted transition-colors duration-[var(--duration-fast)] ease-[var(--ease-out)] aria-selected:bg-option-selected aria-selected:text-fg"
+        className="group/option flex h-9 shrink-0 cursor-default items-center gap-2.5 rounded-row px-2.5 text-fg-muted transition-colors duration-fast ease-out aria-selected:bg-option-selected aria-selected:text-fg"
       >
         <ItemIcon item={item} />
         <span className="min-w-0 flex-1 truncate">

@@ -25,7 +25,7 @@ export function SegmentedControl<T extends string | number>({
       role="radiogroup"
       aria-label={label}
       aria-disabled={disabled || undefined}
-      className={`flex rounded-[var(--radius-control)] bg-field p-0.5 ${stretch ? 'w-full' : ''}`}
+      className={`flex rounded-control bg-field p-0.5 ${stretch ? 'w-full' : ''}`}
       onKeyDown={(event) => {
         if (disabled || !options.length) return;
         let next: number;
@@ -63,7 +63,7 @@ export function SegmentedControl<T extends string | number>({
           tabIndex={index === selected ? 0 : -1}
           disabled={disabled}
           onClick={() => onChange(option.value)}
-          className={`rounded-[var(--radius-inner)] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:text-fg active:bg-pressed aria-checked:bg-elevated aria-checked:text-fg aria-checked:shadow-[var(--shadow-row)] disabled:opacity-50 ${compact ? 'h-6 px-2 text-caption' : 'h-7 px-2.5 text-small'} ${stretch ? 'min-w-0 flex-1' : ''}`}
+          className={`rounded-inner text-fg-muted transition-colors duration-fast hover:text-fg active:bg-pressed aria-checked:bg-elevated aria-checked:text-fg aria-checked:shadow-row disabled:opacity-50 ${compact ? 'h-6 px-2 text-caption' : 'h-7 px-2.5 text-small'} ${stretch ? 'min-w-0 flex-1' : ''}`}
         >
           {option.label}
         </button>

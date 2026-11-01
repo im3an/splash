@@ -35,7 +35,37 @@
   --text-display: var(--type-display);
   --font-sans: var(--font-ui);
   --font-mono: var(--font-mono);
+}
+
+/*
+ * Shape, depth and motion tokens as utilities (rounded-control, shadow-panel,
+ * duration-fast, ease-out). `reference` keeps Tailwind from redeclaring the
+ * variables; tokens.css stays their single definition.
+ */
+@theme inline reference {
+  --radius-mark: var(--radius-mark);
+  --radius-inner: var(--radius-inner);
+  --radius-row: var(--radius-row);
+  --radius-control: var(--radius-control);
+  --radius-pill: var(--radius-pill);
+  --radius-content: var(--radius-content);
+  --radius-full: var(--radius-full);
+  --shadow-row: var(--shadow-row);
+  --shadow-content: var(--shadow-content);
+  --shadow-panel: var(--shadow-panel);
+  --shadow-outline: var(--shadow-outline);
+  --shadow-focus: var(--shadow-focus);
+  --transition-duration-fast: var(--duration-fast);
+  --transition-duration-base: var(--duration-base);
+  --transition-duration-slow: var(--duration-slow);
+  --transition-duration-exit: var(--duration-exit);
   --ease-out: var(--ease-out);
+  --ease-in: var(--ease-in);
+  --ease-emphasized: var(--ease-emphasized);
+  --ease-spring: var(--ease-spring);
+  --leading-chrome: var(--leading-chrome);
+  --leading-copy: var(--leading-copy);
+  --leading-loose: var(--leading-loose);
 }
 
 /*
@@ -92,7 +122,7 @@
     color: var(--fg);
     font-family: var(--font-ui);
     font-size: var(--type-body);
-    line-height: 1.35;
+    line-height: var(--leading-chrome);
     -webkit-font-smoothing: antialiased;
     user-select: none;
     cursor: default;
@@ -154,8 +184,8 @@
   .icon-button {
     display: inline-grid;
     place-items: center;
-    width: 28px;
-    height: 28px;
+    width: var(--control-height);
+    height: var(--control-height);
     border-radius: var(--radius-control);
     color: var(--fg-muted);
     transition:
@@ -178,8 +208,13 @@
     color: var(--accent);
   }
   .icon-button:disabled {
-    color: var(--fg-subtle);
-    opacity: 0.55;
+    color: var(--fg-disabled);
+  }
+  /* Inside rows and fields, where 28px would crowd the line. */
+  .icon-button-sm {
+    width: var(--control-height-sm);
+    height: var(--control-height-sm);
+    border-radius: var(--radius-inner);
   }
 
   /*
@@ -192,7 +227,7 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    height: 28px;
+    height: var(--control-height);
     padding-inline: 12px;
     border-radius: var(--radius-control);
     color: var(--fg-muted);
@@ -233,6 +268,51 @@
   }
   .button-primary:active:not(:disabled) {
     background: var(--accent);
+  }
+  /* Removes something for good, or can't be undone: say so in the label. */
+  .button-danger {
+    color: var(--danger);
+  }
+  .button-danger:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--danger) 12%, transparent);
+    color: var(--danger);
+  }
+  /* A page-level next step, in an empty or failed page. */
+  .button-lg {
+    height: 32px;
+  }
+  .button-sm {
+    height: var(--control-height-sm);
+    padding-inline: 9px;
+    font-size: var(--type-small);
+  }
+
+  /* An on/off setting, like AppKit's NSSwitch. */
+  .switch {
+    position: relative;
+    flex-shrink: 0;
+    width: 38px;
+    height: 22px;
+    border-radius: var(--radius-full);
+    background: var(--pressed);
+    transition: background-color var(--duration-fast) var(--ease-out);
+  }
+  .switch[aria-checked='true'] {
+    background: var(--accent);
+  }
+  .switch-knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-full);
+    background: var(--switch-knob);
+    box-shadow: var(--shadow-row);
+    transition: translate var(--duration-fast) var(--ease-out);
+  }
+  .switch[aria-checked='true'] > .switch-knob {
+    translate: 16px 0;
   }
 
   /* A bar between the toolbar and the page: a question, a warning, find. */
@@ -294,7 +374,7 @@
     inset: auto 10px 0;
     height: 2px;
     overflow: hidden;
-    border-radius: 1px;
+    border-radius: var(--radius-full);
     opacity: 0;
     transition: opacity var(--duration-base) var(--ease-out);
   }
@@ -581,31 +661,9 @@
 /*
  * Reduced motion: nothing slides. Activity still has to read as activity,
  * so loading breathes in place instead of sweeping, and spinners slow down
- * rather than freeze into something that looks finished.
+ * rather than freeze into something that looks finished. data-motion is
+ * set from macOS's setting and Splash's own.
  */
-@media (prefers-reduced-motion: reduce) {
-  .skeleton {
-    animation: none;
-  }
-  .load-indicator::after {
-    width: 100%;
-    animation: load-breathe 1.6s ease-in-out infinite;
-  }
-  .spinner,
-  .animate-spin {
-    animation-duration: 2.4s;
-  }
-  .rise-in {
-    animation-delay: 0s;
-  }
-  .press:active:not(:disabled),
-  .icon-button:active:not(:disabled),
-  .button:active:not(:disabled) {
-    scale: none;
-  }
-}
-
-/* The same, when Reduce motion is on in Splash's settings. */
 :root[data-motion='reduced'] {
   .skeleton {
     animation: none;
@@ -657,7 +715,7 @@
   min-height: 32px;
   padding: 4px var(--sidebar-row-inset) 4px 10px;
   color: var(--fg-subtle);
-  font-size: 11px;
+  font-size: var(--type-small);
   font-weight: 400;
   letter-spacing: 0.01em;
 }
@@ -729,6 +787,8 @@ details:not([open]) > summary .sidebar-section-label > svg,
 .sidebar-section-heading > .icon-button {
   grid-column: 2;
   grid-row: 1;
+  width: var(--sidebar-action-size);
+  height: var(--sidebar-action-size);
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--duration-fast) var(--ease-out);
@@ -758,14 +818,6 @@ summary.sidebar-section-heading:focus-visible {
 details[open] > .sidebar-section-content {
   animation: sidebar-reveal var(--duration-base) var(--ease-out);
 }
-@media (prefers-reduced-motion: reduce) {
-  details[open] > .sidebar-section-content {
-    animation: none;
-  }
-  .sidebar-section-label > svg {
-    transition: none;
-  }
-}
 :root[data-motion='reduced'] details[open] > .sidebar-section-content {
   animation: none;
 }
@@ -781,15 +833,8 @@ details[open] > .sidebar-section-content {
 .sidebar-section-heading > span:first-child {
   min-width: 0;
 }
-.sidebar-section-heading > .icon-button {
-  width: var(--sidebar-action-size);
-  height: var(--sidebar-action-size);
-}
 .library {
   padding-bottom: 6px;
-}
-.library-section + .library-section {
-  margin-top: 8px;
 }
 .library-count {
   display: grid;
@@ -798,7 +843,7 @@ details[open] > .sidebar-section-content {
   width: var(--sidebar-action-size);
   line-height: 1;
   color: var(--fg-subtle);
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-variant-numeric: tabular-nums;
 }
 .library-folder,
@@ -885,30 +930,12 @@ details[open] > .sidebar-section-content {
   opacity: 1;
   pointer-events: auto;
 }
-.saved-site-icon {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--radius-mark);
-  background: var(--field);
-  color: var(--fg-muted);
-  font-size: 10px;
-  font-weight: 600;
-}
-.saved-site-icon img {
-  width: 16px;
-  height: 16px;
-  object-fit: contain;
-  border-radius: 2px;
-}
 .library-empty,
 .library-status {
   padding: 3px 10px 6px;
   color: var(--fg-subtle);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--type-caption);
+  line-height: var(--leading-copy);
 }
 .library-empty-add {
   display: flex;
@@ -917,7 +944,7 @@ details[open] > .sidebar-section-content {
   min-height: 30px;
   padding: 3px 5px;
   color: var(--fg-subtle);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 .library-empty-add:hover {
   color: var(--fg);
@@ -939,33 +966,16 @@ details[open] > .sidebar-section-content {
 .library-editor input {
   width: 100%;
   min-width: 0;
-  height: 30px;
+  height: var(--control-height);
   padding: 0 8px;
   border: 1px solid var(--divider);
   border-radius: var(--radius-inner);
   background: var(--field);
   outline-offset: 2px;
 }
-.library-editor-button {
-  min-height: 27px;
-  padding: 2px 9px;
-  border-radius: var(--radius-inner);
-  background: var(--row-hover);
-  font-size: 12px;
-}
-.library-editor-button:hover {
-  background: var(--pressed);
-}
-.library-editor-button[data-primary] {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-.library-editor-button:disabled {
-  opacity: 0.5;
-}
 .library-recovery {
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--type-small);
+  line-height: var(--leading-copy);
 }
 
 .trail-row[data-pinned-root='true'] {
@@ -985,11 +995,6 @@ details[open] > .sidebar-section-content {
 .library button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-}
-@media (prefers-reduced-motion: reduce) {
-  .library-chevron {
-    transition: none;
-  }
 }
 :root[data-motion='reduced'] .library-chevron {
   transition: none;
@@ -1066,9 +1071,6 @@ details[open] > .sidebar-section-content {
 }
 .sidebar-new-page:is(:hover, :focus-visible) > .shortcut {
   opacity: 1;
-}
-.sidebar-section-heading {
-  font-size: var(--type-small);
 }
 :is(.library-section, .trail-section)[open] > .sidebar-section-heading,
 .library-section[data-empty='true'] > .sidebar-section-heading {

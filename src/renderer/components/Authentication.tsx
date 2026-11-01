@@ -89,7 +89,7 @@ export function Authentication() {
               autoComplete="username"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              className="mt-1 block h-9 w-full rounded-[var(--radius-control)] bg-field px-3 font-normal"
+              className="mt-1 block h-9 w-full rounded-control bg-field px-3 font-normal"
             />
           </label>
           <label className="block text-small font-medium">
@@ -99,7 +99,7 @@ export function Authentication() {
               autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="mt-1 block h-9 w-full rounded-[var(--radius-control)] bg-field px-3 font-normal"
+              className="mt-1 block h-9 w-full rounded-control bg-field px-3 font-normal"
             />
           </label>
         </fieldset>
@@ -113,14 +113,14 @@ export function Authentication() {
             type="button"
             disabled={busy}
             onClick={() => void respond(null)}
-            className="h-8 rounded-[var(--radius-control)] px-3 text-small hover:bg-hover"
+            className="button button-lg text-small"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={busy || !challenge}
-            className="h-8 rounded-[var(--radius-control)] bg-accent px-4 text-small font-medium text-on-accent disabled:opacity-50"
+            className="button button-lg button-primary text-small"
           >
             {busy ? 'Signing in…' : 'Sign in'}
           </button>

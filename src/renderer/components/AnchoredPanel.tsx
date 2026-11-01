@@ -69,7 +69,7 @@ export function AnchoredPanel({
       tabIndex={modal ? -1 : undefined}
       aria-modal={modal || undefined}
       aria-label={label}
-      className="popover-in absolute top-1.5 flex max-h-[calc(100%-12px)] max-w-[calc(100%-16px)] flex-col overflow-y-auto rounded-[var(--radius-content)] bg-elevated shadow-[var(--shadow-panel)] outline-none"
+      className="popover-in absolute top-1.5 flex max-h-[calc(100%-12px)] max-w-[calc(100%-16px)] flex-col overflow-y-auto rounded-content bg-elevated shadow-panel outline-none"
       style={{ left: position.left, width: position.width }}
     >
       {children}

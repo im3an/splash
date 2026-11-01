@@ -34,7 +34,7 @@ export function App() {
       {/* With the toolbar in the sidebar, the page card runs up to the
           window's top edge like Arc's. */}
       <main
-        className="flex min-w-0 flex-1 flex-col data-[toolbar=false]:pt-[var(--gutter)]"
+        className="flex min-w-0 flex-1 flex-col data-[toolbar=false]:pt-(--gutter)"
         data-toolbar={!addressInSidebar}
       >
         <Toolbar />

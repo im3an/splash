@@ -64,7 +64,7 @@ export function usePagePreview(
         <div
           id={id}
           role="tooltip"
-          className="pointer-events-none fixed z-50 rounded-[var(--radius-control)] border border-hairline bg-elevated p-3 text-fg shadow-[var(--shadow-panel)]"
+          className="pointer-events-none fixed z-50 rounded-control border border-hairline bg-elevated p-3 text-fg shadow-panel"
           style={position}
         >
           <div className="line-clamp-2 text-small font-medium break-words">

@@ -79,15 +79,15 @@ export function Sidebar() {
       aria-label="Sidebar"
       aria-hidden={!open}
       inert={!open}
-      className="relative shrink-0 overflow-hidden transition-[width] duration-[var(--duration-slow)] ease-[var(--ease-emphasized)]"
+      className="relative shrink-0 overflow-hidden transition-[width] duration-slow ease-emphasized"
       style={{ width: open ? width : 0 }}
     >
       {/* Keeps its width while the sidebar closes, so nothing reflows. */}
       <div
-        className="flex h-full flex-col pl-[var(--gutter)] transition-[width] duration-[var(--duration-slow)] ease-[var(--ease-emphasized)]"
+        className="flex h-full flex-col pl-(--gutter) transition-[width] duration-slow ease-emphasized"
         style={{ width }}
       >
-        <div className="drag flex h-[var(--toolbar-height)] shrink-0 items-center gap-0.5 pl-[calc(var(--traffic-lights)-var(--gutter))]">
+        <div className="drag flex h-(--toolbar-height) shrink-0 items-center gap-0.5 pl-[calc(var(--traffic-lights)-var(--gutter))]">
           {/* Without navigation beside it, the toggle sits by the page. */}
           {!addressHere && <span className="flex-1" />}
           <button
@@ -131,7 +131,7 @@ export function Sidebar() {
             type="button"
             onClick={newPage}
             data-flat={flat}
-            className="sidebar-new-page mb-px flex h-[var(--row-height)] shrink-0 items-center gap-2 rounded-[var(--radius-row)] pr-2 pl-[30px] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-row-hover hover:text-fg active:bg-row-pressed data-[flat=true]:pl-2.5"
+            className="sidebar-new-page mb-px flex h-(--row-height) shrink-0 items-center gap-2 rounded-row pr-2 pl-[30px] text-fg-muted transition-colors duration-fast hover:bg-row-hover hover:text-fg active:bg-row-pressed data-[flat=true]:pl-2.5"
           >
             {/* Sits in the favicon column of a top-level row, wherever that is. */}
             <span className="grid size-4 shrink-0 place-items-center">

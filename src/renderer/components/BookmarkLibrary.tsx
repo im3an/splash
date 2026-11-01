@@ -24,7 +24,7 @@ import {
 import { useToast } from '../stores/toast-store';
 import { selectActivePage, useShell } from '../stores/shell-store';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
-import { SavedSiteIcon } from './SavedSiteIcon';
+import { SiteIcon } from './Favicon';
 
 const EMPTY: SavedCollection[] = [];
 type Editor = {
@@ -568,10 +568,9 @@ export function BookmarkLibrary() {
                   {openingLink === link.id ? (
                     <span className="spinner" />
                   ) : (
-                    <SavedSiteIcon
-                      url={link.url}
-                      faviconUrl={link.faviconUrl}
-                    />
+                    <span className="grid size-4 shrink-0 place-items-center">
+                      <SiteIcon url={link.faviconUrl} />
+                    </span>
                   )}
                   <span className="min-w-0 flex-1 truncate">
                     {link.title || new URL(link.url).hostname}
@@ -662,7 +661,7 @@ export function BookmarkLibrary() {
           <div className="flex justify-end gap-2">
             <button
               type="button"
-              className="library-editor-button"
+              className="button button-sm"
               disabled={saving}
               onClick={closeEditor}
             >
@@ -670,8 +669,7 @@ export function BookmarkLibrary() {
             </button>
             <button
               type="submit"
-              className="library-editor-button"
-              data-primary
+              className="button button-sm button-primary"
               disabled={!editor.name.trim() || saving}
             >
               {saving ? 'Saving…' : 'Save'}
@@ -760,7 +758,7 @@ export function BookmarkLibrary() {
             group is safe.
           </p>
           <button
-            className="library-editor-button"
+            className="button button-sm"
             disabled={Boolean(progress)}
             onClick={() => {
               void openAll(retry.item, retry.links, retry.root);
@@ -768,10 +766,7 @@ export function BookmarkLibrary() {
           >
             Retry remaining
           </button>
-          <button
-            className="library-editor-button"
-            onClick={() => setRetry(null)}
-          >
+          <button className="button button-sm" onClick={() => setRetry(null)}>
             Dismiss
           </button>
         </div>

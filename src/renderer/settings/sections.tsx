@@ -65,7 +65,7 @@ export function GeneralSettings() {
                 searchEngine: event.target.value as Preferences['searchEngine'],
               })
             }
-            className="h-7 rounded-[var(--radius-control)] bg-field px-2 text-small text-fg"
+            className="h-7 rounded-control bg-field px-2 text-small text-fg"
           >
             {SEARCH_ENGINES.map((engine) => (
               <option key={engine.id} value={engine.id}>
@@ -270,7 +270,7 @@ export function WorkspaceSettings() {
           key={workspace.id}
           className="flex min-h-12 items-center gap-3 px-4 py-2"
         >
-          <span className="grid size-7 shrink-0 place-items-center rounded-[7px] bg-field text-[12px] font-semibold text-accent">
+          <span className="grid size-7 shrink-0 place-items-center rounded-control bg-field text-small font-semibold text-accent">
             <WorkspaceIcon
               icon={workspace.appearance.icon}
               name={workspace.name}
@@ -280,12 +280,10 @@ export function WorkspaceSettings() {
             <p className="truncate">
               {workspace.name}
               {workspace.id === activeId && (
-                <span className="ml-1.5 text-[12px] text-fg-subtle">
-                  · open
-                </span>
+                <span className="ml-1.5 text-small text-fg-subtle">· open</span>
               )}
             </p>
-            <p className="text-[12px] text-fg-subtle">
+            <p className="text-small text-fg-subtle">
               {workspace.pageCount} page{workspace.pageCount === 1 ? '' : 's'}
             </p>
           </div>
@@ -492,7 +490,7 @@ export function PrivacySettings() {
             aria-label="Time range"
             value={range}
             onChange={(event) => setRange(event.target.value as ClearRange)}
-            className="h-7 rounded-[var(--radius-control)] bg-field px-2 text-small text-fg"
+            className="h-7 rounded-control bg-field px-2 text-small text-fg"
           >
             {RANGES.map((option) => (
               <option key={option.value} value={option.value}>
@@ -537,7 +535,7 @@ export function PrivacySettings() {
           </Row>
         ))}
         <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-          <p role="status" className="min-w-0 text-[12px] text-fg-muted">
+          <p role="status" className="min-w-0 text-small text-fg-muted">
             {result?.summary}
           </p>
           <div className="flex shrink-0 gap-2">
@@ -601,7 +599,7 @@ export function PrivacySettings() {
                   key={entry.permission}
                   className="flex items-center justify-between gap-3"
                 >
-                  <span className="text-[12px] text-fg-muted">
+                  <span className="text-small text-fg-muted">
                     {entry.label}
                   </span>
                   <Choice
@@ -720,7 +718,7 @@ export function ShortcutSettings() {
         <Section key={group} title={group}>
           {shortcuts.map(([label, keys]) => (
             <Row key={label} label={label}>
-              <kbd className="font-sans text-[12px] text-fg-muted">{keys}</kbd>
+              <kbd className="font-sans text-small text-fg-muted">{keys}</kbd>
             </Row>
           ))}
         </Section>

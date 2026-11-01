@@ -178,12 +178,12 @@ export function WorkspaceEditor({
           void save();
         }}
         aria-busy={saving}
-        className="dialog-in flex w-[440px] max-w-full flex-col gap-5 rounded-[var(--radius-content)] bg-elevated p-5 shadow-[var(--shadow-panel)]"
+        className="dialog-in flex w-(--dialog-width) max-w-full flex-col gap-5 rounded-content bg-elevated p-5 shadow-panel"
       >
         <div className="flex items-center gap-3">
           <div
             style={preview}
-            className="grid size-11 shrink-0 place-items-center rounded-[var(--radius-content)] bg-chrome text-[var(--type-title)] font-semibold text-accent shadow-[var(--shadow-outline)]"
+            className="grid size-11 shrink-0 place-items-center rounded-content bg-chrome text-(--type-title) font-semibold text-accent shadow-outline"
           >
             <WorkspaceIcon
               icon={appearance.icon}
@@ -211,7 +211,7 @@ export function WorkspaceEditor({
               placeholder={`Workspace ${count + 1}`}
               maxLength={80}
               spellCheck={false}
-              className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none placeholder:text-fg-subtle focus:bg-field-focus focus:shadow-[var(--shadow-focus)] select-text"
+              className="h-8 rounded-control bg-field px-2.5 text-fg outline-none placeholder:text-fg-subtle focus:bg-field-focus focus:shadow-focus select-text"
             />
             {duplicate && (
               <p className="text-small text-fg-muted">
@@ -254,7 +254,7 @@ export function WorkspaceEditor({
                       onClick={() =>
                         update({ icon: { kind: 'symbol', name: symbol } })
                       }
-                      className="grid h-8 place-items-center rounded-[var(--radius-row)] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:bg-hover hover:text-fg aria-checked:bg-accent-soft aria-checked:text-accent"
+                      className="grid h-8 place-items-center rounded-row text-fg-muted transition-colors duration-fast hover:bg-hover hover:text-fg aria-checked:bg-accent-soft aria-checked:text-accent"
                     >
                       <Symbol size={16} strokeWidth={1.75} />
                     </button>
@@ -275,14 +275,14 @@ export function WorkspaceEditor({
                 }
                 aria-label="Emoji"
                 placeholder="Type or pick an emoji (⌃⌘Space)"
-                className="h-8 rounded-[var(--radius-control)] bg-field px-2.5 text-fg outline-none focus:bg-field-focus focus:shadow-[var(--shadow-focus)] select-text"
+                className="h-8 rounded-control bg-field px-2.5 text-fg outline-none focus:bg-field-focus focus:shadow-focus select-text"
               />
             )}
             {appearance.icon.kind === 'image' && (
               <button
                 type="button"
                 onClick={() => fileInput.current?.click()}
-                className="flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-control)] bg-field text-small text-fg-muted hover:text-fg"
+                className="flex h-8 items-center justify-center gap-1.5 rounded-control bg-field text-small text-fg-muted hover:text-fg"
               >
                 <ImagePlus size={14} strokeWidth={1.75} />
                 Choose another image…
@@ -332,12 +332,12 @@ export function WorkspaceEditor({
                   style={{
                     background: previewDark ? accent.dark : accent.light,
                   }}
-                  className="size-6 rounded-full shadow-[var(--shadow-outline)] outline-offset-2 aria-checked:outline-2 aria-checked:outline-[var(--fg-muted)]"
+                  className="size-6 rounded-full shadow-outline outline-offset-2 aria-checked:outline-2 aria-checked:outline-(--fg-muted)"
                 />
               ))}
               <label
                 title="Custom colour"
-                className="relative size-6 cursor-default overflow-hidden rounded-full shadow-[var(--shadow-outline)]"
+                className="relative size-6 cursor-default overflow-hidden rounded-full shadow-outline"
                 style={{
                   background: isCustomAccent(appearance.accent)
                     ? appearance.accent
@@ -383,7 +383,7 @@ export function WorkspaceEditor({
                       ? frame.dark.chrome
                       : frame.light.chrome,
                   }}
-                  className="h-7 w-10 rounded-[var(--radius-row)] shadow-[var(--shadow-outline)] outline-offset-2 aria-checked:outline-2 aria-checked:outline-[var(--fg-muted)]"
+                  className="h-7 w-10 rounded-row shadow-outline outline-offset-2 aria-checked:outline-2 aria-checked:outline-(--fg-muted)"
                 />
               ))}
             </div>
