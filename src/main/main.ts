@@ -28,6 +28,7 @@ import { SchemaTooNewError } from './storage/migrations';
 import { openTrailStore, SqliteTrailStore } from './storage/sqlite-trail-store';
 import type { TrailStore } from './storage/trail-store';
 import { TrailWindow } from './windows/browser-window';
+import { registerShellScheme, serveShell } from './windows/shell-url';
 import { ExtensionHost } from './extensions/extension-host';
 import { contentsForPage, pageHandleFor } from './browser/electron-page-host';
 import { PreferencesService } from './preferences';
@@ -35,6 +36,7 @@ import type { DownloadManager } from './downloads/download-manager';
 import { createDownloadManager } from './downloads/electron-downloads';
 
 app.setName('Splash');
+registerShellScheme();
 // Reproducible beta QA uses a separate profile and never touches daily
 // browsing. Development builds only: an installed app ignores the variable.
 const qaProfile = app.isPackaged ? undefined : process.env.SPLASH_USER_DATA_DIR;
@@ -258,6 +260,7 @@ if (!app.requestSingleInstanceLock()) {
     const startup = openStartupStore();
     store = startup.store;
     configureAppSession(session.defaultSession);
+    serveShell(session.defaultSession);
     configureWebSession(session.fromPartition(WEB_PARTITION), store);
     preferences = new PreferencesService(store);
     nativeTheme.themeSource = preferences.get().theme;

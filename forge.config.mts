@@ -113,6 +113,8 @@ const config: ForgeConfig = {
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
       [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
       [FuseV1Options.OnlyLoadAppFromAsar]: true,
+      // The shell is served from app://splash/, so file: needs nothing extra.
+      [FuseV1Options.GrantFileProtocolExtraPrivileges]: false,
     }),
   ],
 };
