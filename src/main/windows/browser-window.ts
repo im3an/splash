@@ -268,7 +268,11 @@ export class TrailWindow {
       },
     });
     const stored = this.safely(() => store.loadSession());
-    if (stored) this.controller.restoreSession(stored);
+    if (stored) {
+      this.controller.restoreSession(stored);
+      if (options.preferences.get().startup === 'new-page')
+        this.controller.startWithNewPage();
+    }
 
     this.ipc = {
       isShellUrl: (candidate) => isSameDocument(candidate, url),

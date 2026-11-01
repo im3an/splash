@@ -48,9 +48,19 @@ export function GeneralSettings() {
     <>
       <Section title="Startup">
         <Row
-          label="Continue where you left off"
-          help="Splash always reopens your workspaces, trails and pages, including their history and scroll position."
-        />
+          label="When Splash opens"
+          help="Your workspaces, trails and each page’s back and forward history always come back. This chooses what’s on screen. Applies the next time Splash opens."
+        >
+          <Choice
+            label="When Splash opens"
+            value={preferences.startup}
+            onChange={(startup) => update({ startup })}
+            options={[
+              { value: 'restore', label: 'Pages as I left them' },
+              { value: 'new-page', label: 'A new page' },
+            ]}
+          />
+        </Row>
       </Section>
       <Section title="Search">
         <Row

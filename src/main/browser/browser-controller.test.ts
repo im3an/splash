@@ -92,7 +92,8 @@ class FakeHost implements PageHost {
 
 const BOUNDS = { x: 260, y: 48, width: 900, height: 700 };
 
-function setup(options: { maxLiveViews?: number } = {}) {
+function setup(options: { maxLiveViews?: number; idPrefix?: string } = {}) {
+  const { idPrefix = 'page', ...controllerOptions } = options;
   const hosts: FakeHost[] = [];
   const snapshots: BrowserSnapshot[] = [];
   const visits: string[] = [];
@@ -101,7 +102,7 @@ function setup(options: { maxLiveViews?: number } = {}) {
   let next = 0;
   let clock = 0;
   const controller = new BrowserController({
-    ...options,
+    ...controllerOptions,
     now: () => ++clock,
     onVisit: (url) => visits.push(url),
     onTitle: (url, title) => titles.push([url, title]),
@@ -113,7 +114,7 @@ function setup(options: { maxLiveViews?: number } = {}) {
     },
     onSnapshot: (snapshot) => snapshots.push(snapshot),
     schedule: (flush) => flush(),
-    createId: () => `page-${++next}`,
+    createId: () => `${idPrefix}-${++next}`,
   });
   controller.setContentBounds(BOUNDS);
   const latest = () => snapshots.at(-1)!;
@@ -692,6 +693,24 @@ describe('BrowserController', () => {
       hosts[0]!.events.onStateChange({ url: 'https://b.com/' });
       hosts[0]!.events.onStateChange({ url: 'https://b.com/#part' });
       expect(visits).toEqual(['https://a.com/', 'https://b.com/']);
+    });
+
+    it('can start on a new page, reusing an empty one left from last time', () => {
+      const original = setup();
+      const kept = original.controller.createPage({ url: 'https://a.com/' });
+      const session = original.controller.exportSession();
+
+      const first = setup({ idPrefix: 'first' });
+      first.controller.restoreSession(session);
+      const blank = first.controller.startWithNewPage();
+      expect(blank).not.toBe(kept);
+      expect(first.latest().pages[kept]).toBeDefined();
+      expect(first.latest().activePageId).toBe(blank);
+
+      const second = setup({ idPrefix: 'second' });
+      second.controller.restoreSession(first.controller.exportSession());
+      expect(second.controller.startWithNewPage()).toBe(blank);
+      expect(Object.keys(second.latest().pages)).toHaveLength(2);
     });
 
     it('does not count a restored page as a new visit', () => {

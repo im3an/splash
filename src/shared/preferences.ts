@@ -71,6 +71,8 @@ export interface Preferences {
   downloads: 'folder' | 'ask';
   /** Pages kept awake; beyond this the least recently used ones sleep. */
   awakePages: number;
+  /** On launch, show the pages as they were, or an empty page over them. */
+  startup: 'restore' | 'new-page';
   /** Block ads and trackers, unless a site is allowed. */
   blockAds: boolean;
   /** Reject cookie banners and hide notices, never agreeing; sites can be allowed. */
@@ -93,6 +95,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   addressBar: 'toolbar',
   downloads: 'folder',
   awakePages: 12,
+  startup: 'restore',
   blockAds: true,
   hideCookieNotices: true,
 };

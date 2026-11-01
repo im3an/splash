@@ -241,6 +241,28 @@ export class BrowserController {
     return id;
   }
 
+  /**
+   * Startup set to "a new page": the restored trails stay, and an empty
+   * page opens on top. An empty page left from last time is reused, so
+   * starting Splash never piles them up.
+   */
+  startWithNewPage(): PageId {
+    const { tree } = this.workspace;
+    const empty = tree.order().find((id) => {
+      const node = tree.get(id);
+      const page = this.pages.get(id);
+      return (
+        node?.parentId === null &&
+        node.childIds.length === 0 &&
+        page?.state.url === null &&
+        !page.history?.entries.length
+      );
+    });
+    if (empty === undefined) return this.createPage();
+    this.activatePage(empty);
+    return empty;
+  }
+
   /** Shows a page, switching to its workspace if needed. */
   activatePage(id: PageId): void {
     const page = this.require(id);

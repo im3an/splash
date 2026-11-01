@@ -80,6 +80,7 @@ export const preferencesSchema = z.strictObject({
   addressBar: z.enum(['toolbar', 'sidebar']),
   downloads: z.enum(['folder', 'ask']),
   awakePages: z.number().int().min(2).max(100),
+  startup: z.enum(['restore', 'new-page']),
   blockAds: z.boolean(),
   hideCookieNotices: z.boolean(),
 });
