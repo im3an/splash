@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ImagePlus } from 'lucide-react';
 import { useDialogFocus } from '../hooks/use-dialog-focus';
+import { AccentWheel } from './AccentWheel';
+import { Reveal } from './Reveal';
 import { SegmentedControl } from './SegmentedControl';
 import {
   ACCENTS,
@@ -112,6 +114,7 @@ export function WorkspaceEditor({
   const dark = matchMedia('(prefers-color-scheme: dark)').matches;
   const previewDark =
     appearance.mode === 'system' ? dark : appearance.mode === 'dark';
+  const customAccent = isCustomAccent(appearance.accent);
 
   const update = (patch: Partial<WorkspaceAppearance>) =>
     setAppearance((current) => ({ ...current, ...patch }));
@@ -335,32 +338,33 @@ export function WorkspaceEditor({
                   className="size-6 rounded-full shadow-outline outline-offset-2 aria-checked:outline-2 aria-checked:outline-(--fg-muted)"
                 />
               ))}
-              <label
+              <button
+                type="button"
+                role="radio"
+                aria-checked={customAccent}
+                aria-label="Custom colour"
                 title="Custom colour"
-                className="relative size-6 cursor-default overflow-hidden rounded-full shadow-outline"
+                onClick={() => {
+                  // Start the wheel from the colour already chosen.
+                  if (!customAccent)
+                    update({ accent: accentColors(appearance.accent).light });
+                }}
                 style={{
-                  background: isCustomAccent(appearance.accent)
+                  background: customAccent
                     ? appearance.accent
                     : 'conic-gradient(#e55, #ec5, #5c7, #5ae, #85e, #e55)',
-                  outline: isCustomAccent(appearance.accent)
-                    ? '2px solid var(--fg-muted)'
-                    : undefined,
-                  outlineOffset: 2,
                 }}
-              >
-                <input
-                  type="color"
-                  aria-label="Custom accent colour"
-                  value={
-                    isCustomAccent(appearance.accent)
-                      ? appearance.accent
-                      : accentColors(appearance.accent).light
-                  }
-                  onChange={(event) => update({ accent: event.target.value })}
-                  className="absolute inset-0 opacity-0"
-                />
-              </label>
+                className="size-6 rounded-full shadow-outline outline-offset-2 aria-checked:outline-2 aria-checked:outline-(--fg-muted)"
+              />
             </div>
+            <Reveal show={customAccent}>
+              <div className="pt-1">
+                <AccentWheel
+                  value={accentColors(appearance.accent).light}
+                  onChange={(accent) => update({ accent })}
+                />
+              </div>
+            </Reveal>
           </Field>
 
           <Field label="Frame">

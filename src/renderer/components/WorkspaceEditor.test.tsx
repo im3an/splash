@@ -118,3 +118,58 @@ it('prevents duplicate saves and keeps Tab inside the workspace dialog', async (
   expect((input as HTMLInputElement).matches(':disabled')).toBe(true);
   await act(async () => finish('new'));
 });
+
+describe('custom accent wheel', () => {
+  function saved(splash: ReturnType<typeof stubApi>) {
+    fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
+    const [, appearance] = splash.createWorkspace.mock.calls.at(
+      -1,
+    ) as unknown as [string, { accent: string }];
+    return appearance.accent;
+  }
+
+  it('opens from the chosen preset and saves a typed colour', () => {
+    const splash = stubApi();
+    useShell.setState({ snapshot: sampleSnapshot() });
+    render(<WorkspaceEditor workspaceId={null} />);
+    expect(screen.queryByRole('slider', { name: 'Accent colour' })).toBeNull();
+    fireEvent.click(screen.getByRole('radio', { name: 'Custom colour' }));
+    const hex = screen.getByRole('textbox', {
+      name: 'Accent hex colour',
+    }) as HTMLInputElement;
+    expect(hex.value).toMatch(/^#[0-9a-f]{6}$/);
+    fireEvent.change(hex, { target: { value: '1D77' } });
+    fireEvent.change(hex, { target: { value: '1D7770' } });
+    expect(saved(splash)).toBe('#1d7770');
+  });
+
+  it('moves the colour with the keyboard and uses a matching colour', () => {
+    const splash = stubApi();
+    useShell.setState({ snapshot: sampleSnapshot() });
+    render(<WorkspaceEditor workspaceId={null} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Custom colour' }));
+    const slider = screen.getByRole('slider', { name: 'Accent colour' });
+    const before = slider.getAttribute('aria-valuenow');
+    fireEvent.keyDown(slider, { key: 'ArrowRight', shiftKey: true });
+    expect(slider.getAttribute('aria-valuenow')).not.toBe(before);
+    const [match] = screen.getAllByRole('button', { name: /^Use #/ });
+    const hex = match!.getAttribute('title');
+    fireEvent.keyDown(match!, { key: 'Enter' });
+    expect(saved(splash)).toBe(hex);
+  });
+
+  it('shows one to three colours', () => {
+    stubApi();
+    useShell.setState({ snapshot: sampleSnapshot() });
+    render(<WorkspaceEditor workspaceId={null} />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Custom colour' }));
+    const fewer = screen.getByRole('button', {
+      name: 'Show fewer matching colours',
+    });
+    expect(screen.getAllByRole('button', { name: /^Use #/ })).toHaveLength(2);
+    fireEvent.click(fewer);
+    fireEvent.click(fewer);
+    expect(screen.queryAllByRole('button', { name: /^Use #/ })).toHaveLength(0);
+    expect((fewer as HTMLButtonElement).disabled).toBe(true);
+  });
+});

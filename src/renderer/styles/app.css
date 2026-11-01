@@ -612,6 +612,38 @@
   }
 
   /*
+   * The accent wheel (AccentWheel.tsx): a grid of dots, each the colour at
+   * its place. Hue runs clockwise from the top, dark at the centre to light
+   * at the rim, matching src/renderer/lib/color-wheel.ts.
+   */
+  .accent-wheel-dots {
+    border-radius: var(--radius-full);
+    /* --wheel-hues is set by the component from the wheel's geometry. */
+    background: var(--wheel-shade), conic-gradient(var(--wheel-hues));
+    mask: radial-gradient(circle, black 1.25px, transparent 1.75px) center / 8px
+      8px;
+    cursor: crosshair;
+  }
+  .accent-wheel-handle {
+    box-shadow:
+      0 0 0 2px var(--wheel-handle-ring),
+      var(--shadow-wheel-handle);
+    transition:
+      box-shadow var(--duration-fast) var(--ease-out),
+      scale var(--duration-fast) var(--ease-out);
+  }
+  .accent-wheel-handle:hover,
+  .accent-wheel-handle:active {
+    scale: 1.12;
+  }
+  .accent-wheel-handle:focus-visible {
+    box-shadow:
+      0 0 0 2px var(--wheel-handle-ring),
+      0 0 0 4px var(--focus-ring),
+      var(--shadow-wheel-handle);
+  }
+
+  /*
    * Press feedback: controls give a little under the pointer and spring
    * back, so every click is felt.
    */
@@ -681,7 +713,9 @@
   }
   .press:active:not(:disabled),
   .icon-button:active:not(:disabled),
-  .button:active:not(:disabled) {
+  .button:active:not(:disabled),
+  .accent-wheel-handle:hover,
+  .accent-wheel-handle:active {
     scale: none;
   }
 }
