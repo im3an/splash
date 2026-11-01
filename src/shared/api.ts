@@ -48,6 +48,10 @@ export interface InvokeOutputs {
   'page:set-collapsed': void;
   'page:create-child': PageId;
   'page:close-branch': void;
+  'page:close-others': void;
+  'page:print': void;
+  'page:save-as': void;
+  'workspace:delete': void;
   'page:reopen-closed': PageId | null;
   'page:move': void;
   'page:return': void;
@@ -130,6 +134,12 @@ export interface SplashApi {
   setCollapsed(pageId: PageId, collapsed: boolean): Promise<void>;
   createChildPage(pageId: PageId, input?: string): Promise<PageId>;
   closeBranch(pageId: PageId): Promise<void>;
+  /** Closes the rest of the workspace's trail; see the controller. */
+  closeOtherPages(pageId: PageId): Promise<void>;
+  print(pageId: PageId): Promise<void>;
+  savePageAs(pageId: PageId): Promise<void>;
+  /** Undoable with reopen closed; the last workspace stays. */
+  deleteWorkspaceFromShell(workspaceId: WorkspaceId): Promise<void>;
   reopenClosed(): Promise<PageId | null>;
   /** Moves a page under `parentId`, right after `afterId` (first if null). */
   movePage(

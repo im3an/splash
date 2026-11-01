@@ -54,6 +54,11 @@ const api: SplashApi = {
   createChildPage: (pageId, input) =>
     invoke('page:create-child', { pageId, input }),
   closeBranch: (pageId) => invoke('page:close-branch', { pageId }),
+  closeOtherPages: (pageId) => invoke('page:close-others', { pageId }),
+  print: (pageId) => invoke('page:print', { pageId }),
+  savePageAs: (pageId) => invoke('page:save-as', { pageId }),
+  deleteWorkspaceFromShell: (workspaceId) =>
+    invoke('workspace:delete', { workspaceId }),
   reopenClosed: () => invoke('page:reopen-closed'),
   movePage: (pageId, parentId, afterId) =>
     invoke('page:move', { pageId, parentId, afterId }),

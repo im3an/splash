@@ -115,6 +115,32 @@ async function performPaletteItem(
         case 'close-branch':
           if (active) await splash.closeBranch(active.id);
           return;
+        case 'close-others':
+          if (active) await splash.closeOtherPages(active.id);
+          return;
+        case 'go-back':
+          if (active) await splash.goBack(active.id);
+          return;
+        case 'go-forward':
+          if (active) await splash.goForward(active.id);
+          return;
+        case 'print':
+          if (active) await splash.print(active.id);
+          return;
+        case 'save-page':
+          if (active) await splash.savePageAs(active.id);
+          return;
+        case 'close-split':
+          await splash.closeSplit();
+          return;
+        case 'rename-workspace':
+          return shell.setRenamingWorkspace(true);
+        case 'delete-workspace':
+          if (shell.snapshot)
+            await splash.deleteWorkspaceFromShell(
+              shell.snapshot.activeWorkspaceId,
+            );
+          return;
         case 'rename-page':
           if (active) shell.startRename(active.id);
           return;

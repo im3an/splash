@@ -417,6 +417,33 @@ describe('BrowserController', () => {
       expect(latest().lastClosed).toBeNull();
     });
 
+    it('closes other pages, keeping the line, pinned pages, and one undo', () => {
+      const { controller, latest, root, a, a1, b } = trail();
+      const other = controller.createPage({ input: 'other.com' });
+      const otherChild = controller.createPage({
+        input: 'other-child.com',
+        parentId: other,
+      });
+      const stray = controller.createPage({ input: 'stray.com' });
+      // Pinning lifts a page to the top of the trail.
+      const pinned = controller.createPage({
+        input: 'pin.com',
+        parentId: stray,
+      });
+      controller.setPinned(pinned, true);
+      controller.closeOtherPages(a);
+      expect(Object.keys(latest().pages).sort()).toEqual(
+        [pinned, root, a, a1].sort(),
+      );
+      expect(latest().activePageId).toBe(a);
+      expect(latest().lastClosed).toMatchObject({ pageCount: 4 });
+
+      controller.reopenClosed();
+      expect(latest().pages[root]?.childIds).toEqual([a, b]);
+      expect(latest().pages[other]?.childIds).toEqual([otherChild]);
+      expect(latest().rootIds).toEqual([pinned, root, other, stray]);
+    });
+
     it('reopening a single closed page takes its children back', () => {
       const { controller, latest, root, a, a1 } = trail();
       controller.closePage(a);

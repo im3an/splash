@@ -161,7 +161,15 @@ export type PaletteCommand =
   | 'show-history'
   | 'open-settings'
   | 'zoom-in'
-  | 'zoom-out';
+  | 'zoom-out'
+  | 'go-back'
+  | 'go-forward'
+  | 'print'
+  | 'save-page'
+  | 'close-others'
+  | 'close-split'
+  | 'rename-workspace'
+  | 'delete-workspace';
 
 export type DownloadState =
   | 'progressing'

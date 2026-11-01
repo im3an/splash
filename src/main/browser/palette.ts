@@ -30,6 +30,10 @@ export interface ActivePageFacts {
   muted: boolean;
   hasChildren: boolean;
   hasNote: boolean;
+  /** Other pages share its workspace. */
+  hasOthers?: boolean;
+  /** It's one side of the split view on screen. */
+  inSplit?: boolean;
 }
 
 interface CommandDefinition {
@@ -38,8 +42,8 @@ interface CommandDefinition {
   title: string | ((page: ActivePageFacts) => string);
   keywords: string;
   shortcut: string | null;
-  /** Hidden unless there is a page, a page with an address, or children. */
-  needs?: 'page' | 'address' | 'children';
+  /** Hidden unless its subject exists: a page, an address, children … */
+  needs?: 'page' | 'address' | 'children' | 'others' | 'split' | 'workspaces';
   /** Offered before anything is typed. */
   suggested?: boolean;
 }
@@ -96,6 +100,34 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     needs: 'children',
   },
   {
+    command: 'close-others',
+    title: 'Close other pages',
+    keywords: 'remove rest tidy clean up',
+    shortcut: null,
+    needs: 'others',
+  },
+  {
+    command: 'go-back',
+    title: 'Back',
+    keywords: 'previous history return',
+    shortcut: '⌘[',
+    needs: 'address',
+  },
+  {
+    command: 'go-forward',
+    title: 'Forward',
+    keywords: 'next history',
+    shortcut: '⌘]',
+    needs: 'address',
+  },
+  {
+    command: 'close-split',
+    title: 'Close split view',
+    keywords: 'side by side single',
+    shortcut: null,
+    needs: 'split',
+  },
+  {
     command: 'toggle-split',
     title: 'Toggle split view',
     keywords: 'compare side by side parent child beside',
@@ -143,6 +175,20 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     keywords: 'annotate comment memo',
     shortcut: null,
     needs: 'page',
+  },
+  {
+    command: 'print',
+    title: 'Print page',
+    keywords: 'paper pdf',
+    shortcut: '⌘P',
+    needs: 'address',
+  },
+  {
+    command: 'save-page',
+    title: 'Save page as',
+    keywords: 'download html archive file',
+    shortcut: '⇧⌘S',
+    needs: 'address',
   },
   {
     command: 'mute-page',
@@ -196,6 +242,19 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     title: 'Customize workspace',
     keywords: 'icon colour color theme appearance rename',
     shortcut: null,
+  },
+  {
+    command: 'rename-workspace',
+    title: 'Rename workspace',
+    keywords: 'space name title',
+    shortcut: null,
+  },
+  {
+    command: 'delete-workspace',
+    title: 'Delete workspace',
+    keywords: 'space remove close',
+    shortcut: null,
+    needs: 'workspaces',
   },
   {
     command: 'toggle-sidebar',
@@ -356,10 +415,17 @@ export function visitedAgo(at: number, now: number): string {
 function applies(
   definition: CommandDefinition,
   page: ActivePageFacts | null,
+  workspaceCount: number,
 ): page is ActivePageFacts {
   switch (definition.needs) {
     case undefined:
       return true;
+    case 'workspaces':
+      return workspaceCount > 1;
+    case 'others':
+      return page?.hasOthers === true;
+    case 'split':
+      return page?.inSplit === true;
     case 'page':
       return page !== null;
     case 'address':
@@ -461,7 +527,7 @@ export function buildPaletteItems(input: PaletteInput): PaletteItem[] {
 
   const commandEntries: Scored[] = PALETTE_COMMANDS.filter(
     (definition) =>
-      applies(definition, activePage) &&
+      applies(definition, activePage, input.workspaces?.length ?? 1) &&
       (typed || commandsOnly || definition.suggested),
   ).map((definition) => {
     const title =

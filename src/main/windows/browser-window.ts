@@ -35,6 +35,7 @@ import {
 } from '../browser/electron-page-host';
 import { requestExternalOpen } from '../security/external-apps';
 import { contentBounds } from '../browser/layout';
+import { savePage } from '../browser/save-page';
 import { OfflineRetry } from '../browser/offline-retry';
 import { isSameDocument, shellUrl } from './shell-url';
 import type { IpcTarget } from '../ipc/register-ipc';
@@ -302,6 +303,20 @@ export class TrailWindow {
           this.controller.createChildPage(pageId, input),
         'page:close-branch': ({ pageId }) =>
           this.controller.closeBranch(pageId),
+        'page:close-others': ({ pageId }) =>
+          this.controller.closeOtherPages(pageId),
+        'page:print': ({ pageId }) => this.controller.print(pageId),
+        'page:save-as': ({ pageId }) => {
+          const contents = contentsForPage(pageId);
+          if (contents)
+            void savePage(this.window, contents, (filename) =>
+              this.notify({ kind: 'page-saved', filename }),
+            );
+        },
+        'workspace:delete': ({ workspaceId }) => {
+          if (this.controller.snapshot().workspaces.length > 1)
+            return this.controller.deleteWorkspace(workspaceId);
+        },
         'page:reopen-closed': () => this.controller.reopenClosed(),
         'page:move': ({ pageId, parentId, afterId }) =>
           this.controller.movePage(pageId, parentId, afterId),
@@ -407,6 +422,10 @@ export class TrailWindow {
               muted: active.isMuted,
               hasChildren: active.childIds.length > 0,
               hasNote: active.note !== null,
+              hasOthers: Object.keys(snapshot.pages).length > 1,
+              inSplit:
+                snapshot.split?.leftId === active.id ||
+                snapshot.split?.rightId === active.id,
             },
             searchEngine: this.options.preferences.get().searchEngine,
             complete,

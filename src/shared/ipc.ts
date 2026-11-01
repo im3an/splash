@@ -164,6 +164,10 @@ export const invokeContract = {
     input: addressInput.optional(),
   }),
   'page:close-branch': z.strictObject({ pageId }),
+  'page:close-others': z.strictObject({ pageId }),
+  'page:print': z.strictObject({ pageId }),
+  'page:save-as': z.strictObject({ pageId }),
+  'workspace:delete': z.strictObject({ workspaceId }),
   'page:reopen-closed': z.undefined(),
   'page:move': z.strictObject({
     pageId,

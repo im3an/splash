@@ -349,6 +349,26 @@ describe('buildPaletteItems', () => {
     expect(noPage).toContain('New page');
     expect(noPage).not.toContain('Pin page');
     expect(noPage).not.toContain('Reload page');
+
+    const alone = buildPaletteItems(
+      input({ query: '>', activePage: activePage() }),
+    ).map((i) => i.title);
+    expect(alone).not.toContain('Close other pages');
+    expect(alone).not.toContain('Close split view');
+    expect(alone).not.toContain('Delete workspace');
+    expect(alone).toContain('Back');
+    expect(alone).toContain('Print page');
+
+    const busy = buildPaletteItems(
+      input({
+        query: '>',
+        workspaces: WORKSPACES,
+        activePage: activePage({ hasOthers: true, inSplit: true }),
+      }),
+    ).map((i) => i.title);
+    expect(busy).toContain('Close other pages');
+    expect(busy).toContain('Close split view');
+    expect(busy).toContain('Delete workspace');
   });
 
   it('narrows to commands after “>”', () => {

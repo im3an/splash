@@ -347,6 +347,47 @@ export class BrowserController {
   }
 
   /**
+   * Closes every page in the workspace except this one, the pages it came
+   * from, the pages it led to, and pinned pages (with the pages above
+   * them, so they keep their place). One reopen brings them all back.
+   */
+  closeOtherPages(id: PageId): void | Promise<void> {
+    if (!this.pages.has(id) || this.closingIds.has(id)) return;
+    const workspace = this.workspaceOf(id);
+    const { tree } = workspace;
+    const keep = new Set(tree.branch(id));
+    const keepWithAncestors = (pageId: PageId) => {
+      for (
+        let at: PageId | null = pageId;
+        at !== null && !keep.has(at);
+        at = tree.get(at)?.parentId ?? null
+      )
+        keep.add(at);
+    };
+    for (let at = tree.get(id)?.parentId ?? null; at !== null; ) {
+      keep.add(at);
+      at = tree.get(at)?.parentId ?? null;
+    }
+    for (const pageId of tree.order()) {
+      if (this.require(pageId).pinned) keepWithAncestors(pageId);
+    }
+    // Whole branches only: a kept page's parent is always kept too.
+    const closing = tree.order().filter((pageId) => !keep.has(pageId));
+    if (closing.length === 0) return;
+    return this.guardRemoval(closing, () => {
+      // Found before removing any: a removed page's children leave the tree too.
+      const tops = closing.filter((pageId) => {
+        const parentId = tree.get(pageId)?.parentId ?? null;
+        return parentId === null || keep.has(parentId);
+      });
+      this.remember(workspace, closing, []);
+      for (const pageId of tops) tree.removeBranch(pageId);
+      for (const pageId of closing) this.release(pageId);
+      this.afterRemoval(workspace, id);
+    });
+  }
+
+  /**
    * Puts the most recently closed page, branch or workspace back where it
    * was. Returns the page that becomes active, if any.
    */

@@ -100,7 +100,7 @@ describe('PageMenu', () => {
     fireEvent.keyDown(menu, { key: 'ArrowUp' });
     fireEvent.keyDown(menu, { key: 'ArrowUp' });
     expect(document.activeElement?.getAttribute('data-label')).toBe(
-      'Close Page',
+      'Close Other Pages',
     );
     fireEvent.keyDown(menu, { key: 'r' });
     expect(document.activeElement?.getAttribute('data-label')).toBe('Rename…');

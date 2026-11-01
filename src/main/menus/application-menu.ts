@@ -226,6 +226,10 @@ export function installApplicationMenu(actions: MenuActions): void {
           enabled: (activePage?.childIds.length ?? 0) > 0,
           click: withActivePage((w, id) => w.controller.closeBranch(id)),
         },
+        {
+          label: 'Close Other Pages',
+          click: withActivePage((w, id) => w.controller.closeOtherPages(id)),
+        },
         { role: 'close', accelerator: 'CmdOrCtrl+Shift+W' },
         { type: 'separator' },
         {

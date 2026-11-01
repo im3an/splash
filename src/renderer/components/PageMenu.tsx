@@ -10,6 +10,7 @@ import {
   CornerDownRight,
   FolderInput,
   Link,
+  ListMinus,
   ListX,
   Moon,
   Pencil,
@@ -270,6 +271,12 @@ export function pageMenuEntries(
         shortcut: key('⌥⌘W'),
         run: () => void splash.closeBranch(pageId),
       },
+    Object.keys(snapshot.pages).length > 1 && {
+      kind: 'action',
+      label: 'Close Other Pages',
+      icon: <ListMinus {...ICON} />,
+      run: () => void splash.closeOtherPages(pageId),
+    },
   ];
   return entries.filter((entry) => entry !== false);
 }
