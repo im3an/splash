@@ -29,6 +29,8 @@ export interface BrowsingDataCleanerOptions {
   clearSiteData(): Promise<void>;
   clearCache(): Promise<void>;
   clearDownloadList(): void;
+  /** Recently closed pages keep their addresses; history clears them too. */
+  forgetClosedPages(): void;
   now(): number;
   createToken(): string;
 }
@@ -62,6 +64,7 @@ export class BrowsingDataCleaner {
       const rows = this.options.store.deleteHistory(
         rangeStart(request.range, now),
       );
+      this.options.forgetClosedPages();
       cleared.push(`history ${RANGE_LABEL[request.range]}`);
       if (rows.length > 0) {
         undoToken = this.options.createToken();

@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 
 /**
@@ -119,6 +120,24 @@ export function rollback(db: DatabaseSync): void {
   } catch {
     // Already rolled back; the caller rethrows the original error.
   }
+}
+
+/**
+ * Before an older database is upgraded, keeps a copy of it as it was:
+ * `splash.db.pre-v<N>`, where N is the version it's about to become. A
+ * fresh database has nothing to keep. Returns the copy's path, if any.
+ */
+export function backupBeforeMigrating(
+  db: DatabaseSync,
+  file: string,
+  migrations: readonly string[] = MIGRATIONS,
+): string | null {
+  const current = schemaVersion(db);
+  if (current === 0 || current >= migrations.length) return null;
+  const backup = `${file}.pre-v${current + 1}`;
+  rmSync(backup, { force: true });
+  db.exec(`VACUUM INTO '${backup.replaceAll("'", "''")}'`);
+  return backup;
 }
 
 /** Brings the database up to date, one migration per transaction. */

@@ -300,6 +300,10 @@ if (!app.requestSingleInstanceLock()) {
         }),
       clearCache: () => webSession.clearCache(),
       clearDownloadList: () => downloads.clearFinished(),
+      forgetClosedPages: () => {
+        for (const trailWindow of windows)
+          trailWindow.controller.forgetClosed();
+      },
       now: Date.now,
       createToken: randomUUID,
     });

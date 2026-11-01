@@ -25,6 +25,7 @@ function setup() {
     clearSiteData: vi.fn(async () => undefined),
     clearCache: vi.fn(async () => undefined),
     clearDownloadList: vi.fn(),
+    forgetClosedPages: vi.fn(),
     now: () => now,
     createToken: () => 'token',
   };
@@ -47,9 +48,10 @@ const NONE = {
 
 describe('BrowsingDataCleaner', () => {
   it('clears history for the chosen range and can undo it', async () => {
-    const { cleaner, store } = setup();
+    const { cleaner, store, options } = setup();
     const result = await cleaner.clear({ ...NONE, history: true });
     expect(store.deleteHistory).toHaveBeenCalledWith(rangeStart('hour', NOW));
+    expect(options.forgetClosedPages).toHaveBeenCalledOnce();
     expect(result).toEqual({
       summary: 'Cleared history from the last hour.',
       undoToken: 'token',

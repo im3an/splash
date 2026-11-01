@@ -400,6 +400,13 @@ export class BrowserController {
     return this.closed.map((record) => record.summary).reverse();
   }
 
+  /** Clearing history also forgets what could be reopened, and where it was. */
+  forgetClosed(): void {
+    if (this.closed.length === 0) return;
+    this.closed = [];
+    this.changed();
+  }
+
   /**
    * Moves a page and its branch under `parentId`, right after the sibling
    * `afterId` (or first, when `afterId` is null), within its workspace.

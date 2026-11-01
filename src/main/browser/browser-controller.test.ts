@@ -1331,6 +1331,9 @@ describe('BrowserController', () => {
       expect(controller.recentlyClosed().map((s) => s.label)).toEqual([
         'b.example',
       ]);
+      controller.forgetClosed();
+      expect(controller.recentlyClosed()).toEqual([]);
+      expect(controller.reopenClosed()).toBeNull();
       expect(controller.reopenClosed(12345)).toBeNull();
     });
 

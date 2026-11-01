@@ -14,6 +14,7 @@ import type { PageHistory } from '../browser/page-host';
 import { isNavigableUrl, isPageUrl } from '../browser/url';
 import {
   assertSupportedSchema,
+  backupBeforeMigrating,
   migrate,
   rollback,
   SchemaTooNewError,
@@ -584,6 +585,7 @@ export function openTrailStore(file: string): OpenStoreResult {
       // Check first: even switching the journal mode would modify a file
       // that belongs to a newer version.
       assertSupportedSchema(db);
+      backupBeforeMigrating(db, file);
       db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
       return new SqliteTrailStore(db);
     } catch (error) {

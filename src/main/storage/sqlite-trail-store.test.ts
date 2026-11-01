@@ -426,4 +426,30 @@ describe('openTrailStore', () => {
     expect(second.store.loadSession()).toEqual(STORED);
     second.store.close();
   });
+
+  it('keeps a copy of an older database before upgrading it', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'splash-store-'));
+    const file = path.join(dir, 'splash.db');
+    const older = new DatabaseSync(file);
+    migrate(older, MIGRATIONS.slice(0, 1));
+    older.exec("INSERT INTO preferences (key, value) VALUES ('kept', 'yes')");
+    older.close();
+    openTrailStore(file).store.close();
+    const backup = new DatabaseSync(path.join(dir, 'splash.db.pre-v2'));
+    expect(schemaVersion(backup)).toBe(1);
+    expect(
+      backup.prepare("SELECT value FROM preferences WHERE key = 'kept'").get(),
+    ).toEqual({ value: 'yes' });
+    backup.close();
+  });
+
+  it('keeps no copy of a new or current database', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'splash-store-'));
+    const file = path.join(dir, 'splash.db');
+    openTrailStore(file).store.close();
+    openTrailStore(file).store.close();
+    expect(readdirSync(dir).filter((name) => name.includes('pre-v'))).toEqual(
+      [],
+    );
+  });
 });

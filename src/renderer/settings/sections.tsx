@@ -501,7 +501,11 @@ export function PrivacySettings() {
         </Row>
         {(
           [
-            ['history', 'Browsing history', 'Addresses suggested as you type.'],
+            [
+              'history',
+              'Browsing history',
+              'Addresses suggested as you type, and recently closed pages to reopen.',
+            ],
             [
               'cookies',
               'Cookies and site data',
