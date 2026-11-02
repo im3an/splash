@@ -41,7 +41,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import type { BrowserSnapshot, PageId } from '../../shared/types';
+import type { BrowserSnapshot, PageId, WorkspaceId } from '../../shared/types';
 import {
   projectDrop,
   rowsWhileDragging,
@@ -119,6 +119,19 @@ export function TrailTree() {
     painted.current = true;
   }, []);
   const [drag, setDrag] = useState<DragState | null>(null);
+  // Where the pointer is, for dropping a page on a workspace below the trail.
+  const pointerAt = useRef({ x: 0, y: 0 });
+  const dragging = drag !== null;
+  useEffect(() => {
+    if (!dragging) return;
+    const track = (event: PointerEvent) => {
+      pointerAt.current = { x: event.clientX, y: event.clientY };
+    };
+    window.addEventListener('pointermove', track, true);
+    return () => window.removeEventListener('pointermove', track, true);
+  }, [dragging]);
+  const workspaceDrop = useShell((state) => state.workspaceDropId);
+  const setWorkspaceDrop = useShell((state) => state.setWorkspaceDrop);
   // A small threshold keeps plain clicks from turning into drags.
   // No dragging while filtered: neighbours on screen aren't neighbours.
   const pointer = useSensor(PointerSensor, {
@@ -244,8 +257,14 @@ export function TrailTree() {
     onDragCancel: ({ active }) => `${titleOf(active.id)} was put back.`,
   };
 
-  const onDragStart = ({ active }: DragStartEvent) => {
+  const onDragStart = ({ active, activatorEvent }: DragStartEvent) => {
     const id = String(active.id);
+    if (activatorEvent instanceof PointerEvent) {
+      pointerAt.current = {
+        x: activatorEvent.clientX,
+        y: activatorEvent.clientY,
+      };
+    }
     setDrag({ activeId: id, overId: id, offsetX: 0 });
   };
   const onDragMove = ({ active, over, delta }: DragMoveEvent) => {
@@ -254,9 +273,17 @@ export function TrailTree() {
       overId: over ? String(over.id) : String(active.id),
       offsetX: delta.x,
     });
+    setWorkspaceDrop(
+      workspaceAt(pointerAt.current, snapshot.activeWorkspaceId),
+    );
   };
   const onDragEnd = ({ active, over, delta }: DragEndEvent) => {
     setDrag(null);
+    setWorkspaceDrop(null);
+    if (workspaceDrop) {
+      void api().movePageToWorkspace(String(active.id), workspaceDrop);
+      return;
+    }
     if (!over) return;
     const target = projectDrop(
       allRows,
@@ -295,7 +322,10 @@ export function TrailTree() {
       onDragStart={onDragStart}
       onDragMove={onDragMove}
       onDragEnd={onDragEnd}
-      onDragCancel={() => setDrag(null)}
+      onDragCancel={() => {
+        setDrag(null);
+        setWorkspaceDrop(null);
+      }}
     >
       <SortableContext
         items={rows.map((row) => row.id)}
@@ -338,7 +368,9 @@ export function TrailTree() {
                       <TrailRow
                         row={row}
                         depth={
-                          row.id === drag?.activeId && projection
+                          row.id === drag?.activeId &&
+                          projection &&
+                          !workspaceDrop
                             ? projection.depth
                             : row.depth
                         }
@@ -378,6 +410,24 @@ export function TrailTree() {
       </SortableContext>
     </DndContext>
   );
+}
+
+/**
+ * The other workspace whose chip is under `point`, if any. The dragged row
+ * itself may be under the pointer too, so every element there is checked.
+ */
+function workspaceAt(
+  point: { x: number; y: number },
+  currentId: WorkspaceId,
+): WorkspaceId | null {
+  for (const element of document.elementsFromPoint(point.x, point.y)) {
+    const chip = element.closest<HTMLElement>('[data-workspace-id]');
+    if (chip) {
+      const id = chip.dataset.workspaceId ?? null;
+      return id === currentId ? null : id;
+    }
+  }
+  return null;
 }
 
 /**
@@ -865,6 +915,7 @@ function PathHalf({ line }: { line: DrawnHalf }) {
   return (
     <span
       ref={ref}
+      data-half={line.half}
       className="absolute w-px origin-top bg-(--guide-path)"
       style={{
         left: CHEVRON_CENTER + line.level * INDENT,

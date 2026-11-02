@@ -10,6 +10,7 @@ import type {
   PageId,
   PageSnapshot,
   SplitView,
+  WorkspaceId,
   WorkspaceSummary,
 } from '../../shared/types';
 
@@ -34,6 +35,8 @@ interface ShellState {
   trailFilter: string | null;
   /** Incremented to put focus in the filter field. */
   trailFilterFocus: number;
+  /** The workspace a dragged page would move to if dropped now. */
+  workspaceDropId: WorkspaceId | null;
   /** Incremented to focus the find field or step through matches. */
   findRequest: { serial: number; action: 'open' | 'next' | 'previous' };
   receiveSnapshot(snapshot: BrowserSnapshot): void;
@@ -51,6 +54,7 @@ interface ShellState {
   closeFind(): void;
   openTrailFilter(): void;
   setTrailFilter(filter: string | null): void;
+  setWorkspaceDrop(workspaceId: WorkspaceId | null): void;
 }
 
 export const useShell = create<ShellState>()((set) => ({
@@ -66,6 +70,7 @@ export const useShell = create<ShellState>()((set) => ({
   findRequest: { serial: 0, action: 'open' },
   trailFilter: null,
   trailFilterFocus: 0,
+  workspaceDropId: null,
   receiveSnapshot: (snapshot) => set({ snapshot }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setSidebarPanel: (panel) =>
@@ -103,6 +108,10 @@ export const useShell = create<ShellState>()((set) => ({
       sidebarPanel: null,
     })),
   setTrailFilter: (trailFilter) => set({ trailFilter }),
+  setWorkspaceDrop: (workspaceDropId) =>
+    set((state) =>
+      state.workspaceDropId === workspaceDropId ? state : { workspaceDropId },
+    ),
   setRenamingWorkspace: (renaming) =>
     set({
       renamingWorkspace: renaming,

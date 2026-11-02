@@ -21,8 +21,9 @@ import { WorkspaceIcon } from './WorkspaceIcon';
 
 /**
  * The sidebar's foot, like Arc's: downloads and history at the start, every
- * workspace in the middle (click to switch, drag to reorder), settings and
- * a new workspace at the end.
+ * workspace in the middle (click to switch, drag to reorder, drop a page
+ * from the trail on one to move it there), settings and a new workspace at
+ * the end.
  */
 export function WorkspaceBar() {
   const workspaces = useShell(selectWorkspaces);
@@ -150,6 +151,8 @@ function WorkspaceChip({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: workspace.id });
+  // A page dragged from the trail is over this workspace.
+  const dropping = useShell((state) => state.workspaceDropId === workspace.id);
   const shortcut = index < 9 ? ` (⌃${index + 1})` : '';
 
   return (
@@ -170,6 +173,8 @@ function WorkspaceChip({
         void api().showWorkspaceMenu();
       }}
       data-active={active}
+      data-workspace-id={workspace.id}
+      data-drop={dropping}
       style={{
         transform: transform
           ? `translate3d(${transform.x}px, 0, 0)`
@@ -177,7 +182,7 @@ function WorkspaceChip({
         transition,
       }}
       // Arc's space dots: the others fade back, the current one is solid.
-      className="grid size-7 shrink-0 place-items-center rounded-control text-small font-semibold text-fg-subtle opacity-70 transition-[color,background-color,opacity,scale] duration-fast ease-out hover:bg-row-hover active:scale-[0.9] hover:text-fg hover:opacity-100 data-[active=true]:bg-row-hover data-[active=true]:text-accent data-[active=true]:opacity-100"
+      className="grid size-7 shrink-0 place-items-center rounded-control text-small font-semibold text-fg-subtle opacity-70 transition-[color,background-color,opacity,scale] duration-fast ease-out hover:bg-row-hover active:scale-[0.9] hover:text-fg hover:opacity-100 data-[active=true]:bg-row-hover data-[active=true]:text-accent data-[active=true]:opacity-100 data-[drop=true]:scale-110 data-[drop=true]:bg-accent-soft data-[drop=true]:text-accent data-[drop=true]:opacity-100"
     >
       <WorkspaceIcon icon={workspace.appearance.icon} name={workspace.name} />
     </button>
