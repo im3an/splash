@@ -45,7 +45,7 @@ export function StackedIcons({
       {shown.length
         ? shown.map((link) => (
             <span key={link.id} className="stacked-icon">
-              <SiteIcon url={link.faviconUrl} />
+              <SiteIcon url={link.faviconUrl} site={link.url} />
             </span>
           ))
         : fallback && <span className="stacked-icon">{fallback}</span>}
@@ -210,7 +210,7 @@ export function StackLink({
       onContextMenu={onMenu}
     >
       <span className="stack-link-icon">
-        <SiteIcon url={link.faviconUrl} />
+        <SiteIcon url={link.faviconUrl} site={link.url} />
       </span>
       <span className="min-w-0 flex-1 truncate">{title}</span>
       <span className="stack-link-host">

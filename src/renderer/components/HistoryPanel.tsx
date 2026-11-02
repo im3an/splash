@@ -334,6 +334,7 @@ export function HistoryPanel() {
                     <span className="grid size-4 shrink-0 place-items-center">
                       <SiteIcon
                         url={entry.faviconUrl ?? icons.get(hostOf(entry.url))}
+                        site={entry.url}
                       />
                     </span>
                     <span className="min-w-0 flex-1">

@@ -118,7 +118,11 @@ function ItemIcon({ item }: { item: PaletteItem }) {
     }
     case 'history':
       return (
-        <SiteIcon url={item.faviconUrl} fallback={<History {...props} />} />
+        <SiteIcon
+          url={item.faviconUrl}
+          site={item.url}
+          fallback={<History {...props} />}
+        />
       );
     case 'search':
       return <Search {...props} />;
