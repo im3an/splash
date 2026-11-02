@@ -77,6 +77,16 @@ export class ExtensionHost {
     session.registerPreloadScript({ type: 'service-worker', filePath });
     // Toolbar icons are drawn in the shell, which lives in the default session.
     ElectronChromeExtensions.handleCRXProtocol(sessions.defaultSession);
+    // The library adds a `destroyed` listener to a background page for every
+    // chrome.* event it subscribes to; uBlock subscribes to more than ten.
+    app.on('web-contents-created', (_event, contents) => {
+      if (
+        contents.session === session &&
+        contents.getType() === 'backgroundPage'
+      ) {
+        contents.setMaxListeners(Math.max(contents.getMaxListeners(), 50));
+      }
+    });
   }
 
   /** Loads the bundled extensions; one that fails doesn't stop the rest. */
