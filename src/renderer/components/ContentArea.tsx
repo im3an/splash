@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CircleAlert, Plus, Search } from 'lucide-react';
+import { CircleAlert, PanelLeft, PanelRight, Plus, Search } from 'lucide-react';
 import type { ContentInsets, PageId, PageSnapshot } from '../../shared/types';
 import { useContentInsets } from '../hooks/use-content-insets';
-import { describeError, pageLabel } from '../lib/format';
+import { describeError, pageLabel, pageParts } from '../lib/format';
 import { api } from '../splash-api';
+import { splitPartner, usePageDrag } from '../stores/drag-store';
 import { openLocation, useOverlay } from '../stores/overlay-store';
 import {
   selectActivePage,
@@ -59,7 +60,58 @@ export function ContentArea() {
           </>
         )}
         <OverlayBoundary />
+        <SplitDropZones />
       </div>
+    </div>
+  );
+}
+
+/**
+ * While a page is dragged out of the trail, the page area offers its two
+ * halves: drop on one to show the page there, beside the current page.
+ */
+function SplitDropZones() {
+  const pageId = usePageDrag((state) => state.pageId);
+  const target = usePageDrag((state) => state.target);
+  const label = useShell((state) => {
+    const page = pageId ? state.snapshot?.pages[pageId] : undefined;
+    return page ? pageParts(page).title : '';
+  });
+  // Recomputed per render; the split and active page don't change mid-drag.
+  const sides = (['left', 'right'] as const).filter(
+    (side) => pageId !== null && splitPartner(pageId, side) !== null,
+  );
+  if (!pageId || !sides.length) return null;
+  return (
+    <div className="split-drop overlay-in" aria-hidden>
+      {(['left', 'right'] as const).map((side) => {
+        const open = sides.includes(side);
+        const over = target?.kind === 'split' && target.side === side;
+        return (
+          <div
+            key={side}
+            data-drop={open ? `split-${side}` : undefined}
+            data-over={over}
+            data-open={open}
+            className="split-drop-zone"
+          >
+            {open && (
+              <span className="split-drop-label">
+                {side === 'left' ? (
+                  <PanelLeft size={16} strokeWidth={1.75} />
+                ) : (
+                  <PanelRight size={16} strokeWidth={1.75} />
+                )}
+                <span className="min-w-0 truncate">
+                  {over
+                    ? label
+                    : `Show ${side === 'left' ? 'on the left' : 'on the right'}`}
+                </span>
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

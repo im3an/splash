@@ -10,7 +10,8 @@ import {
 import { SidebarResize } from './SidebarResize';
 import { AddressBar } from './AddressBar';
 import { ToolbarActions } from './ToolbarActions';
-import { BookmarkLibrary } from './BookmarkLibrary';
+import { Favorites } from './Favorites';
+import { SavedGroups } from './SavedGroups';
 import { SidebarPanel } from './SidebarPanel';
 import { NavigationButtons } from './Toolbar';
 import { TrailFilter } from './TrailFilter';
@@ -85,7 +86,9 @@ export function Sidebar() {
     >
       {/* Keeps its width while the sidebar closes, so nothing reflows. */}
       <div
-        className="flex h-full flex-col pl-(--gutter) transition-[width] duration-slow ease-emphasized"
+        className="sidebar-column flex h-full flex-col pl-(--gutter) transition-[width] duration-slow ease-emphasized"
+        // Rows line their icons up past the chevrons, when the trail has any.
+        data-flat={flat}
         style={{ width }}
       >
         <div className="drag flex h-(--toolbar-height) shrink-0 items-center gap-0.5 pl-[calc(var(--traffic-lights)-var(--gutter))]">
@@ -121,6 +124,8 @@ export function Sidebar() {
         <div
           className={`${panel ? 'hidden' : 'flex'} ${leftForPanel.current ? 'trail-in' : ''} min-h-0 flex-1 flex-col`}
         >
+          {/* Shared by every workspace, so they stay put when it changes. */}
+          <Favorites />
           <div
             key={workspaceId}
             className={`flex shrink-0 flex-col ${slide.current}`}
@@ -128,29 +133,30 @@ export function Sidebar() {
             <WorkspaceButton />
           </div>
 
-          <button
-            type="button"
-            onClick={newPage}
-            data-flat={flat}
-            className="sidebar-new-page mb-px flex h-(--row-height) shrink-0 items-center gap-2 rounded-row pr-2 pl-[30px] text-fg-muted transition-colors duration-fast hover:bg-row-hover hover:text-fg active:bg-row-pressed data-[flat=true]:pl-2.5"
-          >
-            {/* Sits in the favicon column of a top-level row, wherever that is. */}
-            <span className="grid size-4 shrink-0 place-items-center">
-              <Plus size={15} strokeWidth={1.75} />
-            </span>
-            <span className="flex-1 text-left">New page</span>
-            <kbd className="shortcut">⌘T</kbd>
-          </button>
-
           <TrailFilter />
           {/* Padded so the active row's edge is never clipped by the scroller. */}
           <nav
             ref={listRef}
             className="min-h-0 flex-1 scroll-py-1 overflow-x-hidden overflow-y-auto overscroll-contain pt-px pb-2"
           >
+            <SavedGroups />
             <div key={workspaceId} className={slide.current}>
-              <BookmarkLibrary />
-              <TrailTree />
+              <TrailTree
+                newPage={
+                  <button
+                    type="button"
+                    onClick={newPage}
+                    className="sidebar-new-page sidebar-row"
+                  >
+                    {/* In the favicon column, wherever that is. */}
+                    <span className="grid size-4 shrink-0 place-items-center">
+                      <Plus size={15} strokeWidth={1.75} />
+                    </span>
+                    <span className="flex-1 text-left">New page</span>
+                    <kbd className="shortcut">⌘T</kbd>
+                  </button>
+                }
+              />
             </div>
           </nav>
         </div>

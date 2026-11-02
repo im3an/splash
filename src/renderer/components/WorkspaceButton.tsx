@@ -47,7 +47,7 @@ export function WorkspaceButton() {
           }
         }}
         onBlur={(event) => commit(event.currentTarget.value)}
-        className="editing-field mb-0.5 h-7 shrink-0 rounded-control px-2.5 text-small font-semibold text-fg select-text"
+        className="editing-field mb-0.5 h-7 shrink-0 rounded-control pr-2.5 pl-(--lead) text-small font-semibold text-fg select-text"
       />
     );
   }
@@ -58,7 +58,7 @@ export function WorkspaceButton() {
       onClick={() => void api().showWorkspaceMenu()}
       onDoubleClick={() => setRenaming(true)}
       title="Workspaces (⌃1–9 to switch)"
-      className="group mb-0.5 flex h-7 max-w-full shrink-0 items-center gap-1.5 self-start rounded-control pr-1.5 pl-2.5 text-small font-semibold text-fg-muted transition-colors duration-fast hover:bg-row-hover hover:text-fg"
+      className="group mb-0.5 flex h-7 max-w-full shrink-0 items-center gap-1.5 self-start rounded-control pr-1.5 pl-(--lead) text-small font-semibold text-fg-muted transition-colors duration-fast hover:bg-row-hover hover:text-fg"
     >
       <span className="grid size-4 shrink-0 place-items-center text-accent">
         <WorkspaceIcon

@@ -9,6 +9,7 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
 } from 'react';
 import {
   closestCenter,
@@ -76,6 +77,12 @@ import {
   selectWorkspaces,
   useShell,
 } from '../stores/shell-store';
+import { bookmarkPage, collectionNotice, webLink } from '../lib/collections';
+import {
+  splitPartner,
+  usePageDrag,
+  type DropTarget,
+} from '../stores/drag-store';
 import { useDownloads } from '../stores/downloads-store';
 import { useToast } from '../stores/toast-store';
 import { openPageMenu, usePageMenu } from '../stores/page-menu-store';
@@ -107,7 +114,7 @@ interface DragState {
   offsetX: number;
 }
 
-export function TrailTree() {
+export function TrailTree({ newPage }: { newPage?: ReactNode }) {
   const snapshot = useShell((state) => state.snapshot);
   const visibleSplit = useShell(selectVisibleSplit);
   const flat = useShell(selectFlatTrail);
@@ -117,6 +124,16 @@ export function TrailTree() {
     painted.current = true;
   }, []);
   const [drag, setDrag] = useState<DragState | null>(null);
+  // Out of the trail, a drag follows the pointer to Favorites or the page.
+  const dropTarget = usePageDrag((state) => state.target);
+  const dragging = drag !== null;
+  useEffect(() => {
+    if (!dragging) return;
+    const track = (event: PointerEvent) =>
+      usePageDrag.getState().track(event.clientX, event.clientY);
+    window.addEventListener('pointermove', track, true);
+    return () => window.removeEventListener('pointermove', track, true);
+  }, [dragging]);
   // A small threshold keeps plain clicks from turning into drags.
   // No dragging while filtered: neighbours on screen aren't neighbours.
   const pointer = useSensor(PointerSensor, {
@@ -216,7 +233,13 @@ export function TrailTree() {
 
   if (snapshot === null) return <TrailSkeleton />;
   if (filtering && allRows.length === 0) return <FilterEmpty query={filter} />;
-  if (allRows.length === 0) return <TrailEmpty />;
+  if (allRows.length === 0)
+    return (
+      <>
+        {newPage}
+        <TrailEmpty />
+      </>
+    );
 
   const sectionCounts = trailSectionCounts(snapshot);
   const split = snapshot.split;
@@ -230,6 +253,7 @@ export function TrailTree() {
   const onDragStart = ({ active }: DragStartEvent) => {
     const id = String(active.id);
     setDrag({ activeId: id, overId: id, offsetX: 0 });
+    usePageDrag.getState().start(id);
   };
   const onDragMove = ({ active, over, delta }: DragMoveEvent) => {
     setDrag({
@@ -240,6 +264,12 @@ export function TrailTree() {
   };
   const onDragEnd = ({ active, over, delta }: DragEndEvent) => {
     setDrag(null);
+    const outside = usePageDrag.getState().target;
+    usePageDrag.getState().end();
+    if (outside) {
+      dropOutside(String(active.id), outside);
+      return;
+    }
     if (!over) return;
     const target = projectDrop(
       allRows,
@@ -271,7 +301,10 @@ export function TrailTree() {
       onDragStart={onDragStart}
       onDragMove={onDragMove}
       onDragEnd={onDragEnd}
-      onDragCancel={() => setDrag(null)}
+      onDragCancel={() => {
+        setDrag(null);
+        usePageDrag.getState().end();
+      }}
     >
       <SortableContext
         items={rows.map((row) => row.id)}
@@ -296,57 +329,63 @@ export function TrailTree() {
                 inSection = snapshot.pages[row.id]?.isPinned === pinned;
               return inSection;
             });
-            if (!sectionRows.length) return null;
+            // New page leads the open pages, even when every page is pinned.
+            if (!sectionRows.length && (pinned || !newPage)) return null;
+            const content = (
+              <div className="sidebar-section-content flex flex-col gap-px">
+                {!pinned && newPage}
+                {sectionRows.map((row) => (
+                  <Fragment key={row.id}>
+                    <TrailRow
+                      row={row}
+                      depth={
+                        row.id === drag?.activeId && projection && !dropTarget
+                          ? projection.depth
+                          : row.depth
+                      }
+                      active={row.id === snapshot.activePageId}
+                      tabStop={row.id === tabStop}
+                      lines={drag ? NO_LINES : (lines.get(row.id) ?? NO_LINES)}
+                      onNavigate={navigate}
+                      onFocusRow={setFocusedId}
+                      inSplit={isInSplit(row.id)}
+                      paired={
+                        visibleSplit !== null &&
+                        row.id !== snapshot.activePageId &&
+                        isInSplit(row.id)
+                      }
+                      dragging={row.id === drag?.activeId}
+                      hidden={hidden.get(row.id) ?? null}
+                      flat={flat}
+                      appear={painted.current}
+                    />
+                    {!drag && (
+                      <PageNote
+                        pageId={row.id}
+                        depth={row.depth}
+                        indent={INDENT}
+                        lead={flat ? FLAT_LEAD : LEAD}
+                      />
+                    )}
+                  </Fragment>
+                ))}
+              </div>
+            );
+            // One kind of page needs no heading over it.
+            if (!sectionCounts.pinned)
+              return <Fragment key={String(pinned)}>{content}</Fragment>;
             return (
               <details key={String(pinned)} className="trail-section" open>
-                <summary className="sidebar-section-heading mt-2">
+                <summary className="sidebar-section-heading">
                   <span className="sidebar-section-label">
-                    <ChevronRight size={12} />
                     {pinned ? 'Pinned' : 'Pages'}
+                    <ChevronRight size={12} />
                     <span className="sidebar-folded-count">
                       {pinned ? sectionCounts.pinned : sectionCounts.open}
                     </span>
                   </span>
                 </summary>
-                <div className="sidebar-section-content flex flex-col gap-px">
-                  {sectionRows.map((row) => (
-                    <Fragment key={row.id}>
-                      <TrailRow
-                        row={row}
-                        depth={
-                          row.id === drag?.activeId && projection
-                            ? projection.depth
-                            : row.depth
-                        }
-                        active={row.id === snapshot.activePageId}
-                        tabStop={row.id === tabStop}
-                        lines={
-                          drag ? NO_LINES : (lines.get(row.id) ?? NO_LINES)
-                        }
-                        onNavigate={navigate}
-                        onFocusRow={setFocusedId}
-                        inSplit={isInSplit(row.id)}
-                        paired={
-                          visibleSplit !== null &&
-                          row.id !== snapshot.activePageId &&
-                          isInSplit(row.id)
-                        }
-                        dragging={row.id === drag?.activeId}
-                        hidden={hidden.get(row.id) ?? null}
-                        flat={flat}
-                        appear={painted.current}
-                      />
-                      {!drag && (
-                        <PageNote
-                          pageId={row.id}
-                          depth={row.depth}
-                          indent={INDENT}
-                          lead={flat ? FLAT_LEAD : LEAD}
-                        />
-                      )}
-                    </Fragment>
-                  ))}
-                </div>
+                {content}
               </details>
             );
           })}
@@ -354,6 +393,24 @@ export function TrailTree() {
       </SortableContext>
     </DndContext>
   );
+}
+
+/** A page dropped outside the trail: onto Favorites or a side of the page. */
+function dropOutside(pageId: PageId, target: DropTarget): void {
+  const page = useShell.getState().snapshot?.pages[pageId];
+  if (!page) return;
+  if (target.kind === 'favorites') {
+    if (!webLink(page)) {
+      collectionNotice('Only web pages can be favorites.');
+      return;
+    }
+    void bookmarkPage(page).then(() =>
+      collectionNotice(`Added ${pageParts(page).title} to Favorites.`),
+    );
+    return;
+  }
+  const partner = splitPartner(pageId, target.side);
+  if (partner) void api().openSplit(pageId, partner, target.side);
 }
 
 /**
@@ -598,7 +655,11 @@ const TrailRow = memo(function TrailRow({
       aria-describedby={preview.describedBy}
       onMouseEnter={preview.show}
       onMouseLeave={preview.hide}
-      onPointerDown={preview.hide}
+      // After the spread listeners, so this must hand on to the drag's own.
+      onPointerDown={(event) => {
+        preview.hide();
+        listeners?.onPointerDown?.(event);
+      }}
       onBlur={preview.hide}
       onClick={activate}
       onAuxClick={(event) => event.button === 1 && close(event)}

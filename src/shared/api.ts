@@ -22,6 +22,7 @@ import type {
   WorkspaceAppearance,
   WorkspaceId,
 } from './types';
+import type { AiPanelAction, AiPanelPlacement, AiPanelState } from './ai';
 import type { PaletteScope } from './palette';
 import type { Preferences } from './preferences';
 
@@ -101,6 +102,7 @@ export interface InvokeOutputs {
   'preferences:get': Preferences;
   'preferences:update': Preferences;
   'workspace:move': void;
+  'ai:act': void;
 }
 
 export const eventChannels = {
@@ -110,6 +112,7 @@ export const eventChannels = {
   downloads: 'downloads:changed',
   storage: 'storage:changed',
   notice: 'shell:notice',
+  aiPanel: 'ai:state',
 } as const;
 
 /** The API the preload script exposes on `window.splash`. */
@@ -161,8 +164,15 @@ export interface SplashApi {
   /** Moves a page with its branch to the end of another workspace. */
   movePageToWorkspace(pageId: PageId, workspaceId: WorkspaceId): Promise<void>;
   setNote(pageId: PageId, note: string | null): Promise<void>;
-  /** Shows `pageId` beside `otherId` and makes it active. */
-  openSplit(pageId: PageId, otherId: PageId): Promise<void>;
+  /**
+   * Shows `pageId` beside `otherId` and makes it active: on `side` when
+   * given (a page dropped there), else in trail order.
+   */
+  openSplit(
+    pageId: PageId,
+    otherId: PageId,
+    side?: 'left' | 'right',
+  ): Promise<void>;
   /** Closes the page's split view, or opens one with its parent or child. */
   toggleSplit(pageId: PageId): Promise<void>;
   closeSplit(): Promise<void>;
@@ -248,4 +258,8 @@ export interface SplashApi {
   getPreferences(): Promise<Preferences>;
   updatePreferences(patch: Partial<Preferences>): Promise<Preferences>;
   onPreferences(listener: (preferences: Preferences) => void): () => void;
+  /** Shows an assistant where the shell draws the AI panel; null closes it. */
+  placeAiPanel(placement: AiPanelPlacement | null): void;
+  actOnAiPanel(action: AiPanelAction): Promise<void>;
+  onAiPanel(listener: (state: AiPanelState) => void): () => void;
 }

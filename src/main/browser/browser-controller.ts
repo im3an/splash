@@ -558,15 +558,17 @@ export class BrowserController {
   }
 
   /**
-   * Shows `id` beside `otherId` and makes it the active page. An ancestor
-   * goes on the left, so a parent and its child read in trail order.
+   * Shows `id` beside `otherId` and makes it the active page. Without a
+   * `side`, an ancestor goes on the left, so a parent and its child read in
+   * trail order; a page dropped on one side goes there.
    */
-  openSplit(id: PageId, otherId: PageId): void {
+  openSplit(id: PageId, otherId: PageId, side?: 'left' | 'right'): void {
     const workspace = this.workspaceOf(id);
     if (id === otherId || !workspace.tree.has(otherId)) {
       throw new Error('A split view needs two pages of one workspace');
     }
-    workspace.split = workspace.tree.isWithin(otherId, id)
+    const left = side ? side === 'left' : workspace.tree.isWithin(otherId, id);
+    workspace.split = left
       ? { leftId: id, rightId: otherId }
       : { leftId: otherId, rightId: id };
     this.activatePage(id);

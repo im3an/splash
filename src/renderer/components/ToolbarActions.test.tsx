@@ -45,7 +45,7 @@ it('can reopen the toolbar menu after keyboard dismissal', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Customize toolbar' }));
   const reopened = await screen.findByRole('menu');
   expect(reopened.hasAttribute('inert')).toBe(false);
-  expect(screen.getByRole('menuitem', { name: 'Hide Bookmark' })).toBeTruthy();
+  expect(screen.getByRole('menuitem', { name: 'Hide Favorite' })).toBeTruthy();
 });
 it('does not leave the page hidden when unmounted during capture', async () => {
   let resolve: (value: Record<string, string>) => void = () => {};

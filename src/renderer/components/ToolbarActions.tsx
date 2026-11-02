@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Puzzle, Settings2, Share, Star } from 'lucide-react';
+import { Check, Puzzle, Settings2, Share, Sparkles, Star } from 'lucide-react';
 import {
   DEFAULT_PREFERENCES,
   TOOLBAR_ACTIONS,
@@ -12,6 +12,7 @@ import {
   toggleBookmark,
 } from '../lib/collections';
 import { selectActivePage, useShell } from '../stores/shell-store';
+import { useAiPanel } from '../stores/ai-store';
 import { useOverlay } from '../stores/overlay-store';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { ExtensionActions } from './ExtensionActions';
@@ -19,13 +20,14 @@ import { SplitButton } from './Toolbar';
 import { DownloadsButton } from './DownloadsButton';
 
 export const toolbarLabels: Record<ToolbarAction, string> = {
-  bookmark: 'Bookmark',
+  bookmark: 'Favorite',
   share: 'Share',
   extensions: 'Extensions',
   split: 'Split view',
   downloads: 'Downloads',
 };
 export function ToolbarActions() {
+  const aiOpen = useAiPanel((state) => state.open);
   const page = useShell(selectActivePage);
   const preferences = useShell((state) => state.preferences);
   const actions =
@@ -150,16 +152,16 @@ export function ToolbarActions() {
             aria-label={
               action === 'bookmark'
                 ? saved
-                  ? 'Remove bookmark'
-                  : 'Bookmark page'
+                  ? 'Remove from Favorites'
+                  : 'Add to Favorites'
                 : 'Share page'
             }
             aria-pressed={action === 'bookmark' ? Boolean(saved) : undefined}
             title={
               action === 'bookmark'
                 ? saved
-                  ? 'Remove bookmark'
-                  : 'Bookmark page'
+                  ? 'Remove from Favorites'
+                  : 'Add to Favorites'
                 : 'Share page'
             }
             onClick={() => {
@@ -194,6 +196,17 @@ export function ToolbarActions() {
           </button>
         );
       })}
+      <button
+        type="button"
+        className="icon-button data-[on=true]:text-accent"
+        aria-label="AI panel"
+        aria-pressed={aiOpen}
+        data-on={aiOpen}
+        title={aiOpen ? 'Close AI panel (⇧⌘A)' : 'Ask AI (⇧⌘A)'}
+        onClick={() => useAiPanel.getState().toggle()}
+      >
+        <Sparkles size={15} strokeWidth={1.75} />
+      </button>
       <button
         className="icon-button"
         aria-label="Customize toolbar"

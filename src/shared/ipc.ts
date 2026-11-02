@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AI_PROVIDER_IDS } from './ai';
 import { ACCENTS, FRAMES, SYMBOLS } from './appearance';
 import { SEARCH_ENGINES, TOOLBAR_ACTIONS } from './preferences';
 
@@ -83,6 +84,8 @@ export const preferencesSchema = z.strictObject({
   startup: z.enum(['restore', 'new-page']),
   blockAds: z.boolean(),
   hideCookieNotices: z.boolean(),
+  aiProvider: z.enum(AI_PROVIDER_IDS),
+  aiPanelWidth: z.number().int().min(320).max(720),
 });
 const sitePermission = z.enum([
   'camera',
@@ -196,7 +199,11 @@ export const invokeContract = {
   }),
   'page:duplicate': z.strictObject({ pageId }),
   'page:move-to-workspace': z.strictObject({ pageId, workspaceId }),
-  'page:open-split': z.strictObject({ pageId, otherId: pageId }),
+  'page:open-split': z.strictObject({
+    pageId,
+    otherId: pageId,
+    side: z.enum(['left', 'right']).optional(),
+  }),
   'page:toggle-split': z.strictObject({ pageId }),
   'split:close': z.undefined(),
   'page:set-note': z.strictObject({
@@ -305,6 +312,9 @@ export const invokeContract = {
     complete: z.boolean().optional(),
   }),
   'search:suggest': z.strictObject({ query: z.string().max(8192) }),
+  'ai:act': z.strictObject({
+    action: z.enum(['back', 'reload', 'home', 'open-as-page']),
+  }),
   'workspace:move': z.strictObject({
     workspaceId,
     index: z.number().int().min(0).max(1000),
@@ -320,6 +330,17 @@ export const sendContract = {
   }),
   'view:focus-page': z.undefined(),
   'view:set-overlay': z.strictObject({ active: z.boolean() }),
+  'ai:place': z
+    .strictObject({
+      provider: z.enum(AI_PROVIDER_IDS),
+      insets: z.strictObject({
+        top: inset,
+        right: inset,
+        bottom: inset,
+        left: inset,
+      }),
+    })
+    .nullable(),
 } as const;
 
 export type InvokeChannel = keyof typeof invokeContract;

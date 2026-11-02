@@ -329,6 +329,12 @@ export function installApplicationMenu(actions: MenuActions): void {
             actions.currentWindow()?.sendUiCommand({ type: 'toggle-sidebar' }),
         },
         {
+          label: 'Toggle AI Panel',
+          accelerator: 'Shift+CmdOrCtrl+A',
+          click: () =>
+            actions.currentWindow()?.sendUiCommand({ type: 'toggle-ai-panel' }),
+        },
+        {
           label: 'Toggle Split View',
           accelerator: 'CmdOrCtrl+\\',
           click: withActivePage((w, id) => w.controller.toggleSplit(id)),

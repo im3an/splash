@@ -71,8 +71,8 @@ const api: SplashApi = {
   movePageToWorkspace: (pageId, workspaceId) =>
     invoke('page:move-to-workspace', { pageId, workspaceId }),
   setNote: (pageId, note) => invoke('page:set-note', { pageId, note }),
-  openSplit: (pageId, otherId) =>
-    invoke('page:open-split', { pageId, otherId }),
+  openSplit: (pageId, otherId, side) =>
+    invoke('page:open-split', { pageId, otherId, side }),
   toggleSplit: (pageId) => invoke('page:toggle-split', { pageId }),
   closeSplit: () => invoke('split:close'),
   switchWorkspace: (workspaceId) => invoke('workspace:switch', { workspaceId }),
@@ -132,6 +132,9 @@ const api: SplashApi = {
   getPreferences: () => invoke('preferences:get'),
   updatePreferences: (patch) => invoke('preferences:update', { patch }),
   onPreferences: (listener) => subscribe(eventChannels.preferences, listener),
+  placeAiPanel: (placement) => send('ai:place', placement),
+  actOnAiPanel: (action) => invoke('ai:act', { action }),
+  onAiPanel: (listener) => subscribe(eventChannels.aiPanel, listener),
 };
 
 contextBridge.exposeInMainWorld('splash', api);
