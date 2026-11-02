@@ -108,6 +108,30 @@ describe('TrailTree', () => {
     expect(splash.activatePage).toHaveBeenCalledTimes(1);
   });
 
+  it('picks a row up with the pointer and announces it by title', async () => {
+    stubApi();
+    useShell.setState({ snapshot: sampleSnapshot() });
+    render(<TrailTree />);
+    const row = screen.getAllByRole('treeitem')[4]!;
+    // The row's own pointer handler must not replace the drag sensor's.
+    fireEvent.pointerDown(row, {
+      isPrimary: true,
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+    });
+    fireEvent.pointerMove(document, { clientX: 10, clientY: 40 });
+    await act(async () => {});
+    expect(row.getAttribute('data-dragging')).toBe('true');
+    expect(document.body.textContent).toContain('“e” is over');
+    expect(document.body.textContent).not.toContain('Draggable item');
+    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+    await act(async () => {});
+    expect(row.getAttribute('data-dragging')).toBe('false');
+    // After a drag the sensor swallows the next click for a moment.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 60)));
+  });
+
   it('opens the page menu on right click', () => {
     const splash = stubApi();
     useShell.setState({ snapshot: sampleSnapshot() });

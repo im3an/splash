@@ -17,9 +17,11 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  type Announcements,
   type DragEndEvent,
   type DragMoveEvent,
   type DragStartEvent,
+  type UniqueIdentifier,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -227,6 +229,21 @@ export function TrailTree() {
   const isInSplit = (id: PageId) =>
     split !== null && (split.leftId === id || split.rightId === id);
 
+  // Screen readers hear page titles, not ids. The toast says where it went.
+  const titleOf = (id: UniqueIdentifier) => {
+    const page = snapshot.pages[String(id)];
+    return page ? `“${pageLabel(page)}”` : 'The page';
+  };
+  const announcements: Announcements = {
+    onDragStart: ({ active }) => `Picked up ${titleOf(active.id)}.`,
+    onDragOver: ({ active, over }) =>
+      over && over.id !== active.id
+        ? `${titleOf(active.id)} is over ${titleOf(over.id)}.`
+        : undefined,
+    onDragEnd: () => undefined,
+    onDragCancel: ({ active }) => `${titleOf(active.id)} was put back.`,
+  };
+
   const onDragStart = ({ active }: DragStartEvent) => {
     const id = String(active.id);
     setDrag({ activeId: id, overId: id, offsetX: 0 });
@@ -268,6 +285,13 @@ export function TrailTree() {
       sensors={sensors}
       collisionDetection={closestCenter}
       measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+      accessibility={{
+        announcements,
+        screenReaderInstructions: {
+          draggable:
+            'Drag to move the page. With the keyboard, Option-Command and the arrow keys move it.',
+        },
+      }}
       onDragStart={onDragStart}
       onDragMove={onDragMove}
       onDragEnd={onDragEnd}
@@ -598,7 +622,11 @@ const TrailRow = memo(function TrailRow({
       aria-describedby={preview.describedBy}
       onMouseEnter={preview.show}
       onMouseLeave={preview.hide}
-      onPointerDown={preview.hide}
+      // Spread listeners would be replaced by a plain prop; dragging needs both.
+      onPointerDown={(event) => {
+        preview.hide();
+        listeners?.onPointerDown?.(event);
+      }}
       onBlur={preview.hide}
       onClick={activate}
       onAuxClick={(event) => event.button === 1 && close(event)}
