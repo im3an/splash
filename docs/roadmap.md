@@ -58,6 +58,14 @@ listed under a phase waits.
   stack. Closing or putting a page to sleep no longer starts a loop between
   Splash and the extensions library that leaked hundreds of empty page views.
 
+- **Warm dark beta (2 November).** The Ripple mark and app icon; warm
+  charcoal dark by default; one token-based design system with a guard test;
+  links for other apps ask first; ⌘Z undoes trail edits; ⌥⌘F filters the
+  trail; ⌥⌘arrows move pages; drag a page onto a workspace; Close Other
+  Pages; more of the browser in the palette; a startup choice; database
+  backup before upgrades; typed form data kept off disk; the shell served from
+  `app://splash`. See [beta-readiness.md](beta-readiness.md).
+
 ## Open before beta
 
 - Picture in picture as a site permission: Chromium doesn't expose it, so it
@@ -85,12 +93,11 @@ the user:
 4. ~~**The trail can't be walked from the keyboard.**~~ Done: ↑ ↓ step
    through rows without opening them, ← → go to the parent or first child
    (collapsing and expanding first), Home and End jump to the ends, Enter
-   opens and F2 renames. Tab returns to the row last focused. The ⌥⌘arrow
-   moves from `prototype-02-shell` are still to port.
-5. **Undo is partial.** Closing, dragging a page in the trail, renaming it
-   and moving it to another workspace can be undone from their toasts. ⌘Z in
-   the sidebar still doesn't undo any of them. Decide on one undo for trail
-   edits.
+   opens and F2 renames. Tab returns to the row last focused. ⌥⌘arrows move
+   the focused page up, down, in and out.
+5. ~~**Undo is partial.**~~ Done: every trail change that offers Undo in its
+   toast can also be undone with ⌘Z while the shell has focus. There is no
+   redo for trail edits.
 6. ~~**Offline doesn't recover.**~~ Done: "You're offline" pages reload by
    themselves once the Mac is back online.
 7. ~~**Menus don't reflect state.**~~ Done: Back, Forward, Close Branch,
@@ -127,7 +134,7 @@ newer or corrupt database.
 These brainstorm items aren't sorted into any phase yet:
 
 - **Recently closed list** outside the History menu.
-- **Close other pages** and **close pages below** in the page menu.
+- **Close pages below** in the page menu. (Close Other Pages is done.)
 
 ## Later, after beta
 
