@@ -6,10 +6,10 @@ import { StorageBar } from './components/StorageBar';
 import { UnresponsiveBar } from './components/UnresponsiveBar';
 import { Sidebar } from './components/Sidebar';
 import { Toolbar } from './components/Toolbar';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useWorkspaceTheme } from './hooks/use-workspace-theme';
 import { useInterfacePreferences } from './hooks/use-interface-preferences';
-import { openLocation, useOverlay } from './stores/overlay-store';
+import { openLocation, useOverlay, type Overlay } from './stores/overlay-store';
 import {
   selectAddressInSidebar,
   selectBlank,
@@ -21,12 +21,26 @@ export function App() {
   useInterfacePreferences();
   const addressInSidebar = useShell(selectAddressInSidebar);
   // A window or page with nothing in it opens straight into the location
-  // field: once per blank page, so dismissing it sticks.
+  // field: once per blank page, so dismissing it sticks. Leaving the blank
+  // page (another workspace, another page) takes that field with it.
   const blankPage = useShell((state) =>
     selectBlank(state) ? (state.snapshot?.activePageId ?? 'none') : null,
   );
+  const prompted = useRef<Overlay | null>(null);
   useEffect(() => {
-    if (blankPage && !useOverlay.getState().overlay) void openLocation();
+    if (blankPage) {
+      if (useOverlay.getState().overlay) return;
+      void openLocation().then(() => {
+        const { overlay, close } = useOverlay.getState();
+        // The blank page may have gone while the field was opening.
+        if (selectBlank(useShell.getState())) prompted.current = overlay;
+        else if (overlay) close();
+      });
+      return;
+    }
+    const { overlay, close } = useOverlay.getState();
+    if (overlay && overlay === prompted.current) close();
+    prompted.current = null;
   }, [blankPage]);
   return (
     <div className="flex h-full">
