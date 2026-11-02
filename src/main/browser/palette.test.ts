@@ -371,6 +371,13 @@ describe('buildPaletteItems', () => {
     expect(busy).toContain('Delete workspace');
   });
 
+  it('offers Reopen closed only when something was closed', () => {
+    const titles = (canReopen: boolean) =>
+      buildPaletteItems(input({ query: '>', canReopen })).map((i) => i.title);
+    expect(titles(true)).toContain('Reopen closed');
+    expect(titles(false)).not.toContain('Reopen closed');
+  });
+
   it('narrows to commands after “>”', () => {
     const items = buildPaletteItems(
       input({ query: '> pin', activePage: activePage() }),

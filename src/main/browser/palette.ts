@@ -43,7 +43,14 @@ interface CommandDefinition {
   keywords: string;
   shortcut: string | null;
   /** Hidden unless its subject exists: a page, an address, children … */
-  needs?: 'page' | 'address' | 'children' | 'others' | 'split' | 'workspaces';
+  needs?:
+    | 'page'
+    | 'address'
+    | 'children'
+    | 'others'
+    | 'split'
+    | 'workspaces'
+    | 'closed';
   /** Offered before anything is typed. */
   suggested?: boolean;
 }
@@ -70,6 +77,7 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     title: 'Reopen closed',
     keywords: 'undo restore',
     shortcut: '⇧⌘T',
+    needs: 'closed',
     suggested: true,
   },
   {
@@ -280,6 +288,8 @@ export interface PaletteInput {
   activePageId: PageId | null;
   /** Decides which commands apply and what the toggles say. */
   activePage?: ActivePageFacts | null;
+  /** Something closed can come back; without it Reopen closed is hidden. */
+  canReopen?: boolean;
   searchEngine?: SearchEngineId;
   /**
    * Lead with the address the typed text completes to, from history (the
@@ -415,13 +425,15 @@ export function visitedAgo(at: number, now: number): string {
 function applies(
   definition: CommandDefinition,
   page: ActivePageFacts | null,
-  workspaceCount: number,
+  input: PaletteInput,
 ): page is ActivePageFacts {
   switch (definition.needs) {
     case undefined:
       return true;
+    case 'closed':
+      return input.canReopen ?? true;
     case 'workspaces':
-      return workspaceCount > 1;
+      return (input.workspaces?.length ?? 1) > 1;
     case 'others':
       return page?.hasOthers === true;
     case 'split':
@@ -527,7 +539,7 @@ export function buildPaletteItems(input: PaletteInput): PaletteItem[] {
 
   const commandEntries: Scored[] = PALETTE_COMMANDS.filter(
     (definition) =>
-      applies(definition, activePage, input.workspaces?.length ?? 1) &&
+      applies(definition, activePage, input) &&
       (typed || commandsOnly || definition.suggested),
   ).map((definition) => {
     const title =

@@ -427,6 +427,7 @@ export class TrailWindow {
                 snapshot.split?.leftId === active.id ||
                 snapshot.split?.rightId === active.id,
             },
+            canReopen: snapshot.lastClosed !== null,
             searchEngine: this.options.preferences.get().searchEngine,
             complete,
           });
