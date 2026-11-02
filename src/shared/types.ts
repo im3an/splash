@@ -296,6 +296,8 @@ export interface WorkspaceAppearance {
   /** An accent preset id, or a custom `#rrggbb` colour. */
   accent: string;
   frame: string;
+  /** A gradient preset painted over the frame; missing means none. */
+  gradient?: string;
   mode: WorkspaceMode;
 }
 

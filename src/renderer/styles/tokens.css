@@ -84,6 +84,14 @@
   --shadow-panel: 0 0 0 0.5px var(--hairline), 0 14px 40px rgb(0 0 0 / 0.18);
   /* A thin outline for swatches and marks that sit on any colour. */
   --shadow-outline: 0 0 0 0.5px var(--hairline);
+  /* A card lifted off the sheet; the edge of one card over the next. */
+  --shadow-card: 0 6px 16px -6px rgb(0 0 0 / 0.25);
+  --shadow-stacked: -1px 0 3px rgb(0 0 0 / 0.18);
+  /* A theme swatch lit from the top left, like a small sphere. */
+  --shadow-orb:
+    inset 0 0 0 1px rgb(0 0 0 / 0.08), inset 0 -6px 10px -4px rgb(0 0 0 / 0.18),
+    0 2px 6px -2px rgb(0 0 0 / 0.25);
+  --orb-highlight: rgb(255 255 255 / 0.7);
   /* A focused text field: an accent edge with a soft halo, like AppKit. */
   --shadow-focus: 0 0 0 1px var(--accent), 0 0 0 3.5px var(--accent-soft);
   --skeleton: rgb(var(--ink) / 0.07);
@@ -141,6 +149,11 @@
   --radius-control: 7px;
   --radius-pill: 10px;
   --radius-content: 10px;
+  /* Sheets like the workspace editor, and the panels inside them. */
+  --radius-sheet: 18px;
+  --radius-panel: 13px;
+  /* The fanned cards over the workspace editor. */
+  --radius-card: 12px;
   /* Pills, switches, progress lines. */
   --radius-full: 999px;
 

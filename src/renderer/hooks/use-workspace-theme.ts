@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react';
-import { accentColors, frameColor, framePreset } from '../../shared/appearance';
+import {
+  accentColors,
+  frameColor,
+  framePreset,
+  gradientImage,
+  gradientPreset,
+} from '../../shared/appearance';
 import type { WorkspaceAppearance } from '../../shared/types';
 import { useShell } from '../stores/shell-store';
 
 const DARK = '(prefers-color-scheme: dark)';
+
+let lastImage: string | undefined;
 
 function usePrefersDark(): boolean {
   const [dark, setDark] = useState(() => matchMedia(DARK).matches);
@@ -25,7 +33,13 @@ export function themeVariables(
   const accent = accentColors(appearance.accent);
   const accentColor = dark ? accent.dark : accent.light;
   const colors = dark ? frame.dark : frame.light;
+  const gradient = gradientPreset(appearance.gradient);
   return {
+    // Painted over the frame colour, which stands in while it fades in.
+    '--frame-image': gradient
+      ? gradientImage(gradient, dark ? 'dark' : 'light')
+      : 'none',
+    '--frame-grain': gradient ? 'var(--grain)' : 'none',
     '--chrome': colors.chrome,
     '--frame': frameColor(appearance, dark),
     '--surface': colors.surface,
@@ -58,6 +72,13 @@ export function useWorkspaceTheme(): void {
     const variables = themeVariables(appearance, dark);
     for (const [name, value] of Object.entries(variables)) {
       root.style.setProperty(name, value);
+    }
+    // A new gradient fades in over the old frame colour; the animation's
+    // name alternates so it plays again each time.
+    const image = variables['--frame-image'];
+    if (image !== lastImage) {
+      lastImage = image;
+      root.dataset.frameSwap = root.dataset.frameSwap === 'a' ? 'b' : 'a';
     }
     // From the next frame on, changes crossfade (see app.css).
     const frame = requestAnimationFrame(() => {

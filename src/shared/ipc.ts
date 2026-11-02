@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AI_PROVIDER_IDS } from './ai';
-import { ACCENTS, FRAMES, SYMBOLS } from './appearance';
+import { ACCENTS, FRAMES, GRADIENTS, SYMBOLS } from './appearance';
 import { SEARCH_ENGINES, TOOLBAR_ACTIONS } from './preferences';
 
 /**
@@ -140,6 +140,9 @@ export const workspaceAppearanceSchema = z.strictObject({
     z.string().regex(/^#[0-9a-f]{6}$/i),
   ]),
   frame: z.enum(FRAMES.map((frame) => frame.id) as [string, ...string[]]),
+  gradient: z
+    .enum(GRADIENTS.map((gradient) => gradient.id) as [string, ...string[]])
+    .optional(),
   mode: z.enum(['system', 'light', 'dark']),
 });
 

@@ -1,15 +1,6 @@
 import { useState, type ComponentType } from 'react';
-import {
-  Cpu,
-  Download,
-  Keyboard,
-  LayoutGrid,
-  Paintbrush,
-  Settings2,
-  Shield,
-  type LucideIcon,
-} from 'lucide-react';
 import { Brand } from '../components/Brand';
+import { SectionIcon, type SectionIconName } from './SectionIcon';
 import { useWorkspaceTheme } from '../hooks/use-workspace-theme';
 import { useInterfacePreferences } from '../hooks/use-interface-preferences';
 import {
@@ -23,53 +14,47 @@ import {
 } from './sections';
 
 const SECTIONS: {
-  id: string;
+  id: SectionIconName;
   label: string;
   /** A longer heading for the page, when the nav label is shortened. */
   title?: string;
-  icon: LucideIcon;
   body: ComponentType;
 }[] = [
-  { id: 'general', label: 'General', icon: Settings2, body: GeneralSettings },
+  { id: 'general', label: 'General', body: GeneralSettings },
   {
     id: 'appearance',
     label: 'Appearance',
-    icon: Paintbrush,
     body: AppearanceSettings,
   },
   {
     id: 'workspaces',
     label: 'Workspaces',
-    icon: LayoutGrid,
     body: WorkspaceSettings,
   },
   {
     id: 'privacy',
     label: 'Privacy',
     title: 'Privacy and site permissions',
-    icon: Shield,
     body: PrivacySettings,
   },
   {
     id: 'downloads',
     label: 'Downloads',
-    icon: Download,
     body: DownloadSettings,
   },
   {
     id: 'shortcuts',
     label: 'Shortcuts',
-    icon: Keyboard,
     body: ShortcutSettings,
   },
-  { id: 'advanced', label: 'Advanced', icon: Cpu, body: AdvancedSettings },
+  { id: 'advanced', label: 'Advanced', body: AdvancedSettings },
 ];
 
 /** The Settings window: sections on the left, the chosen one on the right. */
 export function SettingsApp() {
   useWorkspaceTheme();
   useInterfacePreferences();
-  const [active, setActive] = useState(SECTIONS[0]!.id);
+  const [active, setActive] = useState<SectionIconName>(SECTIONS[0]!.id);
   const section =
     SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0]!;
   const Body = section.body;
@@ -83,15 +68,15 @@ export function SettingsApp() {
         <div className="px-2.5 pb-5">
           <Brand />
         </div>
-        {SECTIONS.map(({ id, label, icon: Icon }) => (
+        {SECTIONS.map(({ id, label }) => (
           <button
             key={id}
             type="button"
             aria-current={id === active ? 'page' : undefined}
             onClick={() => setActive(id)}
-            className="flex h-8 items-center gap-2.5 rounded-row px-2.5 text-left text-fg-muted transition-colors duration-fast hover:bg-hover hover:text-fg aria-[current=page]:bg-elevated aria-[current=page]:text-fg aria-[current=page]:shadow-row"
+            className="flex h-8 items-center gap-2.5 rounded-row px-2 text-left text-fg-muted transition-colors duration-fast hover:bg-hover hover:text-fg aria-[current=page]:bg-elevated aria-[current=page]:text-fg aria-[current=page]:shadow-row"
           >
-            <Icon size={15} strokeWidth={1.75} className="shrink-0" />
+            <SectionIcon name={id} />
             <span className="truncate">{label}</span>
           </button>
         ))}
@@ -103,7 +88,10 @@ export function SettingsApp() {
       <main className="min-w-0 flex-1 overflow-y-auto bg-surface">
         <div className="drag h-(--toolbar-height)" />
         <div className="mx-auto flex max-w-(--settings-measure) flex-col gap-7 px-8 pb-10 select-text">
-          <h1 className="text-display font-semibold tracking-[-0.01em]">
+          <h1 className="flex items-center gap-3 text-display font-semibold tracking-[-0.01em]">
+            <span className="settings-heading-icon">
+              <SectionIcon name={section.id} size={22} />
+            </span>
             {section.title ?? section.label}
           </h1>
           <Body />

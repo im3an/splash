@@ -134,31 +134,153 @@ export const FRAMES: readonly FramePreset[] = [
   },
 ];
 
-/** Symbols a workspace can use as its icon (Lucide names). */
+export interface GradientPreset {
+  id: string;
+  label: string;
+  /** Three stops, from the top left corner to the bottom right. */
+  light: readonly [string, string, string];
+  dark: readonly [string, string, string];
+  /** Livelier stops for the picker's swatch, which must read in both modes. */
+  swatch: readonly [string, string, string];
+  /** The accent preset that suits it; picking the gradient picks it too. */
+  accent: string;
+}
+
+/**
+ * Arc-style backgrounds for the window frame: soft three-colour meshes with
+ * a little grain. Light ones are pastels and dark ones deep tones, so the
+ * sidebar's text keeps the contrast it has on a plain frame.
+ */
+export const GRADIENTS: readonly GradientPreset[] = [
+  {
+    id: 'dusk',
+    swatch: ['#f08bb4', '#a98be8', '#6f8ff0'],
+    label: 'Dusk',
+    light: ['#f7cadb', '#dcc6f2', '#bccbf6'],
+    dark: ['#3d1e37', '#2b2047', '#1b2243'],
+    accent: 'iris',
+  },
+  {
+    id: 'ember',
+    swatch: ['#ffad6b', '#f2735a', '#d9709e'],
+    label: 'Ember',
+    light: ['#ffd6b5', '#f8b9a6', '#efc4d8'],
+    dark: ['#42220f', '#3b1818', '#2d1627'],
+    accent: 'ember',
+  },
+  {
+    id: 'meadow',
+    swatch: ['#a6dc8a', '#6fcfa9', '#79b8dc'],
+    label: 'Meadow',
+    light: ['#dcf2d2', '#c6ebdd', '#d4e8f2'],
+    dark: ['#1c2d19', '#152c25', '#15242c'],
+    accent: 'moss',
+  },
+  {
+    id: 'lagoon',
+    swatch: ['#6fd6e0', '#6aa4f0', '#a093ec'],
+    label: 'Lagoon',
+    light: ['#c9eef1', '#c3daf8', '#d9d2f7'],
+    dark: ['#0e2b31', '#13233a', '#1e1c3b'],
+    accent: 'teal',
+  },
+  {
+    id: 'aurora',
+    swatch: ['#6fe0b4', '#79a6f5', '#c98bec'],
+    label: 'Aurora',
+    light: ['#c6f0df', '#cddffc', '#ebd0f7'],
+    dark: ['#0e2f28', '#142445', '#2e1842'],
+    accent: 'sky',
+  },
+  {
+    id: 'bloom',
+    swatch: ['#f59cc0', '#fbbd8f', '#f4dc7a'],
+    label: 'Bloom',
+    light: ['#fbd3e3', '#fde3cf', '#f9f0c9'],
+    dark: ['#3e1a2c', '#3a2418', '#2f2a14'],
+    accent: 'rose',
+  },
+  {
+    id: 'sand',
+    swatch: ['#e9cfa3', '#ddb08c', '#c9a99a'],
+    label: 'Sand',
+    light: ['#f6e9d3', '#f0dbc4', '#e9d8cf'],
+    dark: ['#2f271b', '#2c2119', '#29201d'],
+    accent: 'amber',
+  },
+  {
+    id: 'graphite',
+    swatch: ['#b9bcc6', '#8d909c', '#5f6270'],
+    label: 'Graphite',
+    light: ['#eeeef1', '#e0e1e6', '#d2d4db'],
+    dark: ['#252529', '#1c1c20', '#131317'],
+    accent: 'graphite',
+  },
+];
+
+export function gradientPreset(
+  id: string | null | undefined,
+): GradientPreset | null {
+  return GRADIENTS.find((gradient) => gradient.id === id) ?? null;
+}
+
+/** The CSS background for a gradient: a mesh of its three stops. */
+export function gradientImage(
+  gradient: GradientPreset,
+  tone: 'light' | 'dark' | 'swatch',
+): string {
+  const [a, b, c] = gradient[tone];
+  return [
+    `radial-gradient(90% 70% at 0% 0%, ${a} 0%, transparent 70%)`,
+    `radial-gradient(80% 80% at 100% 100%, ${c} 0%, transparent 70%)`,
+    `linear-gradient(150deg, ${a}, ${b} 50%, ${c})`,
+  ].join(', ');
+}
+
+/**
+ * Symbols a workspace can use as its icon (Lucide names), in the order the
+ * picker shows them. Saved workspaces refer to these names, so only add.
+ */
 export const SYMBOLS = [
+  'star',
+  'bookmark',
+  'heart',
+  'zap',
+  'triangle',
+  'asterisk',
+  'bell',
+  'lightbulb',
+  'message-circle',
+  'users',
+  'wrench',
+  'egg',
+  'circle',
+  'moon',
+  'orbit',
+  'leaf',
+  'cloud',
+  'paw-print',
+  'utensils',
+  'plane',
+  'music',
+  'gamepad-2',
+  'code',
+  'skull',
   'house',
   'briefcase',
-  'code',
   'book-open',
   'graduation-cap',
   'flask-conical',
   'palette',
   'camera',
-  'music',
   'film',
-  'gamepad-2',
   'newspaper',
-  'plane',
   'globe',
-  'leaf',
   'coffee',
   'shopping-bag',
   'wallet',
-  'heart',
-  'star',
   'rocket',
   'sparkles',
-  'users',
   'dumbbell',
 ] as const;
 
@@ -218,6 +340,9 @@ export function frameColor(
   appearance: WorkspaceAppearance,
   dark: boolean,
 ): string {
+  // A gradient's middle stop stands in where only one colour will do.
+  const gradient = gradientPreset(appearance.gradient);
+  if (gradient) return dark ? gradient.dark[1] : gradient.light[1];
   const chrome = dark
     ? framePreset(appearance.frame).dark.chrome
     : framePreset(appearance.frame).light.chrome;

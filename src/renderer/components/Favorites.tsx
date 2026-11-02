@@ -8,9 +8,9 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import {
-  rectSortingStrategy,
   SortableContext,
   useSortable,
+  verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { Copy, ExternalLink, Plus, Star, Trash2 } from 'lucide-react';
 import type { SavedCollection } from '../../shared/preferences';
@@ -21,19 +21,20 @@ import {
   removeFavorite,
   type Favorite,
 } from '../lib/collections';
-import { api } from '../splash-api';
 import { usePageDrag } from '../stores/drag-store';
 import { useShell } from '../stores/shell-store';
 import { useSidebarMenu } from '../hooks/use-sidebar-menu';
 import type { MenuEntry } from './ContextMenu';
-import { SiteIcon } from './Favicon';
+import { hostOf, IconStack, openLink, StackLink } from './IconStack';
 
 const EMPTY: SavedCollection[] = [];
 const ICON = { size: 14, strokeWidth: 1.75 } as const;
 
 /**
- * Arc's favorites: the sites you keep coming back to, as tiles over every
- * workspace's trail. A page dragged from the trail onto them becomes one.
+ * Favorites: the sites you keep coming back to, shared by every workspace.
+ * They sit as one icon stack among Saved and pop out as a list, so the
+ * trail keeps the sidebar. A page dragged from the trail onto the stack
+ * becomes one; in the list they drag into order.
  */
 export function Favorites() {
   const collections = useShell(
@@ -43,14 +44,15 @@ export function Favorites() {
   const dragging = usePageDrag((state) => state.pageId !== null);
   const over = usePageDrag((state) => state.target?.kind === 'favorites');
   const menu = useSidebarMenu('Favorite');
+  const activeUrl = useShell((state) => {
+    const id = state.snapshot?.activePageId;
+    return id ? (state.snapshot?.pages[id]?.url ?? null) : null;
+  });
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
 
   if (!favorites.length && !dragging) return null;
-
-  const showMenu = (event: MouseEvent<HTMLElement>, favorite: Favorite) =>
-    menu.show(event, favoriteEntries(favorite));
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return;
@@ -59,39 +61,39 @@ export function Favorites() {
   };
 
   return (
-    <section
-      aria-label="Favorites"
-      data-drop="favorites"
-      data-over={over}
-      className="favorites"
-    >
+    <div data-drop="favorites" data-over={over} className="favorites">
       {favorites.length ? (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={onDragEnd}
+        <IconStack
+          id="favorites"
+          name="Favorites"
+          label="Favorites"
+          links={favorites.map((f) => f.link)}
+          menuOpen={false}
         >
-          <SortableContext
-            items={favorites.map((f) => f.link.id)}
-            strategy={rectSortingStrategy}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={onDragEnd}
           >
-            <ul className="favorites-grid">
-              {favorites.map((favorite) => (
-                <FavoriteTile
+            <SortableContext
+              items={favorites.map((f) => f.link.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {favorites.map((favorite, index) => (
+                <FavoriteLink
                   key={favorite.link.id}
                   favorite={favorite}
+                  index={index}
+                  current={favorite.link.url === activeUrl}
                   menuOpen={menu.openOn?.dataset.favorite === favorite.link.id}
-                  onMenu={showMenu}
+                  onMenu={(event) =>
+                    menu.show(event, favoriteEntries(favorite))
+                  }
                 />
               ))}
-              {dragging && (
-                <li className="favorite-tile favorite-drop" aria-hidden>
-                  <Plus size={16} strokeWidth={1.75} />
-                </li>
-              )}
-            </ul>
-          </SortableContext>
-        </DndContext>
+            </SortableContext>
+          </DndContext>
+        </IconStack>
       ) : (
         <div className="favorites-empty">
           <Star size={14} strokeWidth={1.75} aria-hidden />
@@ -99,118 +101,48 @@ export function Favorites() {
         </div>
       )}
       {menu.element}
-    </section>
+    </div>
   );
 }
 
-function FavoriteTile({
+function FavoriteLink({
   favorite,
+  index,
+  current,
   menuOpen,
   onMenu,
 }: {
   favorite: Favorite;
+  index: number;
+  current: boolean;
   menuOpen: boolean;
-  onMenu(event: MouseEvent<HTMLElement>, favorite: Favorite): void;
+  onMenu(event: MouseEvent<HTMLElement>): void;
 }) {
-  const { link } = favorite;
-  // The open copy of this site, if the workspace has one.
-  const openPage = useShell((state) => {
-    const pages = state.snapshot?.pages;
-    if (!pages) return null;
-    for (const page of Object.values(pages)) {
-      if (page.url === link.url) return page;
-    }
-    return null;
-  });
-  const current = useShell(
-    (state) =>
-      openPage !== null && state.snapshot?.activePageId === openPage.id,
-  );
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: link.id });
-  const title = link.title || hostOf(link.url);
-
+  const { attributes, listeners, setNodeRef, transform, transition } =
+    useSortable({ id: favorite.link.id });
   return (
-    <li
-      ref={setNodeRef}
-      style={{
-        transform: transform
-          ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
-          : undefined,
-        transition,
-      }}
-      data-dragging={isDragging}
-      className="favorite-cell"
-    >
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        data-favorite={link.id}
-        data-current={current}
-        data-open={openPage !== null}
-        data-menu-open={menuOpen}
-        aria-label={title}
-        aria-current={current ? 'page' : undefined}
-        title={`${title}\n${link.url}`}
-        onClick={() => void openFavorite(favorite, false)}
-        onAuxClick={(event) => {
-          if (event.button === 1) void openFavorite(favorite, true);
+    <div ref={setNodeRef}>
+      <StackLink
+        link={favorite.link}
+        index={index}
+        current={current}
+        menuOpen={menuOpen}
+        onOpen={(fresh) => void openLink(favorite.link, fresh)}
+        onMenu={onMenu}
+        dragProps={{
+          ...attributes,
+          ...listeners,
+          'data-favorite': favorite.link.id,
         }}
-        onContextMenu={(event) => onMenu(event, favorite)}
-        className="favorite-tile"
-      >
-        <SiteIcon
-          url={link.faviconUrl ?? openPage?.faviconUrl}
-          fallback={<Monogram url={link.url} />}
-        />
-      </button>
-    </li>
+        style={{
+          transform: transform
+            ? `translate3d(0, ${transform.y}px, 0)`
+            : undefined,
+          transition,
+        }}
+      />
+    </div>
   );
-}
-
-/** A site without an icon gets its first letter, never a generic globe. */
-function Monogram({ url }: { url: string }) {
-  const letter = hostOf(url)
-    .replace(/^www\./, '')
-    .charAt(0)
-    .toUpperCase();
-  return (
-    <span aria-hidden className="favorite-monogram">
-      {letter || '·'}
-    </span>
-  );
-}
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
-
-/** Shows the open copy of a favorite, or opens it as a new trail. */
-async function openFavorite(favorite: Favorite, fresh: boolean) {
-  const snapshot = useShell.getState().snapshot;
-  const existing =
-    !fresh && snapshot
-      ? Object.values(snapshot.pages).find(
-          (page) => page.url === favorite.link.url,
-        )
-      : undefined;
-  try {
-    if (existing) await api().activatePage(existing.id);
-    else await api().createPage(favorite.link.url);
-  } catch {
-    collectionNotice('Could not open that favorite. Try again.');
-  }
 }
 
 function favoriteEntries(favorite: Favorite): MenuEntry[] {
@@ -220,13 +152,13 @@ function favoriteEntries(favorite: Favorite): MenuEntry[] {
       kind: 'action',
       label: 'Open',
       icon: <ExternalLink {...ICON} />,
-      run: () => void openFavorite(favorite, false),
+      run: () => void openLink(favorite.link, false),
     },
     {
       kind: 'action',
       label: 'Open in New Page',
       icon: <Plus {...ICON} />,
-      run: () => void openFavorite(favorite, true),
+      run: () => void openLink(favorite.link, true),
     },
     {
       kind: 'action',

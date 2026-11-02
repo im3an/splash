@@ -10,7 +10,6 @@ import {
 import { SidebarResize } from './SidebarResize';
 import { AddressBar } from './AddressBar';
 import { ToolbarActions } from './ToolbarActions';
-import { Favorites } from './Favorites';
 import { SavedGroups } from './SavedGroups';
 import { SidebarPanel } from './SidebarPanel';
 import { NavigationButtons } from './Toolbar';
@@ -124,8 +123,6 @@ export function Sidebar() {
         <div
           className={`${panel ? 'hidden' : 'flex'} ${leftForPanel.current ? 'trail-in' : ''} min-h-0 flex-1 flex-col`}
         >
-          {/* Shared by every workspace, so they stay put when it changes. */}
-          <Favorites />
           <div
             key={workspaceId}
             className={`flex shrink-0 flex-col ${slide.current}`}

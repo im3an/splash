@@ -1,13 +1,6 @@
-import { useRef, type MouseEvent } from 'react';
+import { useRef, type CSSProperties, type MouseEvent } from 'react';
 import { create } from 'zustand';
-import {
-  ChevronRight,
-  Copy,
-  MoreHorizontal,
-  Pencil,
-  Play,
-  Trash2,
-} from 'lucide-react';
+import { ChevronRight, Copy, Pencil, Play, Trash2 } from 'lucide-react';
 import type { SavedCollection } from '../../shared/preferences';
 import {
   collectionNotice,
@@ -16,10 +9,12 @@ import {
   updateLibrary,
 } from '../lib/collections';
 import { useSidebarMenu } from '../hooks/use-sidebar-menu';
+import { usePageDrag } from '../stores/drag-store';
 import { useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 import type { MenuEntry } from './ContextMenu';
-import { SiteIcon } from './Favicon';
+import { Favorites } from './Favorites';
+import { IconStack, openLink, StackLink, useOpenStack } from './IconStack';
 
 const EMPTY: SavedCollection[] = [];
 const ICON = { size: 14, strokeWidth: 1.75 } as const;
@@ -30,32 +25,40 @@ export const useGroupRename = create<{ id: string | null }>()(() => ({
 }));
 
 /**
- * Trails put away for later. Each is one row: click it to open the trail
- * again (or show it, when it's already open); the chevron peeks inside.
+ * Saved: Favorites and the trails put away for later, each one row with an
+ * icon stack. A click pops its pages out as a list; open one from there,
+ * or the whole group as a trail.
  */
 export function SavedGroups() {
   const collections = useShell(
     (state) => state.preferences?.collections ?? EMPTY,
   );
   const groups = collections.filter((item) => item.kind === 'group');
+  const hasFavorites = collections.some(
+    (item) => item.kind === 'folder' && item.links.length > 0,
+  );
+  const dragging = usePageDrag((state) => state.pageId !== null);
   const menu = useSidebarMenu('Saved group');
-  if (!groups.length) return null;
+  if (!groups.length && !hasFavorites && !dragging) return null;
 
   return (
-    <details className="trail-section" aria-label="Saved groups" open>
+    <details className="trail-section" aria-label="Saved" open>
       <summary className="sidebar-section-heading">
         <span className="sidebar-section-label">
           Saved
           <ChevronRight size={12} />
-          <span className="sidebar-folded-count">{groups.length}</span>
+          <span className="sidebar-folded-count">
+            {groups.length + (hasFavorites ? 1 : 0)}
+          </span>
         </span>
       </summary>
       <div className="sidebar-section-content flex flex-col gap-px">
+        <Favorites />
         {groups.map((group) => (
-          <GroupRow
+          <GroupStack
             key={group.id}
             group={group}
-            menuOpen={menu.openOn?.dataset.group === group.id}
+            menuOpen={menu.openOn?.dataset.stack === group.id}
             onMenu={(event, anchored) =>
               menu.show(event, groupEntries(group), anchored)
             }
@@ -67,7 +70,7 @@ export function SavedGroups() {
   );
 }
 
-function GroupRow({
+function GroupStack({
   group,
   menuOpen,
   onMenu,
@@ -77,79 +80,62 @@ function GroupRow({
   onMenu(event: MouseEvent<HTMLElement>, anchored?: boolean): void;
 }) {
   const renaming = useGroupRename((state) => state.id === group.id);
-  // Its trail is open in this workspace: clicking shows it, not a copy.
+  // Its trail is open in this workspace: the footer shows it, not a copy.
   const isOpen = useShell((state) =>
     state.snapshot ? openGroupRoot(state.snapshot, group) !== null : false,
   );
-  const count = group.links.length;
-  const pages = `${count} ${count === 1 ? 'page' : 'pages'}`;
+  const activeUrl = useShell((state) => {
+    const id = state.snapshot?.activePageId;
+    return id ? (state.snapshot?.pages[id]?.url ?? null) : null;
+  });
 
   return (
-    <div
-      className="sidebar-row group"
-      data-menu-open={menuOpen}
-      data-open={isOpen}
-      onContextMenu={(event) => onMenu(event)}
+    <IconStack
+      id={group.id}
+      name={group.name}
+      label="Saved group"
+      links={group.links}
+      menuOpen={menuOpen}
+      onMenu={onMenu}
+      rowProps={{
+        'data-open': isOpen,
+        onDoubleClick: (event: MouseEvent) => {
+          event.preventDefault();
+          useGroupRename.setState({ id: group.id });
+        },
+      }}
+      renderName={renaming ? <GroupNameField group={group} /> : undefined}
+      footer={
+        group.links.length > 1 && (
+          <button
+            type="button"
+            className="stack-link stack-link-action"
+            style={{ '--i': Math.min(group.links.length, 12) } as CSSProperties}
+            onClick={() => {
+              useOpenStack.setState({ id: null });
+              void openGroup(group);
+            }}
+          >
+            <span className="stack-link-icon">
+              <Play size={12} strokeWidth={2} />
+            </span>
+            <span className="flex-1">
+              {isOpen ? 'Show trail' : 'Open all as a trail'}
+            </span>
+          </button>
+        )
+      }
     >
-      {renaming ? (
-        <span className="sidebar-row-main">
-          <StackedIcons links={group.links} />
-          <GroupNameField group={group} />
-        </span>
-      ) : (
-        <button
-          type="button"
-          className="sidebar-row-main"
-          aria-label={`${group.name}, ${pages}${isOpen ? ', open' : ''}`}
-          // The pages inside, so the row needn't open to be recognised.
-          title={[
-            `${isOpen ? 'Show' : 'Open'} ${group.name} (${pages})`,
-            ...group.links
-              .slice(0, 8)
-              .map((link) => `· ${link.title || link.url}`),
-            count > 8 ? `and ${count - 8} more` : '',
-          ]
-            .filter(Boolean)
-            .join('\n')}
-          onClick={() => void openGroup(group)}
-          onDoubleClick={(event) => {
-            event.preventDefault();
-            useGroupRename.setState({ id: group.id });
-          }}
-        >
-          <StackedIcons links={group.links} />
-          <span className="min-w-0 flex-1 truncate">{group.name}</span>
-          <span className="sidebar-row-count">{count}</span>
-        </button>
-      )}
-      {!renaming && (
-        <button
-          type="button"
-          data-group={group.id}
-          aria-label={`Actions for ${group.name}`}
-          title="Group actions"
-          aria-haspopup="menu"
-          onClick={(event) => onMenu(event, true)}
-          className="sidebar-row-more"
-        >
-          <MoreHorizontal size={14} strokeWidth={1.75} />
-        </button>
-      )}
-    </div>
-  );
-}
-
-/** Up to three of the group's site icons, fanned like a stack of cards. */
-function StackedIcons({ links }: { links: SavedCollection['links'] }) {
-  const shown = links.slice(0, 3);
-  return (
-    <span className="stacked-icons" aria-hidden data-count={shown.length}>
-      {shown.map((link) => (
-        <span key={link.id} className="stacked-icon">
-          <SiteIcon url={link.faviconUrl} />
-        </span>
+      {group.links.map((link, index) => (
+        <StackLink
+          key={link.id}
+          link={link}
+          index={index}
+          current={link.url === activeUrl}
+          onOpen={(fresh) => void openLink(link, fresh)}
+        />
       ))}
-    </span>
+    </IconStack>
   );
 }
 
