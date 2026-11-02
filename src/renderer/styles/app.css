@@ -720,24 +720,72 @@
   }
 }
 
-/* One quiet surface marks the current page throughout the sidebar. */
+/*
+ * One quiet surface marks the current page throughout the sidebar. There's
+ * one for the whole trail (TrailTree), so picking another page glides it
+ * there along with the light below, never showing two at once.
+ */
 .trail-row[data-active='true']:not([data-dragging='true']) {
-  isolation: isolate;
   background-color: transparent;
 }
-.trail-row[data-active='true']:not([data-dragging='true'])::before {
+.trail-current {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  border-radius: var(--radius-row);
+  background-color: var(--row-hover);
+  pointer-events: none;
+  opacity: 0;
+  /* TrailTree sets how long a glide takes from how far it goes. */
+  transition-property: translate, width, height, opacity;
+  transition-duration: var(--trail-glide, var(--duration-fast));
+  transition-timing-function: var(--ease-in-out);
+}
+.trail-current[data-shown='true'] {
+  opacity: 1;
+}
+/*
+ * The line beside the current page carries a soft light, like one segment
+ * of an LED strip: a muted accent strongest across the row's middle that
+ * diffuses into the plain line toward both ends, with the faintest bloom
+ * around it. There's one light for the whole trail (TrailTree), so picking
+ * a page above or below glides it there along the lines, in step with the
+ * path's stroke.
+ */
+.trail-light {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  pointer-events: none;
+  opacity: 0;
+  transition-property: translate, height, opacity;
+  transition-duration: var(--trail-glide, var(--duration-fast));
+  transition-timing-function: var(--ease-in-out);
+}
+.trail-light[data-shown='true'] {
+  opacity: 1;
+}
+.trail-light::before,
+.trail-light::after {
   content: '';
   position: absolute;
-  inset: 0 0 0 18px;
-  z-index: -1;
-  border-radius: inherit;
-  background-color: var(--row-hover);
+  inset: 0;
 }
-.trail-row[data-active='true'][data-flat='true']::before {
-  left: 0;
+.trail-light::before {
+  inset: 0 -3px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in oklab, var(--guide-current) 14%, transparent),
+    transparent
+  );
+  mask-image: linear-gradient(transparent 10%, black 50%, transparent 90%);
 }
-.trail-row[data-active='true'] .indent-guides {
-  display: none;
+.trail-light::after {
+  background-color: color-mix(in oklab, var(--guide-current) 80%, transparent);
+  mask-image: linear-gradient(transparent, black 40%, black 60%, transparent);
 }
 
 /* One hierarchy for saved destinations and the live trail. */

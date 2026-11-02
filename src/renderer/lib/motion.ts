@@ -16,7 +16,9 @@ export function durationMs(
 }
 
 /** An easing token, for animations started from script. */
-export function easing(token: '--ease-out' | '--ease-emphasized'): string {
+export function easing(
+  token: '--ease-out' | '--ease-emphasized' | '--ease-in-out',
+): string {
   if (typeof document === 'undefined') return 'ease-out';
   const value = getComputedStyle(document.documentElement)
     .getPropertyValue(token)

@@ -9,6 +9,7 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type RefObject,
 } from 'react';
 import {
   closestCenter,
@@ -335,7 +336,7 @@ export function TrailTree() {
           ref={treeRef}
           role="tree"
           aria-label="Pages"
-          className="flex flex-col gap-px"
+          className="relative isolate flex flex-col gap-px"
           onBlur={(event) => {
             // Leaving the trail hands the tab stop back to the current page.
             if (!event.currentTarget.contains(event.relatedTarget)) {
@@ -406,6 +407,11 @@ export function TrailTree() {
               </details>
             );
           })}
+          <CurrentMarker
+            treeRef={treeRef}
+            activeId={snapshot.activePageId}
+            dragging={drag !== null}
+          />
         </div>
       </SortableContext>
     </DndContext>
@@ -867,8 +873,7 @@ function IndentGuides({
   const shown = useShell((state) => state.preferences?.showBranchLines ?? true);
   if (depth === 0 || !shown) return null;
   return (
-    // A marked current row breaks its branch's lines (app.css). Measured
-    // from the trail's edge, out past the row's inset box.
+    // Measured from the trail's edge, out past the row's inset box.
     <span
       aria-hidden
       className="indent-guides pointer-events-none absolute inset-y-0"
@@ -891,6 +896,124 @@ function IndentGuides({
 
 const NO_LINES: readonly DrawnHalf[] = Object.freeze([]);
 
+/** The current page's surface keeps clear of the branch lines. */
+const SURFACE_INSET = 18;
+
+/**
+ * What marks the current page (app.css): its surface, and the light on the
+ * line beside it. One of each for the whole trail, so picking a page above
+ * or below glides them there together. Where nothing was shown before they
+ * appear in place, and when rows shift under them they follow at once.
+ * The light is out where there's no line to light: a top-level page,
+ * branch lines turned off, or a drag.
+ */
+function CurrentMarker({
+  treeRef,
+  activeId,
+  dragging,
+}: {
+  treeRef: RefObject<HTMLDivElement | null>;
+  activeId: PageId | null;
+  dragging: boolean;
+}) {
+  const surfaceRef = useRef<HTMLSpanElement>(null);
+  const lightRef = useRef<HTMLSpanElement>(null);
+  // Where the surface was last put, and for which page; null while out.
+  const spot = useRef<{ id: PageId; y: number } | null>(null);
+  const place = useCallback(() => {
+    const tree = treeRef.current;
+    const surface = surfaceRef.current;
+    const light = lightRef.current;
+    if (!tree || !surface || !light) return;
+    const row =
+      activeId && !dragging
+        ? tree.querySelector<HTMLElement>(
+            `.trail-row[data-page-id="${CSS.escape(activeId)}"]`,
+          )
+        : null;
+    if (!activeId || !row || row.checkVisibility?.() === false) {
+      surface.dataset.shown = 'false';
+      light.dataset.shown = 'false';
+      spot.current = null;
+      return;
+    }
+    const box = tree.getBoundingClientRect();
+    const at = row.getBoundingClientRect();
+    const y = at.top - box.top;
+    const was = spot.current;
+    const glide = was !== null && was.id !== activeId;
+    if (glide) {
+      // Quick to a neighbour, a little longer the further it goes.
+      const rows = Math.round(Math.abs(y - was.y) / at.height);
+      const ms = Math.min(
+        durationMs('--duration-base'),
+        Math.max(durationMs('--duration-fast'), rows * 60),
+      );
+      tree.style.setProperty('--trail-glide', `${ms}ms`);
+    }
+    const inset = row.dataset.flat === 'true' ? 0 : SURFACE_INSET;
+    move(surface, glide, {
+      translate: `${at.left - box.left + inset}px ${y}px`,
+      width: `${at.width - inset}px`,
+      height: `${at.height}px`,
+    });
+    // The row's own branch line, the one it hangs from.
+    const line = row.querySelector<HTMLElement>('.indent-guides > span');
+    if (line) {
+      move(light, glide && light.dataset.shown === 'true', {
+        translate: `${line.getBoundingClientRect().left - box.left}px ${y}px`,
+        height: `${at.height}px`,
+      });
+    } else {
+      light.dataset.shown = 'false';
+    }
+    spot.current = { id: activeId, y };
+  }, [treeRef, activeId, dragging]);
+  // Every render: rows open, close and move under it.
+  useLayoutEffect(place);
+  useEffect(() => {
+    const tree = treeRef.current;
+    if (!tree || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(place);
+    observer.observe(tree);
+    return () => observer.disconnect();
+  }, [treeRef, place]);
+  return (
+    <>
+      <span ref={surfaceRef} aria-hidden className="trail-current" />
+      <span ref={lightRef} aria-hidden className="trail-light" />
+    </>
+  );
+}
+
+/**
+ * Puts a marker somewhere, gliding there or not. A marker already where
+ * it's going is left alone, so a glide under way keeps running.
+ */
+function move(
+  element: HTMLElement,
+  glide: boolean,
+  to: { translate: string; height: string; width?: string },
+) {
+  const { style } = element;
+  // Compared as set, not as read back: the browser rounds what it returns.
+  const target = JSON.stringify(to);
+  const there =
+    element.dataset.shown === 'true' && placed.get(element) === target;
+  if (there) return;
+  // Only opacity animates when it isn't gliding: it appears in place.
+  if (!glide) style.transitionProperty = 'opacity';
+  Object.assign(style, to);
+  if (!glide) {
+    void element.offsetWidth;
+    style.transitionProperty = '';
+  }
+  element.dataset.shown = 'true';
+  placed.set(element, target);
+}
+
+const placed = new WeakMap<HTMLElement, string>();
+
 /**
  * Half a row of lit line. While a stroke runs, it moves only during its
  * share of the stroke's eased progress, so the halves of a path move as
@@ -907,7 +1030,7 @@ function PathHalf({ line }: { line: DrawnHalf }) {
     for (const running of element.getAnimations()) running.cancel();
     element.animate(strokeFrames(stroke, at), {
       duration: strokeMs(stroke),
-      easing: easing('--ease-out'),
+      easing: easing('--ease-in-out'),
       fill: stroke.direction === 'out' ? 'forwards' : 'none',
     });
   }, [stroke]);
@@ -915,7 +1038,6 @@ function PathHalf({ line }: { line: DrawnHalf }) {
   return (
     <span
       ref={ref}
-      data-half={line.half}
       className="absolute w-px origin-top bg-(--guide-path)"
       style={{
         left: CHEVRON_CENTER + line.level * INDENT,

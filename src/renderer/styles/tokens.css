@@ -40,10 +40,12 @@
   --keycap: rgb(var(--ink) / 0.07);
   /*
    * Branch lines in the trail. The ones leading down to the current page
-   * are drawn darker, so its ancestry reads at a glance.
+   * are drawn darker, so its ancestry reads at a glance, and the one
+   * beside it takes the accent.
    */
   --guide: var(--divider);
   --guide-path: rgb(var(--ink) / 0.3);
+  --guide-current: var(--accent);
 
   /* Small secondary text stays readable on the neutral workspace frames. */
   --fg: #221d17;
@@ -157,6 +159,8 @@
   --settings-measure: 620px;
 
   --ease-out: cubic-bezier(0.22, 0.8, 0.24, 1);
+  /* Moving from one place to another on screen: eases off, then settles. */
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --duration-fast: 120ms;
   --duration-base: 220ms;
   /* Larger moves: the sidebar resizing, its views changing places. */
