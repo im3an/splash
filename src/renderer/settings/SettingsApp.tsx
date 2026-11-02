@@ -95,6 +95,10 @@ export function SettingsApp() {
             <span className="truncate">{label}</span>
           </button>
         ))}
+        {/* Rows that wait for a reload or the next launch say so. */}
+        <p className="mt-auto px-2.5 pb-4 text-small leading-copy text-fg-subtle">
+          Changes are saved and apply as you make them.
+        </p>
       </nav>
       <main className="min-w-0 flex-1 overflow-y-auto bg-surface">
         <div className="drag h-(--toolbar-height)" />

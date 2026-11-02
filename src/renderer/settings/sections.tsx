@@ -395,7 +395,7 @@ function ContentBlockingSettings() {
       </Row>
       <Row
         label="Hide cookie notices"
-        help="Rejects cookie banners for you and hides simple notices. Splash never agrees in your name, so a banner with no way to reject stays for you to answer. A site where you allow ads shows its banner."
+        help="Rejects cookie banners for you and hides simple notices. Splash never agrees in your name, so a banner with no way to reject stays for you to answer. A site where you allow ads shows its banner. Applies to pages as they load."
       >
         <Toggle
           label="Hide cookie notices"
