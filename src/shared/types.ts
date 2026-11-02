@@ -417,4 +417,5 @@ export type UiCommand =
   | { type: 'show-history' }
   /** Edit › Undo while the shell has focus: text first, then the trail. */
   | { type: 'undo' }
-  | { type: 'filter-trail' };
+  | { type: 'filter-trail' }
+  | { type: 'toggle-ai-panel' };

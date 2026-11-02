@@ -1,3 +1,5 @@
+import type { AiProviderId } from './ai';
+
 /** App-wide settings. Per-workspace looks live in `appearance.ts`. */
 
 export const SEARCH_ENGINES = [
@@ -77,6 +79,9 @@ export interface Preferences {
   blockAds: boolean;
   /** Reject cookie banners and hide notices, never agreeing; sites can be allowed. */
   hideCookieNotices: boolean;
+  /** The assistant the AI panel shows. */
+  aiProvider: AiProviderId;
+  aiPanelWidth: number;
 }
 
 export const AWAKE_PAGE_CHOICES = [6, 12, 24, 48] as const;
@@ -98,4 +103,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   startup: 'restore',
   blockAds: true,
   hideCookieNotices: true,
+  aiProvider: 'claude',
+  aiPanelWidth: 420,
 };

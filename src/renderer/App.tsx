@@ -1,3 +1,4 @@
+import { AiPanel } from './components/AiPanel';
 import { ContentArea } from './components/ContentArea';
 import { FindBar } from './components/FindBar';
 import { PageMenu } from './components/PageMenu';
@@ -58,6 +59,7 @@ export function App() {
         <FindBar />
         <ContentArea />
       </main>
+      <AiPanel />
       <PageMenu />
     </div>
   );

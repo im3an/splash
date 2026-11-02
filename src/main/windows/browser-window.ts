@@ -48,6 +48,7 @@ import {
 } from '../security/permissions';
 import { WEB_PARTITION } from '../security/web-security';
 import { SessionPersister } from '../storage/session-persister';
+import { AiPanel } from '../ai/ai-panel';
 import type { HistoryMatch, TrailStore } from '../storage/trail-store';
 import type { PreferencesService } from '../preferences';
 import type { DownloadManager } from '../downloads/download-manager';
@@ -140,6 +141,8 @@ export class TrailWindow {
   private closePending: Promise<boolean> | null = null;
   private insets: ContentInsets | null = null;
   private readonly persister: SessionPersister;
+  /** An assistant beside the page, signed in like any other page. */
+  private readonly aiPanel: AiPanel;
   private workspaceKey = '';
   /** The active page's toggles the menu bar names: Pin or Unpin, Mute or Unmute. */
   private menuStateKey = '';
@@ -268,6 +271,12 @@ export class TrailWindow {
         this.send(eventChannels.storage, this.storageStatus());
       },
     });
+    this.aiPanel = new AiPanel({
+      window: this.window,
+      session: session.fromPartition(WEB_PARTITION),
+      openPage: (link) => this.controller.createPage({ input: link }),
+      onState: (state) => this.send(eventChannels.aiPanel, state),
+    });
     const stored = this.safely(() => store.loadSession());
     if (stored) {
       this.controller.restoreSession(stored);
@@ -332,8 +341,8 @@ export class TrailWindow {
           this.controller.movePageToWorkspace(pageId, workspaceId),
         'page:set-note': ({ pageId, note }) =>
           this.controller.setNote(pageId, note),
-        'page:open-split': ({ pageId, otherId }) =>
-          this.controller.openSplit(pageId, otherId),
+        'page:open-split': ({ pageId, otherId, side }) =>
+          this.controller.openSplit(pageId, otherId, side),
         'page:toggle-split': ({ pageId }) =>
           this.controller.toggleSplit(pageId),
         'split:close': () => this.controller.closeSplit(),
@@ -441,6 +450,7 @@ export class TrailWindow {
         },
         'workspace:move': ({ workspaceId, index }) =>
           this.controller.moveWorkspace(workspaceId, index),
+        'ai:act': ({ action }) => this.aiPanel.act(action),
       },
       send: {
         'view:set-content-insets': (insets) => {
@@ -450,6 +460,7 @@ export class TrailWindow {
         'view:focus-page': () => this.controller.focusActivePage(),
         'view:set-overlay': ({ active }) =>
           this.controller.setOverlayActive(active),
+        'ai:place': (placement) => this.aiPanel.place(placement),
       },
     };
 
@@ -463,7 +474,10 @@ export class TrailWindow {
 
     // Recompute in the main process so the page tracks live resizing
     // without waiting for a round trip through the shell UI.
-    this.window.on('resize', () => this.layout());
+    this.window.on('resize', () => {
+      this.layout();
+      this.aiPanel.layout();
+    });
     // A three-finger swipe goes back or forward, as in Safari.
     this.window.on('swipe', (_event, direction) => {
       const pageId = this.controller.activePageId;
@@ -510,6 +524,7 @@ export class TrailWindow {
     this.window.on('closed', () => {
       nativeTheme.off('updated', syncBackground);
       this.offline.dispose();
+      this.aiPanel.destroy();
       this.controller.dispose();
     });
 

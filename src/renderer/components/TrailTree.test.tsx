@@ -14,6 +14,8 @@ function stubApi() {
     setCollapsed: vi.fn(async () => undefined),
     renamePage: vi.fn(async () => undefined),
     setMuted: vi.fn(async () => undefined),
+    freezePage: vi.fn(async () => null),
+    setOverlayActive: vi.fn(),
   };
   window.splash = splash as unknown as SplashApi;
   return splash;

@@ -1328,6 +1328,20 @@ describe('BrowserController', () => {
       expect(hosts[0]!.visible).toBe(true);
     });
 
+    it('puts a page dropped on one side of a split there', () => {
+      const { controller, latest } = setup();
+      const parent = controller.createPage({ input: 'a.example' });
+      const child = controller.createPage({
+        input: 'b.example',
+        parentId: parent,
+      });
+      controller.openSplit(parent, child, 'right');
+      expect(latest().split).toEqual({ leftId: child, rightId: parent });
+      expect(latest().activePageId).toBe(parent);
+      controller.openSplit(parent, child, 'left');
+      expect(latest().split).toEqual({ leftId: parent, rightId: child });
+    });
+
     it('steps through the rows the sidebar shows, wrapping around', () => {
       const { controller, latest } = setup();
       const a = controller.createPage({ input: 'a.example' });

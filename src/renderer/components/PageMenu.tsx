@@ -9,6 +9,7 @@ import {
   Copy,
   CornerDownRight,
   FolderInput,
+  Layers,
   Link,
   ListMinus,
   ListX,
@@ -22,7 +23,12 @@ import {
   X,
 } from 'lucide-react';
 import type { BrowserSnapshot, PageId } from '../../shared/types';
-import { bookmarkPage, collectionNotice } from '../lib/collections';
+import {
+  bookmarkPage,
+  collectionNotice,
+  saveTrailAsGroup,
+} from '../lib/collections';
+import { useGroupRename } from './SavedGroups';
 import { pageLabel } from '../lib/format';
 import { noticeToast } from '../lib/notices';
 import { api } from '../splash-api';
@@ -127,11 +133,24 @@ export function pageMenuEntries(
     },
     {
       kind: 'action',
-      label: 'Bookmark Page',
+      label: 'Add to Favorites',
       icon: <Star {...ICON} />,
       disabled: !url || !/^https?:/.test(url),
       run: () => {
-        void bookmarkPage(page);
+        void bookmarkPage(page).then(() =>
+          collectionNotice(`Added ${pageLabel(page)} to Favorites.`),
+        );
+      },
+    },
+    {
+      kind: 'action',
+      label: hasChildren ? 'Save Trail as Group' : 'Save as Group',
+      icon: <Layers {...ICON} />,
+      disabled: !url || !/^https?:/.test(url),
+      run: () => {
+        void saveTrailAsGroup(snapshot, pageId).then((id) => {
+          if (id) useGroupRename.setState({ id });
+        });
       },
     },
     {
