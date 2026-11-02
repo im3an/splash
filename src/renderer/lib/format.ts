@@ -1,4 +1,5 @@
 import type {
+  ContentBlockingStatus,
   PageError,
   PageSnapshot,
   SitePermission,
@@ -26,6 +27,8 @@ export function displayUrl(url: string): string {
 
 export function pageLabel(page: PageSnapshot): string {
   if (page.customTitle) return page.customTitle;
+  if (page.url?.startsWith('view-source:'))
+    return `Source · ${hostOf(page.url.slice(12))}`;
   const title = page.title.trim();
   if (title) return title;
   if (page.url) return hostOf(page.url);
@@ -81,25 +84,32 @@ export function pageParts(page: PageSnapshot): {
   const host = shortHost(page.url);
   const brand = brandOf(host);
   if (page.customTitle || !page.title.trim()) {
-    return { title: label, site: label === host ? null : host };
+    // An untitled page's label is its host, "www." and all.
+    const isHost = label.replace(/^www\./, '') === host;
+    return { title: label, site: isHost ? null : host };
   }
 
   const title = page.title.trim();
   const separators = [...title.matchAll(TITLE_SEPARATOR)];
   const last = separators.at(-1);
   const first = separators[0];
+  // Some sites name themselves at both ends ("GitHub - repo · GitHub").
+  let start = 0;
+  let end = title.length;
+  let site: string | null = null;
   if (last && namesSite(title.slice(last.index + last[0].length), brand)) {
-    return {
-      title: title.slice(0, last.index),
-      site: title.slice(last.index + last[0].length),
-    };
+    site = title.slice(last.index + last[0].length);
+    end = last.index;
   }
-  if (first && namesSite(title.slice(0, first.index), brand)) {
-    return {
-      title: title.slice(first.index + first[0].length),
-      site: title.slice(0, first.index),
-    };
+  if (
+    first &&
+    (first !== last || site === null) &&
+    namesSite(title.slice(0, first.index), brand)
+  ) {
+    site ??= title.slice(0, first.index);
+    start = first.index + first[0].length;
   }
+  if (site) return { title: title.slice(start, end), site };
   const onlySite = separators.length === 0 && namesSite(title, brand);
   return { title, site: onlySite ? null : host };
 }
@@ -116,6 +126,23 @@ export function addressParts(
   const host = shortHost(page.url);
   const named = Boolean(page.customTitle || page.title.trim());
   return { host, title: named ? pageParts(page).title : null };
+}
+
+/**
+ * A full address split around its host, so the host can carry the emphasis:
+ * "https://" + "www.youtube.com" + "/watch?v=…". `null` without a host.
+ */
+export function urlParts(
+  url: string,
+): { scheme: string; host: string; rest: string } | null {
+  const host = parse(url)?.host;
+  const start = host ? url.indexOf(host) : -1;
+  if (!host || start < 0) return null;
+  return {
+    scheme: url.slice(0, start),
+    host,
+    rest: url.slice(start + host.length),
+  };
 }
 
 export type Security = 'secure' | 'insecure' | 'none';
@@ -205,6 +232,8 @@ const PERMISSION_NAMES: Record<SitePermission, string> = {
   midi: 'MIDI devices',
   clipboard: 'clipboard',
   sound: 'sound',
+  ads: 'ads and trackers',
+  apps: 'other apps',
 };
 
 /** "camera and microphone", "camera, microphone and location". */
@@ -227,4 +256,27 @@ export function formatBytes(bytes: number): string {
     unit++;
   }
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/** "Updated today", or why ad blocking isn't working yet. */
+export function filterListsSummary(
+  status: ContentBlockingStatus,
+  now: number,
+): string {
+  if (status.state === 'loading') return 'Downloading the filter lists…';
+  if (status.state === 'failed' || status.updatedAt === null) {
+    return 'Couldn’t download the filter lists, so nothing is blocked yet. Splash tries again every few minutes.';
+  }
+  const days = Math.floor((now - status.updatedAt) / DAY);
+  const updated =
+    days <= 0
+      ? 'Updated today.'
+      : days === 1
+        ? 'Updated yesterday.'
+        : `Updated ${days} days ago.`;
+  return status.updateFailed
+    ? `${updated} Couldn’t download newer lists; these stay in use.`
+    : `${updated} Splash updates them every week.`;
 }

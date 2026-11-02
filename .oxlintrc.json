@@ -3,5 +3,10 @@
   "categories": {
     "correctness": "warn"
   },
-  "ignorePatterns": [".claude/worktrees/**", "out/**", ".vite/**"]
+  "ignorePatterns": [
+    ".claude/worktrees/**",
+    "out/**",
+    ".vite/**",
+    "extensions/**"
+  ]
 }

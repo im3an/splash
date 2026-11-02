@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 
 /**
@@ -71,6 +72,18 @@ export const MIGRATIONS: readonly string[] = [
     started_at INTEGER NOT NULL
   );
   `,
+  // 6 — the two pages a workspace shows side by side, as JSON.
+  `
+  ALTER TABLE workspaces ADD COLUMN split TEXT;
+  `,
+  // 7 — pinned pages, kept at the top of their trail.
+  `
+  ALTER TABLE pages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+  `,
+  // 8 — each visit's favicon, so suggestions can show it.
+  `
+  ALTER TABLE history ADD COLUMN favicon_url TEXT;
+  `,
 ];
 
 export class SchemaTooNewError extends Error {}
@@ -95,6 +108,38 @@ export function assertSupportedSchema(
   }
 }
 
+/**
+ * Undoes the open transaction after a failure. SQLite may already have
+ * rolled back (disk full, I/O error); then a second ROLLBACK would throw
+ * and hide the error that matters, so it's skipped.
+ */
+export function rollback(db: DatabaseSync): void {
+  if (db.isTransaction === false) return;
+  try {
+    db.exec('ROLLBACK');
+  } catch {
+    // Already rolled back; the caller rethrows the original error.
+  }
+}
+
+/**
+ * Before an older database is upgraded, keeps a copy of it as it was:
+ * `splash.db.pre-v<N>`, where N is the version it's about to become. A
+ * fresh database has nothing to keep. Returns the copy's path, if any.
+ */
+export function backupBeforeMigrating(
+  db: DatabaseSync,
+  file: string,
+  migrations: readonly string[] = MIGRATIONS,
+): string | null {
+  const current = schemaVersion(db);
+  if (current === 0 || current >= migrations.length) return null;
+  const backup = `${file}.pre-v${current + 1}`;
+  rmSync(backup, { force: true });
+  db.exec(`VACUUM INTO '${backup.replaceAll("'", "''")}'`);
+  return backup;
+}
+
 /** Brings the database up to date, one migration per transaction. */
 export function migrate(
   db: DatabaseSync,
@@ -109,7 +154,7 @@ export function migrate(
       db.exec(`PRAGMA user_version = ${version + 1}`);
       db.exec('COMMIT');
     } catch (error) {
-      db.exec('ROLLBACK');
+      rollback(db);
       throw error;
     }
   }

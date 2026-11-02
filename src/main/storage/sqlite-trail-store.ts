@@ -6,14 +6,17 @@ import type {
   DownloadSummary,
   PageId,
   SitePermission,
+  SplitView,
   WorkspaceAppearance,
 } from '../../shared/types';
 import { isClosedRecord, type ClosedRecord } from '../browser/closed-records';
 import type { PageHistory } from '../browser/page-host';
-import { isNavigableUrl } from '../browser/url';
+import { isNavigableUrl, isPageUrl } from '../browser/url';
 import {
   assertSupportedSchema,
+  backupBeforeMigrating,
   migrate,
+  rollback,
   SchemaTooNewError,
 } from './migrations';
 import type {
@@ -27,11 +30,13 @@ import type {
 } from './trail-store';
 
 const ACTIVE_WORKSPACE_KEY = 'session.activeWorkspaceId';
+const MAX_FAVICON_URL_LENGTH = 16_384;
 
 interface WorkspaceRow {
   id: string;
   name: string;
   appearance: string | null;
+  split: string | null;
   active_page_id: string | null;
   created_at: number;
 }
@@ -47,9 +52,21 @@ interface PageRow {
   custom_title: string | null;
   note: string | null;
   collapsed: number;
+  pinned: number;
   history: string | null;
   created_at: number;
   last_active_at: number;
+}
+
+/**
+ * JSON for disk. Chromium's page state carries typed form values and POST
+ * bodies, so it stays in memory (a sleeping page still gets its draft back)
+ * and never reaches the database.
+ */
+export function toStoredJson(value: unknown): string {
+  return JSON.stringify(value, (key, field: unknown) =>
+    key === 'pageState' ? undefined : field,
+  );
 }
 
 /** Reads stored history defensively: a bad value only loses that history. */
@@ -57,13 +74,16 @@ function parseHistory(value: string | null): PageHistory | null {
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as PageHistory;
+    // Older databases kept page state; it's dropped, then rewritten without.
     const entries = Array.isArray(parsed.entries)
-      ? parsed.entries.filter(
-          (entry) =>
-            typeof entry?.url === 'string' &&
-            isNavigableUrl(entry.url) &&
-            typeof entry.title === 'string',
-        )
+      ? parsed.entries
+          .filter(
+            (entry) =>
+              typeof entry?.url === 'string' &&
+              isPageUrl(entry.url) &&
+              typeof entry.title === 'string',
+          )
+          .map(({ url, title }) => ({ url, title }))
       : [];
     if (entries.length === 0) return null;
     const index = Number.isInteger(parsed.index) ? parsed.index : 0;
@@ -87,6 +107,20 @@ function parseAppearance(value: string | null): WorkspaceAppearance {
   }
 }
 
+/** A saved split view; the controller checks its pages still exist. */
+function parseSplit(value: string | null): SplitView | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<SplitView> | null;
+    return typeof parsed?.leftId === 'string' &&
+      typeof parsed.rightId === 'string'
+      ? { leftId: parsed.leftId, rightId: parsed.rightId }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
@@ -101,7 +135,7 @@ export class SqliteTrailStore implements TrailStore {
   loadSession(): StoredSession | null {
     const workspaceRows = this.db
       .prepare(
-        'SELECT id, name, appearance, active_page_id, created_at FROM workspaces ORDER BY position',
+        'SELECT id, name, appearance, split, active_page_id, created_at FROM workspaces ORDER BY position',
       )
       .all() as unknown as WorkspaceRow[];
     if (workspaceRows.length === 0) return null;
@@ -132,12 +166,13 @@ export class SqliteTrailStore implements TrailStore {
             id: row.id,
             workspaceId: workspace.id,
             parentId,
-            url: row.url && isNavigableUrl(row.url) ? row.url : null,
+            url: row.url && isPageUrl(row.url) ? row.url : null,
             title: row.title,
             faviconUrl: row.favicon_url,
             customTitle: row.custom_title,
             note: row.note,
             collapsed: row.collapsed === 1,
+            pinned: row.pinned === 1,
             history: parseHistory(row.history),
             createdAt: row.created_at,
             lastActiveAt: row.last_active_at,
@@ -146,6 +181,7 @@ export class SqliteTrailStore implements TrailStore {
         }
       };
       visit(null);
+      const split = parseSplit(workspace.split);
       const activeExists =
         workspace.active_page_id !== null &&
         byId.get(workspace.active_page_id)?.workspace_id === workspace.id;
@@ -155,6 +191,7 @@ export class SqliteTrailStore implements TrailStore {
         appearance: parseAppearance(workspace.appearance),
         activePageId: activeExists ? workspace.active_page_id : null,
         createdAt: workspace.created_at,
+        ...(split ? { split } : {}),
       });
     }
 
@@ -187,13 +224,13 @@ export class SqliteTrailStore implements TrailStore {
 
   saveSession(session: StoredSession): void {
     const insertWorkspace = this.db.prepare(
-      `INSERT INTO workspaces (id, name, appearance, position, active_page_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO workspaces (id, name, appearance, split, position, active_page_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertPage = this.db.prepare(
       `INSERT INTO pages (id, workspace_id, parent_id, position, url, title,
-         favicon_url, custom_title, note, collapsed, history, created_at, last_active_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         favicon_url, custom_title, note, collapsed, pinned, history, created_at, last_active_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.transaction(() => {
       this.db.exec('DELETE FROM pages; DELETE FROM workspaces;');
@@ -202,6 +239,7 @@ export class SqliteTrailStore implements TrailStore {
           workspace.id,
           workspace.name,
           workspace.appearance ? JSON.stringify(workspace.appearance) : null,
+          workspace.split ? JSON.stringify(workspace.split) : null,
           position,
           workspace.activePageId,
           workspace.createdAt,
@@ -223,7 +261,8 @@ export class SqliteTrailStore implements TrailStore {
           page.customTitle,
           page.note,
           page.collapsed ? 1 : 0,
-          page.history ? JSON.stringify(page.history) : null,
+          page.pinned ? 1 : 0,
+          page.history ? toStoredJson(page.history) : null,
           page.createdAt,
           page.lastActiveAt,
         );
@@ -236,7 +275,7 @@ export class SqliteTrailStore implements TrailStore {
         'INSERT INTO closed_records (position, record) VALUES (?, ?)',
       );
       (session.closed ?? []).forEach((record, position) => {
-        insertClosed.run(position, JSON.stringify(record));
+        insertClosed.run(position, toStoredJson(record));
       });
     });
   }
@@ -259,6 +298,14 @@ export class SqliteTrailStore implements TrailStore {
       .run(title.slice(0, 500), url);
   }
 
+  recordFavicon(url: string, faviconUrl: string): void {
+    // Inline icons can be large; those are left to the open page.
+    if (faviconUrl.length > MAX_FAVICON_URL_LENGTH) return;
+    this.db
+      .prepare('UPDATE history SET favicon_url = ? WHERE url = ?')
+      .run(faviconUrl, url);
+  }
+
   searchHistory(query: string, limit: number): HistoryMatch[] {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
     if (words.length === 0) return [];
@@ -274,7 +321,7 @@ export class SqliteTrailStore implements TrailStore {
     });
     const rows = this.db
       .prepare(
-        `SELECT url, title, visit_count, last_visited_at FROM history
+        `SELECT url, title, visit_count, last_visited_at, favicon_url FROM history
          WHERE ${conditions}
          ORDER BY last_visited_at DESC LIMIT ?`,
       )
@@ -283,12 +330,39 @@ export class SqliteTrailStore implements TrailStore {
       title: string;
       visit_count: number;
       last_visited_at: number;
+      favicon_url: string | null;
     }[];
     return rows.map((row) => ({
       url: row.url,
       title: row.title,
       visitCount: row.visit_count,
       lastVisitedAt: row.last_visited_at,
+      faviconUrl: row.favicon_url,
+    }));
+  }
+
+  frequentHistory(limit: number): HistoryMatch[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM (SELECT url, title, visit_count, last_visited_at, favicon_url FROM history
+           ORDER BY last_visited_at DESC LIMIT ?)
+         UNION
+         SELECT * FROM (SELECT url, title, visit_count, last_visited_at, favicon_url FROM history
+           ORDER BY visit_count DESC, last_visited_at DESC LIMIT ?)`,
+      )
+      .all(limit, limit) as unknown as {
+      url: string;
+      title: string;
+      visit_count: number;
+      last_visited_at: number;
+      favicon_url: string | null;
+    }[];
+    return rows.map((row) => ({
+      url: row.url,
+      title: row.title,
+      visitCount: row.visit_count,
+      lastVisitedAt: row.last_visited_at,
+      faviconUrl: row.favicon_url,
     }));
   }
 
@@ -367,25 +441,54 @@ export class SqliteTrailStore implements TrailStore {
     }));
   }
 
+  listHistory(query: string, limit: number): HistoryRow[] {
+    if (query.trim()) return this.searchHistory(query, limit);
+    const rows = this.db
+      .prepare(
+        `SELECT url, title, visit_count, last_visited_at, favicon_url FROM history
+         ORDER BY last_visited_at DESC LIMIT ?`,
+      )
+      .all(limit) as unknown as {
+      url: string;
+      title: string;
+      visit_count: number;
+      last_visited_at: number;
+      favicon_url: string | null;
+    }[];
+    return rows.map((row) => ({
+      url: row.url,
+      title: row.title,
+      visitCount: row.visit_count,
+      lastVisitedAt: row.last_visited_at,
+      faviconUrl: row.favicon_url,
+    }));
+  }
+
+  deleteHistoryEntry(url: string): void {
+    this.db.prepare('DELETE FROM history WHERE url = ?').run(url);
+  }
+
   deleteHistory(since: number): HistoryRow[] {
     let removed: HistoryRow[] = [];
     this.transaction(() => {
       removed = (
         this.db
           .prepare(
-            'SELECT url, title, visit_count, last_visited_at FROM history WHERE last_visited_at >= ?',
+            'SELECT url, title, visit_count, last_visited_at, favicon_url FROM history WHERE last_visited_at >= ?',
           )
           .all(since) as unknown as {
           url: string;
           title: string;
           visit_count: number;
           last_visited_at: number;
+          favicon_url: string | null;
         }[]
       ).map((row) => ({
         url: row.url,
         title: row.title,
         visitCount: row.visit_count,
         lastVisitedAt: row.last_visited_at,
+        faviconUrl: row.favicon_url,
       }));
       this.db
         .prepare('DELETE FROM history WHERE last_visited_at >= ?')
@@ -396,16 +499,23 @@ export class SqliteTrailStore implements TrailStore {
 
   restoreHistory(rows: HistoryRow[]): void {
     const insert = this.db.prepare(
-      `INSERT INTO history (url, title, visit_count, last_visited_at)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO history (url, title, visit_count, last_visited_at, favicon_url)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (url) DO UPDATE SET
          title = excluded.title,
+         favicon_url = coalesce(history.favicon_url, excluded.favicon_url),
          visit_count = history.visit_count + excluded.visit_count,
          last_visited_at = max(history.last_visited_at, excluded.last_visited_at)`,
     );
     this.transaction(() => {
       for (const row of rows) {
-        insert.run(row.url, row.title, row.visitCount, row.lastVisitedAt);
+        insert.run(
+          row.url,
+          row.title,
+          row.visitCount,
+          row.lastVisitedAt,
+          row.faviconUrl ?? null,
+        );
       }
     });
   }
@@ -451,7 +561,7 @@ export class SqliteTrailStore implements TrailStore {
       run();
       this.db.exec('COMMIT');
     } catch (error) {
-      this.db.exec('ROLLBACK');
+      rollback(this.db);
       throw error;
     }
   }
@@ -475,6 +585,7 @@ export function openTrailStore(file: string): OpenStoreResult {
       // Check first: even switching the journal mode would modify a file
       // that belongs to a newer version.
       assertSupportedSchema(db);
+      backupBeforeMigrating(db, file);
       db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
       return new SqliteTrailStore(db);
     } catch (error) {

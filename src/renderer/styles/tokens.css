@@ -1,7 +1,8 @@
 /*
- * Design tokens. Two themes: a warm paper light and a graphite dark.
- * `--chrome` and `--radius-content` are mirrored in the main process
- * (window background, page view corner radius) — keep them in sync.
+ * Design tokens. Two themes: warm charcoal dark (the default) and a warm
+ * paper light. Every colour here is a role; components never use literals.
+ * The main process mirrors the frame colours (src/shared/appearance.ts) and
+ * `--radius-content` / `--gutter` (src/shared/geometry.ts): keep them in sync.
  */
 
 :root {
@@ -17,79 +18,245 @@
   --field-focus: #ffffff;
   --hover: rgb(var(--ink) / 0.06);
   --pressed: rgb(var(--ink) / 0.1);
+  /* The active trail row and workspace: raised off the frame. */
+  --selected: var(--elevated);
+  /*
+   * The window frame around the page card, tinted with the workspace's
+   * accent so each workspace has its own colour, like Arc's spaces.
+   */
+  --frame: color-mix(in oklab, var(--accent) 6%, var(--chrome));
+  /* Sidebar rows lighten on the tinted frame rather than darken. */
+  --row-hover: rgb(255 255 255 / 0.42);
+  --row-pressed: rgb(255 255 255 / 0.62);
+  /* The current page's fill when settings mark it with a bar: past hover. */
+  /* The address pill at the top of the sidebar. */
+  --pill: rgb(var(--ink) / 0.07);
   --divider: rgb(var(--ink) / 0.1);
   --hairline: rgb(var(--ink) / 0.14);
+  --scrim: rgb(0 0 0 / 0.16);
+  /* The outline of a drop zone drawn over a dimmed page. */
+  --drop-outline: rgb(255 255 255 / 0.45);
+  /* Behind a site icon that has to read on any surface, dark ones too. */
+  --icon-chip: var(--elevated);
+  /* The picked row in the palette and suggestions: a step past hover. */
+  --option-selected: rgb(var(--ink) / 0.09);
+  /* A key in a legend, such as the palette's footer. */
+  --keycap: rgb(var(--ink) / 0.07);
+  /*
+   * Branch lines in the trail. The ones leading down to the current page
+   * are drawn darker, so its ancestry reads at a glance, and the one
+   * beside it takes the accent.
+   */
+  --guide: var(--divider);
+  --guide-path: rgb(var(--ink) / 0.3);
+  --guide-current: var(--accent);
 
+  /* Small secondary text stays readable on the neutral workspace frames. */
   --fg: #221d17;
-  --fg-muted: #6c6359;
-  --fg-subtle: #a0968a;
+  --fg-muted: #585047;
+  --fg-subtle: #675e55;
+  --fg-disabled: rgb(var(--ink) / 0.38);
+
+  /* Named borders: structural separators, then control and hover edges. */
+  --border: var(--divider);
+  --border-strong: var(--hairline);
+  --border-hover: rgb(var(--ink) / 0.22);
 
   --accent: #b4542d;
   --accent-soft: rgb(180 84 45 / 0.16);
+  --accent-hover: color-mix(in oklab, var(--accent), black 8%);
+  --on-accent: var(--chrome);
+  --focus-ring: var(--accent);
+  /* Status colours. Never the only cue: pair with an icon or words. */
   --danger: #b03a2e;
+  --success: #3f7a3a;
+  --warning: #9a6a0a;
+  --info: #2d6cb0;
+  --scrollbar-thumb: rgb(var(--ink) / 0.22);
+  --scrollbar-thumb-hover: rgb(var(--ink) / 0.36);
 
   --shadow-row:
     0 0 0 0.5px rgb(var(--ink) / 0.12), 0 1px 2px rgb(var(--ink) / 0.08);
+
   --shadow-content:
     0 0 0 0.5px rgb(var(--ink) / 0.14), 0 1px 3px rgb(var(--ink) / 0.06);
+  /* Popovers, the palette and dialogs float over the page. */
+  --shadow-panel: 0 0 0 0.5px var(--hairline), 0 14px 40px rgb(0 0 0 / 0.18);
+  /* A thin outline for swatches and marks that sit on any colour. */
+  --shadow-outline: 0 0 0 0.5px var(--hairline);
+  /* A card lifted off the sheet; the edge of one card over the next. */
+  --shadow-card: 0 6px 16px -6px rgb(0 0 0 / 0.25);
+  --shadow-stacked: -1px 0 3px rgb(0 0 0 / 0.18);
+  /* A theme swatch lit from the top left, like a small sphere. */
+  --shadow-orb:
+    inset 0 0 0 1px rgb(0 0 0 / 0.08), inset 0 -6px 10px -4px rgb(0 0 0 / 0.18),
+    0 2px 6px -2px rgb(0 0 0 / 0.25);
+  --orb-highlight: rgb(255 255 255 / 0.7);
+  /* A focused text field: an accent edge with a soft halo, like AppKit. */
+  --shadow-focus: 0 0 0 1px var(--accent), 0 0 0 3.5px var(--accent-soft);
   --skeleton: rgb(var(--ink) / 0.07);
+  --switch-knob: #ffffff;
+  /*
+   * The accent wheel shows real colours on any theme: darker towards the
+   * centre, lighter towards the rim, with white rings around its dots.
+   */
+  --wheel-shade: radial-gradient(
+    closest-side,
+    rgb(0 0 0 / 0.5),
+    transparent 50%,
+    rgb(255 255 255 / 0.45)
+  );
+  --wheel-handle-ring: #ffffff;
+  --shadow-wheel-handle: 0 1px 4px rgb(0 0 0 / 0.3);
 
   --font-ui:
     -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
 
-  --radius-content: 10px;
-  --radius-control: 7px;
-  --radius-row: 6px;
+  /* Type scale. Body is the macOS sidebar and control size. */
+  --type-caption: 11px;
+  --type-small: 12px;
+  --type-body: 13px;
+  --type-lead: 14px;
+  --type-title: 15px;
+  --type-display: 20px;
+  /* Line heights: one-line chrome, multi-line copy, roomy explanations. */
+  --leading-chrome: 1.35;
+  --leading-copy: 1.45;
+  --leading-loose: 1.6;
 
-  --sidebar-width: 252px;
-  --row-height: 30px;
+  /*
+   * Spacing follows Tailwind's 4px scale (p-1 = 4px … p-12 = 48px); plain
+   * CSS uses these steps. Icons come in three sizes; controls share a height.
+   */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --control-height: 28px;
+  --control-height-sm: 24px;
+
+  /* Radii, from marks to the page frame. Nested shapes step down a size. */
+  --radius-mark: 3px;
+  --radius-inner: 5px;
+  --radius-row: 6px;
+  --radius-control: 7px;
+  --radius-pill: 10px;
+  --radius-content: 10px;
+  /* Sheets like the workspace editor, and the panels inside them. */
+  --radius-sheet: 18px;
+  --radius-panel: 13px;
+  /* The fanned cards over the workspace editor. */
+  --radius-card: 12px;
+  /* Pills, switches, progress lines. */
+  --radius-full: 999px;
+
+  --sidebar-width: 260px;
+  /** While Downloads or History stands in for the trail. */
+  --sidebar-width-wide: 380px;
+  --sidebar-action-size: 24px;
+  --sidebar-row-inset: 6px;
+  --row-height: 34px;
   --toolbar-height: 48px;
   --gutter: 8px;
   --traffic-lights: 80px;
+  /* Floating surfaces and readable measures. */
+  --palette-width: 600px;
+  --dialog-width: 440px;
+  --menu-width: 236px;
+  --notice-width: 360px;
+  --measure: 380px;
+  --settings-nav-width: 220px;
+  --settings-measure: 620px;
 
   --ease-out: cubic-bezier(0.22, 0.8, 0.24, 1);
+  /* Moving from one place to another on screen: eases off, then settles. */
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --duration-fast: 120ms;
   --duration-base: 220ms;
+  /* Larger moves: the sidebar resizing, its views changing places. */
+  --duration-slow: 280ms;
+  --ease-emphasized: cubic-bezier(0.32, 0.72, 0, 1);
+  /* Legacy token name: settle without overshoot in task-focused surfaces. */
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Leaving is quicker than arriving, and accelerates away. */
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --duration-exit: 150ms;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
 
-    --chrome: #1c1c1e;
-    --surface: #222224;
-    --elevated: #2d2d30;
-    --field: rgb(255 255 255 / 0.06);
-    --field-focus: #2a2a2d;
-    --hover: rgb(255 255 255 / 0.05);
-    --pressed: rgb(255 255 255 / 0.09);
-    --divider: rgb(255 255 255 / 0.07);
-    --hairline: rgb(255 255 255 / 0.1);
+    /* Warm charcoal and brown-black, never neutral grey. */
+    --chrome: #1a1714;
+    --surface: #201c18;
+    --elevated: #2a2520;
+    /* Warm off-white as "r g b": hovers and lines tint toward it. */
+    --ink: 240 228 214;
+    --field: rgb(var(--ink) / 0.06);
+    --field-focus: #24201b;
+    --hover: rgb(var(--ink) / 0.05);
+    --pressed: rgb(var(--ink) / 0.09);
+    /* Elevated alone sits too close to hover on charcoal. */
+    --selected: color-mix(in oklab, var(--elevated), rgb(var(--ink)) 5%);
+    --frame: color-mix(in oklab, var(--accent) 5%, var(--chrome));
+    --row-hover: rgb(var(--ink) / 0.05);
+    --row-pressed: rgb(var(--ink) / 0.09);
+    --pill: rgb(var(--ink) / 0.07);
+    --divider: rgb(var(--ink) / 0.075);
+    --hairline: rgb(var(--ink) / 0.11);
+    --border-hover: rgb(var(--ink) / 0.2);
+    --scrim: rgb(8 6 4 / 0.42);
+    --icon-chip: #ece6dd;
+    --option-selected: rgb(var(--ink) / 0.08);
+    --keycap: rgb(var(--ink) / 0.08);
+    --guide-path: rgb(var(--ink) / 0.28);
 
-    --fg: #ebebed;
-    --fg-muted: #a2a2a8;
-    --fg-subtle: #6f6f76;
+    --fg: #ede6dd;
+    --fg-muted: #b3a89b;
+    --fg-subtle: #a09588;
+    --fg-disabled: rgb(var(--ink) / 0.34);
 
     --accent: #e3906a;
     --accent-soft: rgb(227 144 106 / 0.2);
+    --accent-hover: color-mix(in oklab, var(--accent), white 8%);
     --danger: #ec7a6b;
+    --success: #8fc27a;
+    --warning: #e6b04f;
+    --info: #7eafea;
+    --scrollbar-thumb: rgb(var(--ink) / 0.18);
+    --scrollbar-thumb-hover: rgb(var(--ink) / 0.3);
 
     --shadow-row:
-      0 0 0 0.5px rgb(255 255 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.3);
+      0 0 0 0.5px rgb(var(--ink) / 0.08), 0 1px 2px rgb(0 0 0 / 0.35);
+
     --shadow-content:
-      0 0 0 0.5px rgb(255 255 255 / 0.08), 0 1px 3px rgb(0 0 0 / 0.25);
-    --skeleton: rgb(255 255 255 / 0.06);
+      0 0 0 0.5px rgb(var(--ink) / 0.08), 0 1px 3px rgb(0 0 0 / 0.3);
+    --shadow-panel:
+      0 0 0 0.5px rgb(var(--ink) / 0.1), 0 16px 44px rgb(0 0 0 / 0.5);
+    --skeleton: rgb(var(--ink) / 0.06);
+    --switch-knob: #f4eee7;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --duration-fast: 0ms;
-    --duration-base: 0ms;
-  }
+/*
+ * Reduced motion, from macOS or Splash's own setting: the shell sets
+ * data-motion (see use-interface-preferences.ts), so one rule covers both.
+ */
+:root[data-motion='reduced'] {
+  --duration-fast: 0ms;
+  --duration-base: 0ms;
+  --duration-slow: 0ms;
+  --duration-exit: 0ms;
 }
 
 :root[data-density='compact'] {
-  --row-height: 26px;
+  --row-height: 28px;
 }

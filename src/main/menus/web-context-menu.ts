@@ -11,8 +11,22 @@ export interface WebContextMenuActions {
   back(): void;
   forward(): void;
   reload(): void;
+  print(): void;
   canGoBack: boolean;
   canGoForward: boolean;
+  /** Confirms a copy; `subject` is the host a copied address points to. */
+  copied(
+    what: 'link' | 'image' | 'image-address',
+    subject: string | null,
+  ): void;
+}
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).host.replace(/^www\./, '') || null;
+  } catch {
+    return null;
+  }
 }
 
 const separator: MenuItemConstructorOptions = { type: 'separator' };
@@ -69,7 +83,17 @@ export function webContextMenu(
         label: 'Open Link in Background',
         click: () => actions.openChild(link, { background: true }),
       },
-      { label: 'Copy Link Address', click: () => clipboard.writeText(link) },
+      {
+        label: 'Download Linked File',
+        click: () => contents.downloadURL(link),
+      },
+      {
+        label: 'Copy Link Address',
+        click: () => {
+          clipboard.writeText(link);
+          actions.copied('link', hostOf(link));
+        },
+      },
       separator,
     );
   }
@@ -82,12 +106,22 @@ export function webContextMenu(
         click: () => actions.openChild(source, { background: false }),
       },
       {
+        label: 'Download Image',
+        click: () => contents.downloadURL(source),
+      },
+      {
         label: 'Copy Image',
-        click: () => contents.copyImageAt(params.x, params.y),
+        click: () => {
+          contents.copyImageAt(params.x, params.y);
+          actions.copied('image', null);
+        },
       },
       {
         label: 'Copy Image Address',
-        click: () => clipboard.writeText(source),
+        click: () => {
+          clipboard.writeText(source);
+          actions.copied('image-address', hostOf(source));
+        },
       },
       separator,
     );
@@ -128,6 +162,14 @@ export function webContextMenu(
     const text = params.selectionText;
     items.push(
       { label: 'Copy', click: () => contents.copy() },
+      ...(process.platform === 'darwin'
+        ? [
+            {
+              label: `Look Up “${truncate(text, 28)}”`,
+              click: () => contents.showDefinitionForSelection(),
+            },
+          ]
+        : []),
       {
         label: `Search for “${truncate(text, 28)}”`,
         click: () =>
@@ -153,6 +195,8 @@ export function webContextMenu(
         click: actions.forward,
       },
       { label: 'Reload', click: actions.reload },
+      separator,
+      { label: 'Print…', click: actions.print },
       separator,
     );
   }

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { SegmentedControl } from '../components/SegmentedControl';
 
 /** A titled group of settings. */
 export function Section({
@@ -13,14 +14,14 @@ export function Section({
   return (
     <section className="flex flex-col gap-3">
       <div>
-        <h2 className="text-[13px] font-semibold">{title}</h2>
+        <h2 className="text-body font-semibold">{title}</h2>
         {description && (
-          <p className="mt-0.5 text-[12px] leading-[1.45] text-fg-subtle">
+          <p className="mt-0.5 text-small leading-copy text-fg-subtle">
             {description}
           </p>
         )}
       </div>
-      <div className="flex flex-col divide-y divide-divider rounded-[10px] bg-elevated shadow-[var(--shadow-row)]">
+      <div className="flex flex-col divide-y divide-divider rounded-content bg-elevated shadow-row">
         {children}
       </div>
     </section>
@@ -42,7 +43,7 @@ export function Row({
       <div className="min-w-0">
         <p>{label}</p>
         {help && (
-          <p className="mt-0.5 text-[12px] leading-[1.45] text-fg-subtle">
+          <p className="mt-0.5 text-small leading-copy text-fg-subtle">
             {help}
           </p>
         )}
@@ -66,24 +67,12 @@ export function Choice<T extends string | number>({
   onChange(value: T): void;
 }) {
   return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      className="flex rounded-[7px] bg-field p-0.5"
-    >
-      {options.map((option) => (
-        <button
-          key={String(option.value)}
-          type="button"
-          role="radio"
-          aria-checked={option.value === value}
-          onClick={() => onChange(option.value)}
-          className="h-7 rounded-[5px] px-2.5 text-[12px] text-fg-muted transition-colors duration-[var(--duration-fast)] hover:text-fg aria-checked:bg-elevated aria-checked:text-fg aria-checked:shadow-[var(--shadow-row)]"
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
+    <SegmentedControl
+      label={label}
+      options={options}
+      value={value}
+      onChange={onChange}
+    />
   );
 }
 
@@ -99,16 +88,16 @@ export function Button({
   disabled?: boolean;
 }) {
   const tones = {
-    plain: 'bg-field text-fg hover:bg-pressed',
-    primary: 'bg-accent text-chrome hover:brightness-105',
-    danger: 'bg-field text-danger hover:bg-pressed',
+    plain: 'button-raised',
+    primary: 'button-primary',
+    danger: 'button-raised button-danger',
   };
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`h-7 shrink-0 rounded-[7px] px-3 text-[12px] font-medium transition-[background-color,filter] duration-[var(--duration-fast)] disabled:opacity-50 ${tones[tone]}`}
+      className={`button text-small font-medium ${tones[tone]}`}
     >
       {children}
     </button>
@@ -131,12 +120,9 @@ export function Toggle({
       aria-label={label}
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="relative h-[22px] w-[38px] shrink-0 rounded-full bg-pressed transition-colors duration-[var(--duration-fast)] aria-checked:bg-accent"
+      className="switch"
     >
-      <span
-        className="absolute top-[3px] left-[3px] size-4 rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.25)] transition-transform duration-[var(--duration-fast)] ease-[var(--ease-out)]"
-        style={{ transform: checked ? 'translateX(16px)' : undefined }}
-      />
+      <span className="switch-knob" />
     </button>
   );
 }

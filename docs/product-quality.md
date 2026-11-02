@@ -33,7 +33,12 @@ states either has a deliberate treatment or can't happen.
 ## Splash-specific rules
 
 - **The trail is the product.** A page's state (loading, audio, muted, error,
-  crashed, asleep) shows on its trail row, where the user already looks.
+  crashed, asleep) shows on its trail row, where the user already looks. A
+  collapsed row summarises the state of the pages hidden under it.
+- **Feedback doesn't depend on the sidebar.** Confirmations, undo offers and
+  download progress still show when the sidebar is hidden.
+- **No silent actions.** Copying, moving to another workspace and similar
+  actions confirm what happened, in the same toast that offers undo.
 - **No silent failures.** If a page is denied something (a permission, a
   download, a popup), the user sees what was blocked and how to allow it.
 - **Specific copy.** "Couldn't reach example.com: you appear to be offline.

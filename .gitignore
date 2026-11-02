@@ -145,5 +145,18 @@ vite.config.ts.timestamp-*
 # Electron-Forge
 out/
 
+# Extensions fetched by scripts/fetch-extensions.mjs
+/extensions/
+
 # Local Claude Code worktrees (separate checkouts, not part of this tree)
 .claude/worktrees/
+
+# macOS Finder metadata
+.DS_Store
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# Duplicate export of assets/brand, kept locally only
+/assets/Splash-brand-kit/
+/assets/Splash-brand-kit.zip

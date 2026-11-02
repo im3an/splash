@@ -19,6 +19,83 @@ export function isNavigableUrl(value: string): boolean {
   }
 }
 
+/**
+ * Schemes a link may never hand to another app: they're the browser's own,
+ * reach local files, or run code.
+ */
+const NEVER_EXTERNAL = new Set([
+  'http:',
+  'https:',
+  'file:',
+  'javascript:',
+  'data:',
+  'blob:',
+  'about:',
+  'filesystem:',
+  'view-source:',
+  'chrome:',
+  'chrome-extension:',
+  'chrome-untrusted:',
+  'devtools:',
+  'app:',
+]);
+
+const MAX_EXTERNAL_URL = 4096;
+
+/** A link meant for another app on the Mac, such as mailto: or zoommtg:. */
+export function isExternalAppUrl(value: string): boolean {
+  if (value.length > MAX_EXTERNAL_URL) return false;
+  try {
+    const { protocol } = new URL(value);
+    return (
+      /^[a-z][a-z0-9+.-]*:$/.test(protocol) && !NEVER_EXTERNAL.has(protocol)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Extensions Splash ships with, whose own pages may open as pages. */
+const extensionIds = new Set<string>();
+
+export function allowExtensionPages(id: string): void {
+  extensionIds.add(id);
+}
+
+/** A settings or dashboard page of a bundled extension. */
+export function isExtensionPageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'chrome-extension:' && extensionIds.has(url.host);
+  } catch {
+    return false;
+  }
+}
+
+/** Source inspection is limited to ordinary web pages, never local or privileged URLs. */
+export function isSourceUrl(value: string): boolean {
+  return (
+    value.startsWith('view-source:') &&
+    isNavigableUrl(value.slice('view-source:'.length))
+  );
+}
+
+/** What a page may show: web content, its source, or a bundled extension's own page. */
+export function isPageUrl(value: string): boolean {
+  return (
+    isNavigableUrl(value) || isSourceUrl(value) || isExtensionPageUrl(value)
+  );
+}
+
+/**
+ * What a web page may open as a new page (window.open, target=_blank): web
+ * pages and their source. Never a bundled extension's own pages, which
+ * would skip Chromium's web-accessible-resources check.
+ */
+export function mayOpenFromPage(value: string): boolean {
+  return isNavigableUrl(value) || isSourceUrl(value);
+}
+
 export function searchUrl(
   query: string,
   engine: SearchEngineId = DEFAULT_PREFERENCES.searchEngine,
@@ -46,6 +123,7 @@ export function resolveAddressInput(
   const input = raw.trim();
   const search = () => searchUrl(input, engine);
   if (input === '' || /\s/.test(input)) return search();
+  if (isSourceUrl(input)) return input;
 
   if (SCHEME.test(input)) {
     return isNavigableUrl(input) ? new URL(input).href : search();

@@ -1,20 +1,34 @@
+import { Authentication } from './components/Authentication';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { ErrorBoundary, ShellCrashed } from './components/ErrorBoundary';
 import { SettingsApp } from './settings/SettingsApp';
 import { api } from './splash-api';
+import { connectAiPanel } from './stores/ai-store';
 import { connectDownloads } from './stores/downloads-store';
 import { connectShell } from './stores/shell-store';
 import './styles/app.css';
 
-connectShell(api());
-connectDownloads(api());
+const authentication = location.hash === '#authentication';
+if (!authentication) {
+  connectShell(api());
+  connectDownloads(api());
+  if (location.hash !== '#settings') connectAiPanel(api());
+}
+
+if (location.hash === '#settings') document.title = 'Settings';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary fallback={() => <ShellCrashed />}>
-      {location.hash === '#settings' ? <SettingsApp /> : <App />}
+      {authentication ? (
+        <Authentication />
+      ) : location.hash === '#settings' ? (
+        <SettingsApp />
+      ) : (
+        <App />
+      )}
     </ErrorBoundary>
   </StrictMode>,
 );

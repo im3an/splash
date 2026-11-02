@@ -1,11 +1,13 @@
 import path from 'node:path';
 import { app, BrowserWindow, nativeTheme, shell } from 'electron';
 import { eventChannels } from '../../shared/api';
+import { DEFAULT_APPEARANCE, frameColor } from '../../shared/appearance';
 import type { SiteSettings } from '../../shared/types';
 import type { DownloadManager } from '../downloads/download-manager';
 import type { IpcTarget } from '../ipc/register-ipc';
 import type { PreferencesService } from '../preferences';
 import type { BrowsingDataCleaner } from '../privacy/browsing-data';
+import type { ContentBlocking } from '../privacy/content-blocker';
 import {
   decisionOf,
   PERMISSION_LABELS,
@@ -20,6 +22,7 @@ export interface SettingsWindowOptions {
   preferences: PreferencesService;
   downloads: DownloadManager;
   cleaner: BrowsingDataCleaner;
+  blocker: ContentBlocking;
   /** The browser window that workspace settings act on. */
   browserWindow(): TrailWindow | null;
 }
@@ -53,7 +56,10 @@ export class SettingsWindow {
       title: 'Settings',
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 18, y: 18 },
-      backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#f3efe9',
+      backgroundColor: frameColor(
+        DEFAULT_APPEARANCE,
+        nativeTheme.shouldUseDarkColors,
+      ),
       webPreferences: {
         preload: path.join(__dirname, 'preload.cjs'),
         sandbox: true,
@@ -68,6 +74,12 @@ export class SettingsWindow {
       if (!isSameDocument(event.url, this.url)) event.preventDefault();
     });
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    // Settings are saved as they change, so a crashed window just reloads.
+    let crashes = 0;
+    contents.on('render-process-gone', (_event, details) => {
+      if (details.reason === 'clean-exit' || this.window.isDestroyed()) return;
+      if (++crashes <= 3) contents.reload();
+    });
     this.window.once('ready-to-show', () => this.window.show());
     void this.window.loadURL(this.url);
   }
@@ -99,6 +111,11 @@ export class SettingsWindow {
         'preferences:update': ({ patch }) =>
           this.options.preferences.update(patch),
         'settings:sites': () => this.sites(),
+        'settings:content-blocking': () => this.options.blocker.getStatus(),
+        'settings:update-filter-lists': async () => {
+          await this.options.blocker.update().catch(() => undefined);
+          return this.options.blocker.getStatus();
+        },
         'settings:clear-data': (request) => cleaner.clear(request),
         'settings:undo-clear': ({ token }) => cleaner.restore(token),
         'settings:default-browser': () => defaultBrowserStatus(),
@@ -130,9 +147,8 @@ export class SettingsWindow {
               : { type: 'create-workspace' },
           );
         },
-        'settings:delete-workspace': ({ workspaceId }) => {
-          this.options.browserWindow()?.controller.deleteWorkspace(workspaceId);
-        },
+        'settings:delete-workspace': ({ workspaceId }) =>
+          this.options.browserWindow()?.controller.deleteWorkspace(workspaceId),
       },
       send: {},
     };

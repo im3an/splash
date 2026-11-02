@@ -1,24 +1,57 @@
+import { AiPanel } from './components/AiPanel';
 import { ContentArea } from './components/ContentArea';
 import { FindBar } from './components/FindBar';
+import { PageMenu } from './components/PageMenu';
 import { PermissionBar } from './components/PermissionBar';
 import { StorageBar } from './components/StorageBar';
 import { UnresponsiveBar } from './components/UnresponsiveBar';
 import { Sidebar } from './components/Sidebar';
 import { Toolbar } from './components/Toolbar';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useWorkspaceTheme } from './hooks/use-workspace-theme';
-import { useShell } from './stores/shell-store';
+import { useInterfacePreferences } from './hooks/use-interface-preferences';
+import { openLocation, useOverlay, type Overlay } from './stores/overlay-store';
+import {
+  selectAddressInSidebar,
+  selectBlank,
+  useShell,
+} from './stores/shell-store';
 
 export function App() {
   useWorkspaceTheme();
-  const density = useShell((state) => state.preferences?.density);
+  useInterfacePreferences();
+  const addressInSidebar = useShell(selectAddressInSidebar);
+  // A window or page with nothing in it opens straight into the location
+  // field: once per blank page, so dismissing it sticks. Leaving the blank
+  // page (another workspace, another page) takes that field with it.
+  const blankPage = useShell((state) =>
+    selectBlank(state) ? (state.snapshot?.activePageId ?? 'none') : null,
+  );
+  const prompted = useRef<Overlay | null>(null);
   useEffect(() => {
-    document.documentElement.dataset.density = density ?? 'comfortable';
-  }, [density]);
+    if (blankPage) {
+      if (useOverlay.getState().overlay) return;
+      void openLocation().then(() => {
+        const { overlay, close } = useOverlay.getState();
+        // The blank page may have gone while the field was opening.
+        if (selectBlank(useShell.getState())) prompted.current = overlay;
+        else if (overlay) close();
+      });
+      return;
+    }
+    const { overlay, close } = useOverlay.getState();
+    if (overlay && overlay === prompted.current) close();
+    prompted.current = null;
+  }, [blankPage]);
   return (
     <div className="flex h-full">
       <Sidebar />
-      <main className="flex min-w-0 flex-1 flex-col">
+      {/* With the toolbar in the sidebar, the page card runs up to the
+          window's top edge like Arc's. */}
+      <main
+        className="flex min-w-0 flex-1 flex-col data-[toolbar=false]:pt-(--gutter)"
+        data-toolbar={!addressInSidebar}
+      >
         <Toolbar />
         <StorageBar />
         <UnresponsiveBar />
@@ -26,6 +59,8 @@ export function App() {
         <FindBar />
         <ContentArea />
       </main>
+      <AiPanel />
+      <PageMenu />
     </div>
   );
 }

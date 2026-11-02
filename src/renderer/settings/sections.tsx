@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import {
+  TOOLBAR_ACTIONS,
+  DEFAULT_PREFERENCES,
   AWAKE_PAGE_CHOICES,
   SEARCH_ENGINES,
   type Preferences,
@@ -8,13 +10,18 @@ import {
 import type {
   AboutInfo,
   ClearRange,
+  ContentBlockingStatus,
   DefaultBrowserStatus,
   PermissionDecision,
+  SitePermission,
   SiteSettings,
 } from '../../shared/types';
+import { Brand } from '../components/Brand';
+import { toolbarLabels } from '../components/ToolbarActions';
 import { WorkspaceIcon } from '../components/WorkspaceIcon';
 import { api } from '../splash-api';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
+import { filterListsSummary } from '../lib/format';
 import { Button, Choice, Row, Section, Toggle } from './controls';
 
 function usePreferences(): [
@@ -41,9 +48,19 @@ export function GeneralSettings() {
     <>
       <Section title="Startup">
         <Row
-          label="Continue where you left off"
-          help="Splash always reopens your workspaces, trails and pages, including their history and scroll position."
-        />
+          label="When Splash opens"
+          help="Your workspaces, trails and each page’s back and forward history always come back. This chooses what’s on screen. Applies the next time Splash opens."
+        >
+          <Choice
+            label="When Splash opens"
+            value={preferences.startup}
+            onChange={(startup) => update({ startup })}
+            options={[
+              { value: 'restore', label: 'Pages as I left them' },
+              { value: 'new-page', label: 'A new page' },
+            ]}
+          />
+        </Row>
       </Section>
       <Section title="Search">
         <Row
@@ -58,7 +75,7 @@ export function GeneralSettings() {
                 searchEngine: event.target.value as Preferences['searchEngine'],
               })
             }
-            className="h-7 rounded-[7px] bg-field px-2 text-[12px] text-fg outline-none"
+            className="h-7 rounded-control bg-field px-2 text-small text-fg"
           >
             {SEARCH_ENGINES.map((engine) => (
               <option key={engine.id} value={engine.id}>
@@ -66,6 +83,16 @@ export function GeneralSettings() {
               </option>
             ))}
           </select>
+        </Row>
+        <Row
+          label="Show search suggestions"
+          help="While you type in the address bar, your search engine suggests searches. What you type is sent to it as you type; full addresses and local sites never are."
+        >
+          <Toggle
+            label="Show search suggestions"
+            checked={preferences.searchSuggestions}
+            onChange={(searchSuggestions) => update({ searchSuggestions })}
+          />
         </Row>
       </Section>
       <Section title="Default browser">
@@ -101,30 +128,80 @@ export function AppearanceSettings() {
   if (!preferences) return null;
   return (
     <>
+      <Section
+        title="Toolbar"
+        description="Choose which controls appear and use the arrows to arrange them."
+      >
+        {TOOLBAR_ACTIONS.map((action) => {
+          const actions =
+            preferences.toolbarActions ?? DEFAULT_PREFERENCES.toolbarActions;
+          const index = actions.indexOf(action);
+          const move = (step: number) => {
+            const next = [...actions];
+            [next[index], next[index + step]] = [
+              next[index + step]!,
+              next[index]!,
+            ];
+            update({ toolbarActions: next });
+          };
+          return (
+            <Row key={action} label={toolbarLabels[action]}>
+              <Button
+                disabled={index <= 0}
+                onClick={() => move(-1)}
+                aria-label={`Move ${toolbarLabels[action]} earlier`}
+              >
+                <ArrowUp size={13} />
+              </Button>
+              <Button
+                disabled={index < 0 || index === actions.length - 1}
+                onClick={() => move(1)}
+                aria-label={`Move ${toolbarLabels[action]} later`}
+              >
+                <ArrowDown size={13} />
+              </Button>
+              <Toggle
+                label={toolbarLabels[action]}
+                checked={index >= 0}
+                onChange={(visible) =>
+                  update({
+                    toolbarActions: visible
+                      ? [...actions, action]
+                      : actions.filter((item) => item !== action),
+                  })
+                }
+              />
+            </Row>
+          );
+        })}
+      </Section>
       <Section title="Appearance">
         <Row
           label="Theme"
-          help="A workspace can choose its own light or dark mode, which takes precedence while it’s open."
+          help="Dark is Splash’s default. Websites follow this choice too. A workspace can set its own, which wins while it’s open. Applies immediately."
         >
           <Choice
             label="Theme"
             value={preferences.theme}
             onChange={(theme) => update({ theme })}
             options={[
-              { value: 'system', label: 'System' },
-              { value: 'light', label: 'Light' },
               { value: 'dark', label: 'Dark' },
+              { value: 'light', label: 'Light' },
+              { value: 'system', label: 'System' },
             ]}
           />
         </Row>
-        <Row label="Density" help="Compact fits more pages in the sidebar.">
+        <Row
+          label="Address bar"
+          help="In the sidebar, the address and back and forward sit above your pages, and the page fills the window."
+        >
           <Choice
-            label="Density"
-            value={preferences.density}
-            onChange={(density) => update({ density })}
+            label="Address bar"
+            value={preferences.addressBar}
+            onChange={(addressBar) => update({ addressBar })}
             options={[
-              { value: 'comfortable', label: 'Comfortable' },
-              { value: 'compact', label: 'Compact' },
+              { value: 'toolbar', label: 'Top bar' },
+              { value: 'sidebar', label: 'Sidebar' },
             ]}
           />
         </Row>
@@ -141,6 +218,49 @@ export function AppearanceSettings() {
           >
             Customize current workspace…
           </Button>
+        </Row>
+        <Row
+          label="Reduce motion"
+          help="Splash already follows Reduce motion in macOS Accessibility settings. This calms Splash on its own: nothing slides or springs."
+        >
+          <Toggle
+            label="Reduce motion"
+            checked={preferences.reduceMotion}
+            onChange={(reduceMotion) => update({ reduceMotion })}
+          />
+        </Row>
+      </Section>
+      <Section title="Sidebar">
+        <Row label="Density" help="Compact fits more pages in the sidebar.">
+          <Choice
+            label="Density"
+            value={preferences.density}
+            onChange={(density) => update({ density })}
+            options={[
+              { value: 'comfortable', label: 'Comfortable' },
+              { value: 'compact', label: 'Compact' },
+            ]}
+          />
+        </Row>
+        <Row
+          label="Show site names"
+          help="The site’s name, in a quieter colour, after each page’s title."
+        >
+          <Toggle
+            label="Show site names"
+            checked={preferences.showSiteNames}
+            onChange={(showSiteNames) => update({ showSiteNames })}
+          />
+        </Row>
+        <Row
+          label="Show branch lines"
+          help="Hairlines down each branch, so pages opened from a page read as its children."
+        >
+          <Toggle
+            label="Show branch lines"
+            checked={preferences.showBranchLines}
+            onChange={(showBranchLines) => update({ showBranchLines })}
+          />
         </Row>
       </Section>
     </>
@@ -160,7 +280,7 @@ export function WorkspaceSettings() {
           key={workspace.id}
           className="flex min-h-12 items-center gap-3 px-4 py-2"
         >
-          <span className="grid size-7 shrink-0 place-items-center rounded-[7px] bg-field text-[12px] font-semibold text-accent">
+          <span className="grid size-7 shrink-0 place-items-center rounded-control bg-field text-small font-semibold text-accent">
             <WorkspaceIcon
               icon={workspace.appearance.icon}
               name={workspace.name}
@@ -170,12 +290,10 @@ export function WorkspaceSettings() {
             <p className="truncate">
               {workspace.name}
               {workspace.id === activeId && (
-                <span className="ml-1.5 text-[12px] text-fg-subtle">
-                  · open
-                </span>
+                <span className="ml-1.5 text-small text-fg-subtle">· open</span>
               )}
             </p>
-            <p className="text-[12px] text-fg-subtle">
+            <p className="text-small text-fg-subtle">
               {workspace.pageCount} page{workspace.pageCount === 1 ? '' : 's'}
             </p>
           </div>
@@ -233,6 +351,77 @@ const RANGES: { value: ClearRange; label: string }[] = [
   { value: 'all', label: 'All time' },
 ];
 
+/** Decided by Splash itself, so a site never asks for them. */
+const NEVER_ASKED = new Set<SitePermission>(['sound', 'ads']);
+
+function ContentBlockingSettings() {
+  const [preferences, update] = usePreferences();
+  const [status, setStatus] = useState<ContentBlockingStatus | null>(null);
+  const [updating, setUpdating] = useState(false);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      const next = await api().contentBlockingStatus();
+      setStatus(next);
+      // The first download takes a few seconds; show when it's done.
+      if (next.state === 'loading') timer = setTimeout(poll, 1000);
+    };
+    void poll();
+    return () => clearTimeout(timer);
+  }, []);
+
+  const updateNow = async () => {
+    setUpdating(true);
+    try {
+      setStatus(await api().updateFilterLists());
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  if (!preferences) return null;
+  return (
+    <Section
+      title="Ads and trackers"
+      description="Splash blocks ads, trackers and harmful sites with uBlock Origin’s filter lists and EasyList. To allow them on one site, open its settings from the address bar."
+    >
+      <Row label="Block ads and trackers" help="Applies to pages as they load.">
+        <Toggle
+          label="Block ads and trackers"
+          checked={preferences.blockAds}
+          onChange={(blockAds) => update({ blockAds })}
+        />
+      </Row>
+      <Row
+        label="Hide cookie notices"
+        help="Rejects cookie banners for you and hides simple notices. Splash never agrees in your name, so a banner with no way to reject stays for you to answer. A site where you allow ads shows its banner. Applies to pages as they load."
+      >
+        <Toggle
+          label="Hide cookie notices"
+          checked={preferences.hideCookieNotices}
+          onChange={(hideCookieNotices) => update({ hideCookieNotices })}
+        />
+      </Row>
+      <Row
+        label="Filter lists"
+        help={
+          updating
+            ? 'Downloading the filter lists…'
+            : status && filterListsSummary(status, Date.now())
+        }
+      >
+        <Button
+          disabled={updating || status?.state === 'loading'}
+          onClick={() => void updateNow()}
+        >
+          Update now
+        </Button>
+      </Row>
+    </Section>
+  );
+}
+
 export function PrivacySettings() {
   const [sites, setSites] = useState<SiteSettings[] | null>(null);
   const [range, setRange] = useState<ClearRange>('hour');
@@ -248,21 +437,52 @@ export function PrivacySettings() {
     undoToken: string | null;
   } | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+  const [sitesError, setSitesError] = useState<string | null>(null);
 
   const loadSites = useCallback(async () => {
-    setSites(await api().listSiteSettings());
+    setSitesError(null);
+    try {
+      setSites(await api().listSiteSettings());
+    } catch {
+      setSitesError('Couldn’t load site permissions. Try again.');
+    }
   }, []);
   useEffect(() => {
     void loadSites();
   }, [loadSites]);
 
   const clear = async () => {
+    if (clearing) return;
     setClearing(true);
+    setClearError(null);
     try {
       setResult(await api().clearBrowsingData({ range, ...what }));
       await loadSites();
+    } catch {
+      setClearError('Couldn’t finish clearing browsing data. Try again.');
     } finally {
       setClearing(false);
+    }
+  };
+
+  const undoClear = async () => {
+    if (!result?.undoToken || restoring) return;
+    setRestoring(true);
+    setClearError(null);
+    try {
+      const restored = await api().undoClearBrowsingData(result.undoToken);
+      setResult({
+        summary: restored
+          ? 'History is back.'
+          : 'Too late to undo; the history is gone.',
+        undoToken: null,
+      });
+    } catch {
+      setClearError('Couldn’t restore history. Try Undo again.');
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -270,6 +490,7 @@ export function PrivacySettings() {
 
   return (
     <>
+      <ContentBlockingSettings />
       <Section
         title="Clear browsing data"
         description="History follows the time range and can be undone for a minute. Cookies, cached files and permissions are cleared for all time and can’t be brought back."
@@ -279,7 +500,7 @@ export function PrivacySettings() {
             aria-label="Time range"
             value={range}
             onChange={(event) => setRange(event.target.value as ClearRange)}
-            className="h-7 rounded-[7px] bg-field px-2 text-[12px] text-fg outline-none"
+            className="h-7 rounded-control bg-field px-2 text-small text-fg"
           >
             {RANGES.map((option) => (
               <option key={option.value} value={option.value}>
@@ -290,7 +511,11 @@ export function PrivacySettings() {
         </Row>
         {(
           [
-            ['history', 'Browsing history', 'Addresses suggested as you type.'],
+            [
+              'history',
+              'Browsing history',
+              'Addresses suggested as you type, and recently closed pages to reopen.',
+            ],
             [
               'cookies',
               'Cookies and site data',
@@ -324,44 +549,46 @@ export function PrivacySettings() {
           </Row>
         ))}
         <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-          <p role="status" className="min-w-0 text-[12px] text-fg-muted">
+          <p role="status" className="min-w-0 text-small text-fg-muted">
             {result?.summary}
           </p>
           <div className="flex shrink-0 gap-2">
             {result?.undoToken && (
               <Button
-                onClick={() =>
-                  void api()
-                    .undoClearBrowsingData(result.undoToken!)
-                    .then((restored) =>
-                      setResult({
-                        summary: restored
-                          ? 'History is back.'
-                          : 'Too late to undo; the history is gone.',
-                        undoToken: null,
-                      }),
-                    )
-                }
+                disabled={restoring || clearing}
+                onClick={() => void undoClear()}
               >
-                Undo
+                {restoring ? 'Restoring…' : 'Undo'}
               </Button>
             )}
             <Button
               tone="danger"
-              disabled={nothingChosen || clearing}
+              disabled={nothingChosen || clearing || restoring}
               onClick={() => void clear()}
             >
               {clearing ? 'Clearing…' : 'Clear data'}
             </Button>
           </div>
         </div>
+        {clearError && (
+          <p
+            role="alert"
+            className="px-4 pb-3 text-small leading-relaxed text-danger"
+          >
+            {clearError}
+          </p>
+        )}
       </Section>
 
       <Section
         title="Site permissions"
         description="Choices you made for sites. A site you haven’t decided on asks the first time it needs something."
       >
-        {sites === null ? (
+        {sitesError ? (
+          <Row label="Site permissions unavailable" help={sitesError}>
+            <Button onClick={() => void loadSites()}>Try again</Button>
+          </Row>
+        ) : sites === null ? (
           <div className="h-12" aria-busy="true" />
         ) : sites.length === 0 ? (
           <Row
@@ -386,7 +613,7 @@ export function PrivacySettings() {
                   key={entry.permission}
                   className="flex items-center justify-between gap-3"
                 >
-                  <span className="text-[12px] text-fg-muted">
+                  <span className="text-small text-fg-muted">
                     {entry.label}
                   </span>
                   <Choice
@@ -403,7 +630,8 @@ export function PrivacySettings() {
                     }
                     options={DECISIONS.filter(
                       (option) =>
-                        entry.permission !== 'sound' || option.value !== 'ask',
+                        !NEVER_ASKED.has(entry.permission) ||
+                        option.value !== 'ask',
                     )}
                   />
                 </div>
@@ -452,8 +680,20 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ['Close page', '⌘W'],
       ['Close branch', '⌥⌘W'],
       ['Reopen closed', '⇧⌘T'],
+      ['Pin or unpin page', '⌘D'],
       ['Open location', '⌘L'],
+      ['Copy page address', '⇧⌘C'],
       ['Command palette', '⌘K'],
+      ['Undo a trail change', '⌘Z'],
+    ],
+  ],
+  [
+    'Trail',
+    [
+      ['Filter pages', '⌥⌘F'],
+      ['Move page up / down', '⌥⌘↑ / ⌥⌘↓'],
+      ['Nest under the page above / move out', '⌥⌘→ / ⌥⌘←'],
+      ['Rename page', 'F2'],
     ],
   ],
   [
@@ -461,7 +701,11 @@ const SHORTCUTS: [string, [string, string][]][] = [
     [
       ['Back (then up the trail)', '⌘['],
       ['Forward (then into a branch)', '⌘]'],
+      ['Mouse back / forward buttons', 'Back / Forward'],
+      ['Next / previous page', '⌃⇥ / ⌃⇧⇥'],
+      ['Page 1 – 8 / last page', '⌘1 – ⌘8 / ⌘9'],
       ['Reload', '⌘R'],
+      ['Reload ignoring cache', '⇧⌘R'],
       ['Stop', '⌘.'],
     ],
   ],
@@ -473,12 +717,17 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ['Zoom in / out', '⌘+ / ⌘−'],
       ['Actual size', '⌘0'],
       ['Mute page', '⌃⌘M'],
+      ['Print', '⌘P'],
+      ['Save page as', '⇧⌘S'],
+      ['View page source', '⌥⌘U'],
     ],
   ],
   [
     'Window',
     [
       ['Toggle sidebar', '⌘S'],
+      ['Toggle split view', '⌘\\'],
+      ['Downloads', '⌥⌘L'],
       ['Switch workspace', '⌃1 – ⌃9'],
       ['New workspace', '⇧⌘N'],
       ['Settings', '⌘,'],
@@ -493,7 +742,7 @@ export function ShortcutSettings() {
         <Section key={group} title={group}>
           {shortcuts.map(([label, keys]) => (
             <Row key={label} label={label}>
-              <kbd className="font-sans text-[12px] text-fg-muted">{keys}</kbd>
+              <kbd className="font-sans text-small text-fg-muted">{keys}</kbd>
             </Row>
           ))}
         </Section>
@@ -534,6 +783,9 @@ export function AdvancedSettings() {
       </Section>
       {about && (
         <Section title="About">
+          <div className="pb-4">
+            <Brand size={32} />
+          </div>
           <Row
             label={`Splash ${about.version}`}
             help={`Electron ${about.electron} · Chromium ${about.chromium}`}

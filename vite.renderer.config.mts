@@ -22,7 +22,8 @@ function contentSecurityPolicy(): Plugin {
         `script-src ${scriptSrc}`,
         "style-src 'self' 'unsafe-inline'",
         // Favicons come from the pages being browsed.
-        "img-src 'self' data: https: http:",
+        // Extension toolbar icons are served over `crx:`.
+        "img-src 'self' data: https: http: crx:",
         "font-src 'self'",
         `connect-src ${connectSrc}`,
         "object-src 'none'",

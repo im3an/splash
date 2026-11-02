@@ -3,11 +3,13 @@ import {
   addressParts,
   describeError,
   displayUrl,
+  filterListsSummary,
   formatBytes,
   pageLabel,
   pageParts,
   permissionNames,
   securityOf,
+  urlParts,
 } from './format';
 
 describe('displayUrl', () => {
@@ -24,6 +26,13 @@ describe('displayUrl', () => {
 });
 
 describe('pageLabel', () => {
+  it('identifies a source page even before Chromium supplies a title', () => {
+    expect(
+      pageLabel(
+        page('a', { title: '', url: 'view-source:https://example.com/' }),
+      ),
+    ).toBe('Source · example.com');
+  });
   it('prefers the title, then the host, then a placeholder', () => {
     expect(pageLabel(page('a', { title: 'Docs' }))).toBe('Docs');
     expect(pageLabel(page('a', { title: '  ', url: 'https://x.dev/p' }))).toBe(
@@ -65,6 +74,18 @@ describe('pageParts', () => {
     ).toEqual({ title: 'im3an/splash: A browser', site: 'GitHub' });
   });
 
+  it('strips a site name from both ends at once', () => {
+    expect(
+      parts(
+        'GitHub - electron/electron: Build desktop apps · GitHub',
+        'https://github.com/electron/electron',
+      ),
+    ).toEqual({
+      title: 'electron/electron: Build desktop apps',
+      site: 'GitHub',
+    });
+  });
+
   it('falls back to the short host', () => {
     expect(parts('Pricing', 'https://www.example.com/p')).toEqual({
       title: 'Pricing',
@@ -83,6 +104,10 @@ describe('pageParts', () => {
     });
     expect(parts('', 'https://x.dev/p')).toEqual({
       title: 'x.dev',
+      site: null,
+    });
+    expect(parts('', 'https://www.youtube.com/')).toEqual({
+      title: 'www.youtube.com',
       site: null,
     });
     expect(parts('', null)).toEqual({ title: 'New page', site: null });
@@ -107,6 +132,26 @@ describe('addressParts', () => {
   it('leaves non-web addresses as they are', () => {
     expect(addressParts(page('a', { url: 'file:///tmp/a.html' }))).toBeNull();
     expect(addressParts(page('a', { url: null }))).toBeNull();
+  });
+});
+
+describe('urlParts', () => {
+  it('splits a full address around its host', () => {
+    expect(urlParts('https://www.youtube.com/watch?v=1')).toEqual({
+      scheme: 'https://',
+      host: 'www.youtube.com',
+      rest: '/watch?v=1',
+    });
+    expect(urlParts('http://localhost:5173/')).toEqual({
+      scheme: 'http://',
+      host: 'localhost:5173',
+      rest: '/',
+    });
+  });
+
+  it('gives nothing for addresses without a host', () => {
+    expect(urlParts('about:blank')).toBeNull();
+    expect(urlParts('not a url')).toBeNull();
   });
 });
 
@@ -187,5 +232,36 @@ describe('formatBytes', () => {
     expect(formatBytes(1_500)).toBe('1.5 KB');
     expect(formatBytes(12_300_000)).toBe('12 MB');
     expect(formatBytes(3_200_000_000)).toBe('3.2 GB');
+  });
+});
+
+describe('filterListsSummary', () => {
+  const NOW = 100 * 24 * 60 * 60 * 1000;
+  const ready = { state: 'ready' as const, updateFailed: false };
+
+  it('says how old the lists are', () => {
+    expect(filterListsSummary({ ...ready, updatedAt: NOW - 1000 }, NOW)).toBe(
+      'Updated today. Splash updates them every week.',
+    );
+    expect(
+      filterListsSummary({ ...ready, updatedAt: NOW - 3.5 * 86_400_000 }, NOW),
+    ).toBe('Updated 3 days ago. Splash updates them every week.');
+  });
+
+  it('says when nothing can be blocked yet, or an update failed', () => {
+    expect(
+      filterListsSummary(
+        { state: 'failed', updatedAt: null, updateFailed: true },
+        NOW,
+      ),
+    ).toMatch(/nothing is blocked yet/);
+    expect(
+      filterListsSummary(
+        { ...ready, updatedAt: NOW - 86_400_000, updateFailed: true },
+        NOW,
+      ),
+    ).toBe(
+      'Updated yesterday. Couldn’t download newer lists; these stay in use.',
+    );
   });
 });

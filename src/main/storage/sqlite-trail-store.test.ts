@@ -4,7 +4,11 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DEFAULT_APPEARANCE } from '../../shared/appearance';
 import { migrate, MIGRATIONS, schemaVersion } from './migrations';
-import { openTrailStore, SqliteTrailStore } from './sqlite-trail-store';
+import {
+  openTrailStore,
+  SqliteTrailStore,
+  toStoredJson,
+} from './sqlite-trail-store';
 import type { StoredPage, StoredSession } from './trail-store';
 
 function page(id: string, overrides: Partial<StoredPage> = {}): StoredPage {
@@ -18,6 +22,7 @@ function page(id: string, overrides: Partial<StoredPage> = {}): StoredPage {
     customTitle: null,
     note: null,
     collapsed: false,
+    pinned: false,
     history: null,
     createdAt: 1,
     lastActiveAt: 2,
@@ -31,6 +36,7 @@ const SESSION: StoredSession = {
       id: 'w1',
       name: 'Personal',
       activePageId: 'b',
+      split: { leftId: 'a', rightId: 'b' },
       createdAt: 1,
       appearance: {
         icon: { kind: 'symbol', name: 'leaf' },
@@ -61,7 +67,7 @@ const SESSION: StoredSession = {
       },
     }),
     page('c', { parentId: 'a', url: null }),
-    page('d'),
+    page('d', { pinned: true }),
     page('w', { workspaceId: 'w2' }),
   ],
   activeWorkspaceId: 'w2',
@@ -100,6 +106,9 @@ const SESSION: StoredSession = {
     },
   ],
 };
+
+/** What a saved session reads back as: form state never reaches disk. */
+const STORED: StoredSession = JSON.parse(toStoredJson(SESSION));
 
 function memoryStore() {
   return new SqliteTrailStore(new DatabaseSync(':memory:'));
@@ -146,7 +155,44 @@ describe('SqliteTrailStore sessions', () => {
   it('round-trips a session in tree order', () => {
     const store = memoryStore();
     store.saveSession(SESSION);
-    expect(store.loadSession()).toEqual(SESSION);
+    expect(store.loadSession()).toEqual(STORED);
+  });
+
+  it('never writes typed form state to disk', () => {
+    const db = new DatabaseSync(':memory:');
+    const store = new SqliteTrailStore(db);
+    const withDraft = structuredClone(SESSION);
+    withDraft.closed![0]!.pages[0]!.history = {
+      entries: [
+        { url: 'https://x.example/', title: 'x', pageState: 'draft-text' },
+      ],
+      index: 0,
+    };
+    store.saveSession(withDraft);
+    const rows = db
+      .prepare(
+        'SELECT history AS value FROM pages UNION ALL SELECT record FROM closed_records',
+      )
+      .all() as { value: string | null }[];
+    for (const { value } of rows) {
+      expect(value ?? '').not.toContain('pageState');
+      expect(value ?? '').not.toContain('draft-text');
+    }
+    expect(
+      store.loadSession()!.pages.find((p) => p.id === 'b')!.history!.entries[0],
+    ).toEqual({ url: 'https://a.example/', title: 'a' });
+  });
+
+  it('drops page state saved by older versions', () => {
+    const db = new DatabaseSync(':memory:');
+    const store = new SqliteTrailStore(db);
+    store.saveSession(SESSION);
+    db.prepare("UPDATE pages SET history = ? WHERE id = 'b'").run(
+      JSON.stringify(SESSION.pages[1]!.history),
+    );
+    expect(
+      store.loadSession()!.pages.find((p) => p.id === 'b')!.history!.entries[0],
+    ).toEqual({ url: 'https://a.example/', title: 'a' });
   });
 
   it('replaces the previous session on save', () => {
@@ -215,11 +261,53 @@ describe('SqliteTrailStore history and preferences', () => {
         title: 'Web docs | MDN',
         visitCount: 2,
         lastVisitedAt: 20,
+        faviconUrl: null,
       },
     ]);
     expect(store.searchHistory('example', 10)).toHaveLength(1);
     expect(store.searchHistory('nope', 10)).toHaveLength(0);
     expect(store.searchHistory('100%', 10)).toHaveLength(0);
+  });
+
+  it('keeps the favicon each visit showed', () => {
+    const store = memoryStore();
+    store.recordVisit('https://www.youtube.com/', 1);
+    store.recordFavicon(
+      'https://www.youtube.com/',
+      'https://www.youtube.com/favicon.ico',
+    );
+    store.recordFavicon(
+      'https://www.youtube.com/',
+      `data:image/png;base64,${'A'.repeat(20_000)}`,
+    );
+    expect(store.searchHistory('youtube', 1)[0]?.faviconUrl).toBe(
+      'https://www.youtube.com/favicon.ico',
+    );
+    expect(store.frequentHistory(1)[0]?.faviconUrl).toBe(
+      'https://www.youtube.com/favicon.ico',
+    );
+    expect(store.listHistory('', 10)[0]?.faviconUrl).toBe(
+      'https://www.youtube.com/favicon.ico',
+    );
+    const removed = store.deleteHistory(0);
+    store.restoreHistory(removed);
+    expect(store.listHistory('', 10)[0]?.faviconUrl).toBe(
+      'https://www.youtube.com/favicon.ico',
+    );
+  });
+
+  it('offers history used most recently and most often', () => {
+    const store = memoryStore();
+    for (let at = 1; at <= 5; at++)
+      store.recordVisit('https://often.example/', at);
+    store.recordVisit('https://once.example/', 6);
+    store.recordVisit('https://latest.example/', 7);
+    const urls = store
+      .frequentHistory(1)
+      .map((row) => row.url)
+      .toSorted();
+    expect(urls).toEqual(['https://latest.example/', 'https://often.example/']);
+    expect(store.frequentHistory(10)).toHaveLength(3);
   });
 
   it('remembers, changes and forgets permission decisions', () => {
@@ -253,11 +341,32 @@ describe('SqliteTrailStore history and preferences', () => {
         title: 'New',
         visitCount: 1,
         lastVisitedAt: 500,
+        faviconUrl: null,
       },
     ]);
     expect(store.searchHistory('example', 10)).toHaveLength(1);
     store.restoreHistory(removed);
     expect(store.searchHistory('new', 10)[0]?.title).toBe('New');
+  });
+
+  it('lists recent history and forgets one address', () => {
+    const store = memoryStore();
+    store.recordVisit('https://a.example/', 100);
+    store.recordVisit('https://b.example/', 300);
+    store.recordVisit('https://c.example/', 200);
+    store.recordTitle('https://c.example/', 'Recipes');
+    expect(store.listHistory('', 2).map((row) => row.url)).toEqual([
+      'https://b.example/',
+      'https://c.example/',
+    ]);
+    expect(store.listHistory('recipes', 10).map((row) => row.url)).toEqual([
+      'https://c.example/',
+    ]);
+    store.deleteHistoryEntry('https://b.example/');
+    expect(store.listHistory('', 10).map((row) => row.url)).toEqual([
+      'https://c.example/',
+      'https://a.example/',
+    ]);
   });
 
   it('lists permission decisions by site', () => {
@@ -314,7 +423,33 @@ describe('openTrailStore', () => {
     first.close();
     const second = openTrailStore(file);
     expect(second.recoveredFrom).toBeNull();
-    expect(second.store.loadSession()).toEqual(SESSION);
+    expect(second.store.loadSession()).toEqual(STORED);
     second.store.close();
+  });
+
+  it('keeps a copy of an older database before upgrading it', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'splash-store-'));
+    const file = path.join(dir, 'splash.db');
+    const older = new DatabaseSync(file);
+    migrate(older, MIGRATIONS.slice(0, 1));
+    older.exec("INSERT INTO preferences (key, value) VALUES ('kept', 'yes')");
+    older.close();
+    openTrailStore(file).store.close();
+    const backup = new DatabaseSync(path.join(dir, 'splash.db.pre-v2'));
+    expect(schemaVersion(backup)).toBe(1);
+    expect(
+      backup.prepare("SELECT value FROM preferences WHERE key = 'kept'").get(),
+    ).toEqual({ value: 'yes' });
+    backup.close();
+  });
+
+  it('keeps no copy of a new or current database', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'splash-store-'));
+    const file = path.join(dir, 'splash.db');
+    openTrailStore(file).store.close();
+    openTrailStore(file).store.close();
+    expect(readdirSync(dir).filter((name) => name.includes('pre-v'))).toEqual(
+      [],
+    );
   });
 });

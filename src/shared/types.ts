@@ -36,11 +36,14 @@ export interface PageSnapshot {
   /** A name the user gave the page, shown instead of its title. */
   customTitle: string | null;
   note: string | null;
+  /** Kept at the top of the trail; closing puts it to sleep instead. */
+  isPinned: boolean;
   isAudible: boolean;
   isMuted: boolean;
   zoomPercent: number;
   find: FindResult | null;
   isUnresponsive: boolean;
+  hasFormEdits?: boolean;
   /** Permissions this page asked for and was refused, for the address bar. */
   blockedPermissions: SitePermission[];
   /** A permission request waiting for the user's answer. */
@@ -55,7 +58,11 @@ export type SitePermission =
   | 'notifications'
   | 'midi'
   | 'clipboard'
-  | 'sound';
+  | 'sound'
+  /** Allowed means ads and trackers aren't blocked on the site. */
+  | 'ads'
+  /** Links that open an app on the Mac: mailto:, tel:, zoommtg: … */
+  | 'apps';
 
 export type PermissionDecision = 'allow' | 'block' | 'ask';
 
@@ -63,6 +70,8 @@ export interface SiteInfo {
   origin: string;
   host: string;
   security: 'secure' | 'insecure';
+  /** Ads and trackers blocked since the page last loaded. */
+  blockedCount: number;
   permissions: {
     permission: SitePermission;
     label: string;
@@ -70,40 +79,63 @@ export interface SiteInfo {
   }[];
 }
 
+/** The headed groups the command palette shows its results in. */
+export type PaletteSection =
+  | 'go'
+  | 'pinned'
+  | 'pages'
+  | 'workspaces'
+  | 'commands'
+  | 'history'
+  | 'search';
+
 /** One row in the command palette or the address bar's suggestions. */
-export type PaletteItem =
+export type PaletteItem = {
+  id: string;
+  title: string;
+  subtitle: string;
+  section: PaletteSection;
+} & (
   | {
       kind: 'page';
-      id: string;
       pageId: PageId;
-      title: string;
-      subtitle: string;
       faviconUrl: string | null;
       /** Set when the page lives in another workspace. */
       workspaceName: string | null;
     }
   | {
+      kind: 'workspace';
+      workspaceId: WorkspaceId;
+      appearance: WorkspaceAppearance;
+      shortcut: string | null;
+    }
+  | {
       kind: 'history';
-      id: string;
       url: string;
-      title: string;
-      subtitle: string;
+      faviconUrl: string | null;
     }
   | {
       kind: 'navigate';
-      id: string;
       input: string;
-      title: string;
-      subtitle: string;
+      /** The site's icon, when the row goes to an address seen before. */
+      faviconUrl?: string | null;
+      /**
+       * Set when the row completes what was typed into an address from
+       * history: the text the field fills in.
+       */
+      completion?: string;
+    }
+  | {
+      /** A search the engine suggested; `url` runs it. */
+      kind: 'search';
+      url: string;
     }
   | {
       kind: 'command';
-      id: string;
       command: PaletteCommand;
-      title: string;
-      subtitle: string;
       shortcut: string | null;
-    };
+    }
+);
 
 export type PaletteCommand =
   | 'new-page'
@@ -116,7 +148,28 @@ export type PaletteCommand =
   | 'find'
   | 'zoom-reset'
   | 'mute-page'
-  | 'site-info';
+  | 'site-info'
+  | 'toggle-split'
+  | 'pin-page'
+  | 'reload'
+  | 'duplicate-page'
+  | 'copy-link'
+  | 'close-branch'
+  | 'rename-page'
+  | 'edit-note'
+  | 'show-downloads'
+  | 'show-history'
+  | 'open-settings'
+  | 'zoom-in'
+  | 'zoom-out'
+  | 'go-back'
+  | 'go-forward'
+  | 'print'
+  | 'save-page'
+  | 'close-others'
+  | 'close-split'
+  | 'rename-workspace'
+  | 'delete-workspace';
 
 export type DownloadState =
   | 'progressing'
@@ -126,6 +179,15 @@ export type DownloadState =
   | 'interrupted'
   /** Finished, but the file has since been moved or deleted. */
   | 'missing';
+
+/** A site in the browsing history: one entry per address. */
+export interface HistoryEntry {
+  faviconUrl?: string | null;
+  url: string;
+  title: string;
+  visitCount: number;
+  lastVisitedAt: number;
+}
 
 export interface DownloadSummary {
   id: string;
@@ -163,6 +225,15 @@ export interface SiteSettings {
   }[];
 }
 
+/** Whether the ad and tracker filter lists are ready to use. */
+export interface ContentBlockingStatus {
+  state: 'loading' | 'ready' | 'failed';
+  /** When the lists in use were downloaded. */
+  updatedAt: number | null;
+  /** The last try to download newer lists failed. */
+  updateFailed: boolean;
+}
+
 export interface DefaultBrowserStatus {
   isDefault: boolean;
   /** Only the installed app can register itself with macOS. */
@@ -196,6 +267,16 @@ export interface PermissionRequest {
   id: string;
   origin: string;
   permissions: SitePermission[];
+  /** For `apps`: the app the link would open, and its kind of link. */
+  opens?: ExternalApp;
+}
+
+/** An app on the Mac that a page's link would open. */
+export interface ExternalApp {
+  /** As macOS names it: "Mail", "FaceTime", "zoom.us". */
+  app: string;
+  /** The link's scheme, lowercased, without its colon: "mailto". */
+  scheme: string;
 }
 
 /** How a workspace marks itself in the sidebar. */
@@ -215,6 +296,8 @@ export interface WorkspaceAppearance {
   /** An accent preset id, or a custom `#rrggbb` colour. */
   accent: string;
   frame: string;
+  /** A gradient preset painted over the frame; missing means none. */
+  gradient?: string;
   mode: WorkspaceMode;
 }
 
@@ -234,11 +317,19 @@ export interface ClosedSummary {
   serial: number;
 }
 
+/** Two pages of one workspace shown side by side. */
+export interface SplitView {
+  leftId: PageId;
+  rightId: PageId;
+}
+
 /** The window's state as the shell renders it: the active workspace's trail. */
 export interface BrowserSnapshot {
   pages: Record<PageId, PageSnapshot>;
   rootIds: PageId[];
   activePageId: PageId | null;
+  /** The workspace's split view; on screen while either of its pages is active. */
+  split: SplitView | null;
   lastClosed: ClosedSummary | null;
   workspaces: WorkspaceSummary[];
   activeWorkspaceId: WorkspaceId;
@@ -252,9 +343,68 @@ export interface ContentInsets {
   left: number;
 }
 
+/** Where a page was before it moved to another workspace, to put it back. */
+export interface MoveOrigin {
+  workspaceId: WorkspaceId;
+  parentId: PageId | null;
+  /** Position among its siblings. */
+  index: number;
+  /** It was its workspace's active page. */
+  wasActive: boolean;
+}
+
+/** A place in a workspace's trail: under `parentId`, at `index`. */
+export interface TrailPosition {
+  parentId: PageId | null;
+  /** Position among its siblings. */
+  index: number;
+}
+
+/** Something done outside the shell UI that the shell confirms in a toast. */
+export type Notice =
+  | { kind: 'page-saved'; filename: string }
+  /** The window's interface crashed and was reloaded; pages kept running. */
+  | { kind: 'shell-recovered' }
+  /** A page's link needs an app this Mac doesn't have. */
+  | { kind: 'no-app'; scheme: string }
+  | {
+      kind: 'copied';
+      what: 'link' | 'image' | 'image-address';
+      /** The page or host the link points to; `null` to say nothing more. */
+      subject: string | null;
+    }
+  | {
+      kind: 'moved';
+      pageId: PageId;
+      label: string;
+      /** The page and everything beneath it. */
+      pageCount: number;
+      workspaceId: WorkspaceId;
+      workspaceName: string;
+      origin: MoveOrigin;
+    }
+  | {
+      kind: 'pinned';
+      pageId: PageId;
+      label: string;
+      /** Pinned, or unpinned. */
+      pinned: boolean;
+      /** Where it was before, for undo. */
+      origin: TrailPosition;
+    }
+  | {
+      /** Closing a pinned page kept it in the trail. */
+      kind: 'kept-pinned';
+      pageId: PageId;
+      label: string;
+      /** It went to sleep; false when it was the only page left. */
+      asleep: boolean;
+    };
+
 /** Commands the main process asks the shell UI to perform (usually from a menu). */
 export type UiCommand =
-  | { type: 'focus-address-bar' }
+  /** The palette as the location field, for the active page. */
+  | { type: 'open-location' }
   | { type: 'toggle-sidebar' }
   | { type: 'rename-page'; pageId: PageId }
   | { type: 'edit-note'; pageId: PageId }
@@ -264,4 +414,10 @@ export type UiCommand =
   | { type: 'customize-workspace' }
   | { type: 'open-palette' }
   | { type: 'site-info' }
-  | { type: 'find'; action: 'open' | 'next' | 'previous' };
+  | { type: 'find'; action: 'open' | 'next' | 'previous' }
+  | { type: 'show-downloads' }
+  | { type: 'show-history' }
+  /** Edit › Undo while the shell has focus: text first, then the trail. */
+  | { type: 'undo' }
+  | { type: 'filter-trail' }
+  | { type: 'toggle-ai-panel' };

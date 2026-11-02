@@ -9,6 +9,13 @@
   --color-field-focus: var(--field-focus);
   --color-hover: var(--hover);
   --color-pressed: var(--pressed);
+  --color-selected: var(--selected);
+  --color-frame: var(--frame);
+  --color-row-hover: var(--row-hover);
+  --color-row-pressed: var(--row-pressed);
+  --color-pill: var(--pill);
+  --color-scrim: var(--scrim);
+  --color-option-selected: var(--option-selected);
   --color-divider: var(--divider);
   --color-hairline: var(--hairline);
   --color-fg: var(--fg);
@@ -16,11 +23,123 @@
   --color-fg-subtle: var(--fg-subtle);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-hover: var(--accent-hover);
+  --color-on-accent: var(--on-accent);
   --color-danger: var(--danger);
   --color-skeleton: var(--skeleton);
+  --text-caption: var(--type-caption);
+  --text-small: var(--type-small);
+  --text-body: var(--type-body);
+  --text-lead: var(--type-lead);
+  --text-title: var(--type-title);
+  --text-display: var(--type-display);
   --font-sans: var(--font-ui);
   --font-mono: var(--font-mono);
+}
+
+/*
+ * Shape, depth and motion tokens as utilities (rounded-control, shadow-panel,
+ * duration-fast, ease-out). `reference` keeps Tailwind from redeclaring the
+ * variables; tokens.css stays their single definition.
+ */
+@theme inline reference {
+  --radius-mark: var(--radius-mark);
+  --radius-inner: var(--radius-inner);
+  --radius-row: var(--radius-row);
+  --radius-control: var(--radius-control);
+  --radius-pill: var(--radius-pill);
+  --radius-content: var(--radius-content);
+  --radius-sheet: var(--radius-sheet);
+  --radius-panel: var(--radius-panel);
+  --radius-full: var(--radius-full);
+  --shadow-row: var(--shadow-row);
+  --shadow-content: var(--shadow-content);
+  --shadow-panel: var(--shadow-panel);
+  --shadow-outline: var(--shadow-outline);
+  --shadow-focus: var(--shadow-focus);
+  --transition-duration-fast: var(--duration-fast);
+  --transition-duration-base: var(--duration-base);
+  --transition-duration-slow: var(--duration-slow);
+  --transition-duration-exit: var(--duration-exit);
   --ease-out: var(--ease-out);
+  --ease-in: var(--ease-in);
+  --ease-emphasized: var(--ease-emphasized);
+  --ease-spring: var(--ease-spring);
+  --leading-chrome: var(--leading-chrome);
+  --leading-copy: var(--leading-copy);
+  --leading-loose: var(--leading-loose);
+}
+
+/*
+ * Workspace colours are registered so switching workspaces crossfades the
+ * frame and accent instead of snapping. Only after the first theme is in,
+ * so the window doesn't fade in from the default palette.
+ */
+@property --frame {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+@property --chrome {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+@property --surface {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+@property --elevated {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+@property --accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: transparent;
+}
+
+:root[data-theme-motion='true'] {
+  transition:
+    --frame var(--duration-slow) var(--ease-out),
+    --chrome var(--duration-slow) var(--ease-out),
+    --surface var(--duration-slow) var(--ease-out),
+    --elevated var(--duration-slow) var(--ease-out),
+    --accent var(--duration-slow) var(--ease-out);
+}
+
+/*
+ * A workspace's gradient, over the frame colour. Grain keeps the bands out
+ * of it, like Arc's. It sits under everything and never takes the pointer.
+ */
+:root {
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--frame-grain, none), var(--frame-image, none);
+  pointer-events: none;
+}
+:root[data-frame-swap='a'] body::before {
+  animation: frame-in-a var(--duration-slow) var(--ease-out);
+}
+:root[data-frame-swap='b'] body::before {
+  animation: frame-in-b var(--duration-slow) var(--ease-out);
+}
+@keyframes frame-in-a {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes frame-in-b {
+  from {
+    opacity: 0;
+  }
 }
 
 @layer base {
@@ -33,18 +152,20 @@
   body {
     margin: 0;
     overflow: hidden;
-    background: var(--chrome);
+    background: var(--frame);
+    isolation: isolate;
     color: var(--fg);
     font-family: var(--font-ui);
-    font-size: 13px;
-    line-height: 1.35;
+    font-size: var(--type-body);
+    line-height: var(--leading-chrome);
     -webkit-font-smoothing: antialiased;
     user-select: none;
     cursor: default;
   }
 
+  /* Keyboard focus has to be findable: a solid accent ring, never a tint. */
   :focus-visible {
-    outline: 2px solid var(--accent-soft);
+    outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
 
@@ -58,20 +179,54 @@
   .drag {
     -webkit-app-region: drag;
   }
-  .drag :is(button, input, a, [role='treeitem'], [role='search']) {
+  .drag
+    :is(
+      button,
+      input,
+      a,
+      [role='treeitem'],
+      [role='search'],
+      [role='status'],
+      browser-action-list
+    ) {
     -webkit-app-region: no-drag;
+  }
+
+  /*
+   * Extension toolbar buttons. They live in the element's shadow DOM, so
+   * they're styled through its parts and custom properties to match
+   * .icon-button.
+   */
+  browser-action-list {
+    gap: 2px;
+    --browser-action-hover-bg: var(--hover);
+    --browser-action-badge-outline: var(--frame);
+  }
+  browser-action-list::part(action) {
+    border-radius: var(--radius-control);
+    background-size: 16px;
+    transition: background-color var(--duration-fast) var(--ease-out);
+  }
+  browser-action-list::part(action):active {
+    background-color: var(--pressed);
+  }
+  /* The global focus ring doesn't reach into shadow DOM. */
+  browser-action-list::part(action):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
 
   .icon-button {
     display: inline-grid;
     place-items: center;
-    width: 28px;
-    height: 28px;
+    width: var(--control-height);
+    height: var(--control-height);
     border-radius: var(--radius-control);
     color: var(--fg-muted);
     transition:
       background-color var(--duration-fast) var(--ease-out),
-      color var(--duration-fast) var(--ease-out);
+      color var(--duration-fast) var(--ease-out),
+      scale var(--duration-base) var(--ease-spring);
   }
   .icon-button:hover:not(:disabled) {
     background: var(--hover);
@@ -79,15 +234,172 @@
   }
   .icon-button:active:not(:disabled) {
     background: var(--pressed);
+    scale: 0.92;
+    transition-duration: var(--duration-fast);
+  }
+  /* A toggle that's on, such as split view. */
+  .icon-button[aria-pressed='true'] {
+    background: var(--hover);
+    color: var(--accent);
   }
   .icon-button:disabled {
+    color: var(--fg-disabled);
+  }
+  /* Inside rows and fields, where 28px would crowd the line. */
+  .icon-button-sm {
+    width: var(--control-height-sm);
+    height: var(--control-height-sm);
+    border-radius: var(--radius-inner);
+  }
+
+  /*
+   * Text buttons. Quiet for the way out (Block, Go back), raised for the
+   * expected next step, primary for the one answer a bar is asking for.
+   */
+  .button {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: var(--control-height);
+    padding-inline: 12px;
+    border-radius: var(--radius-control);
+    color: var(--fg-muted);
+    white-space: nowrap;
+    transition:
+      background-color var(--duration-fast) var(--ease-out),
+      color var(--duration-fast) var(--ease-out),
+      scale var(--duration-base) var(--ease-spring);
+  }
+  .button:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--fg);
+  }
+  .button:active:not(:disabled) {
+    background: var(--pressed);
+    scale: 0.96;
+    transition-duration: var(--duration-fast);
+  }
+  .button:disabled {
+    opacity: 0.5;
+  }
+  .button-raised {
+    background: var(--elevated);
+    color: var(--fg);
+    box-shadow: var(--shadow-row);
+  }
+  .button-raised:hover:not(:disabled) {
+    background: var(--field-focus);
+  }
+  .button-primary {
+    background: var(--accent);
+    color: var(--on-accent);
+    font-weight: 500;
+  }
+  .button-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+    color: var(--on-accent);
+  }
+  .button-primary:active:not(:disabled) {
+    background: var(--accent);
+  }
+  /* Removes something for good, or can't be undone: say so in the label. */
+  .button-danger {
+    color: var(--danger);
+  }
+  .button-danger:hover:not(:disabled) {
+    background: color-mix(in oklab, var(--danger) 12%, transparent);
+    color: var(--danger);
+  }
+  /* A page-level next step, in an empty or failed page. */
+  .button-lg {
+    height: 32px;
+  }
+  .button-sm {
+    height: var(--control-height-sm);
+    padding-inline: 9px;
+    font-size: var(--type-small);
+  }
+
+  /* An on/off setting, like AppKit's NSSwitch. */
+  .switch {
+    position: relative;
+    flex-shrink: 0;
+    width: 38px;
+    height: 22px;
+    border-radius: var(--radius-full);
+    background: var(--pressed);
+    transition: background-color var(--duration-fast) var(--ease-out);
+  }
+  .switch[aria-checked='true'] {
+    background: var(--accent);
+  }
+  .switch-knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-full);
+    background: var(--switch-knob);
+    box-shadow: var(--shadow-row);
+    transition: translate var(--duration-fast) var(--ease-out);
+  }
+  .switch[aria-checked='true'] > .switch-knob {
+    translate: 16px 0;
+  }
+
+  /* A bar between the toolbar and the page: a question, a warning, find. */
+  .shell-bar {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 12px;
+    margin: 0 var(--gutter) var(--gutter);
+    padding: 6px 6px 6px 12px;
+    border-radius: var(--radius-control);
+    background: var(--elevated);
+    box-shadow: var(--shadow-row);
+  }
+
+  /* Text fields inside the shell take the same focus as the address bar. */
+  .editing-field {
+    background: var(--field-focus);
+    box-shadow: var(--shadow-focus);
+    outline: none;
+  }
+
+  /*
+   * A shortcut beside a control or command, like a menu item's: quiet and
+   * set in the UI font so ⌘ and ⇧ sit on the baseline.
+   */
+  .shortcut {
+    flex-shrink: 0;
+    font-family: var(--font-ui);
+    font-size: var(--type-caption);
     color: var(--fg-subtle);
-    opacity: 0.55;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+  /* A key in a legend that teaches the keyboard: ↑↓ move, ↵ open. */
+  .keycap {
+    display: inline-grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding-inline: 4px;
+    border-radius: var(--radius-mark);
+    background: var(--keycap);
+    font-family: var(--font-ui);
+    font-size: var(--type-caption);
+    line-height: 1;
+    color: var(--fg-muted);
   }
 
   .skeleton {
     background: var(--skeleton);
-    border-radius: 4px;
+    border-radius: var(--radius-mark);
     animation: skeleton-pulse 1.4s ease-in-out infinite;
   }
 
@@ -97,7 +409,7 @@
     inset: auto 10px 0;
     height: 2px;
     overflow: hidden;
-    border-radius: 1px;
+    border-radius: var(--radius-full);
     opacity: 0;
     transition: opacity var(--duration-base) var(--ease-out);
   }
@@ -124,17 +436,80 @@
   }
 }
 
-@keyframes toast-in {
+/*
+ * Motion. Arrivals ease out (or settle with a touch of spring when they
+ * pop up); departures are quicker and accelerate away. Everything that
+ * appears also leaves with an animation: the closing state is a
+ * `data-leaving` or `data-state="closed"` ancestor.
+ */
+@keyframes fade-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
   }
 }
 
-@keyframes overlay-in {
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* A dialog or the palette, dropping in over a fading scrim. */
+@keyframes dialog-in {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.99);
+    transform: translateY(-10px) scale(0.97);
+  }
+}
+
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+/* A panel unfolding from the control above it. */
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+
+@keyframes popover-out {
+  to {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.99);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+
+/* A sidebar view arrives from the side it was opened towards. */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+}
+
+@keyframes trail-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
   }
 }
 
@@ -145,15 +520,181 @@
   }
 }
 
-@layer components {
-  .toast-in {
-    animation: toast-in var(--duration-base) var(--ease-out);
+/* A bar opening the space it needs, pushing the page down smoothly. */
+@keyframes reveal-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
   }
+}
+
+@keyframes reveal-out {
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+/* Reserve the full row immediately so controls never overlap during entry. */
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+}
+
+/* List items on first show, one after another. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes slide-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@keyframes slide-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
+@layer components {
+  .fade-in {
+    animation: fade-in var(--duration-base) var(--ease-out);
+  }
+  .scrim-in {
+    animation: fade-in var(--duration-base) var(--ease-out);
+  }
+  .dialog-in {
+    animation: dialog-in var(--duration-slow) var(--ease-spring);
+  }
+  .popover-in {
+    transform-origin: top left;
+    animation: popover-in var(--duration-base) var(--ease-spring);
+  }
+  .toast-in {
+    animation: toast-in var(--duration-slow) var(--ease-spring);
+  }
+  /* Kept for small notices that only fade and lift. */
   .overlay-in {
-    animation: overlay-in var(--duration-fast) var(--ease-out);
+    animation: popover-in var(--duration-base) var(--ease-out);
   }
   .bar-in {
     animation: bar-in var(--duration-base) var(--ease-out);
+  }
+  .panel-in {
+    animation: panel-in var(--duration-slow) var(--ease-emphasized);
+  }
+  .trail-in {
+    animation: trail-in var(--duration-slow) var(--ease-emphasized);
+  }
+  .row-in {
+    animation: row-in var(--duration-slow) var(--ease-emphasized);
+  }
+  .rise-in {
+    animation: rise-in var(--duration-slow) var(--ease-emphasized) backwards;
+    animation-delay: calc(min(var(--i, 0), 10) * 22ms);
+  }
+  .slide-from-right {
+    animation: slide-from-right var(--duration-slow) var(--ease-emphasized);
+  }
+  .slide-from-left {
+    animation: slide-from-left var(--duration-slow) var(--ease-emphasized);
+  }
+
+  /* Leaving. */
+  [data-leaving='true'] .scrim-in,
+  [data-leaving='true'] .fade-in {
+    animation: fade-out var(--duration-exit) var(--ease-in) forwards;
+  }
+  [data-leaving='true'] .dialog-in {
+    animation: dialog-out var(--duration-exit) var(--ease-in) forwards;
+  }
+  [data-leaving='true'] .popover-in,
+  [data-leaving='true'] .overlay-in {
+    animation: popover-out var(--duration-exit) var(--ease-in) forwards;
+  }
+  .toast-in[data-leaving='true'] {
+    animation: toast-out var(--duration-exit) var(--ease-in) forwards;
+    pointer-events: none;
+  }
+
+  /* A bar's space opens and closes with it; see Reveal. */
+  .reveal {
+    display: grid;
+    grid-template-rows: 1fr;
+    flex-shrink: 0;
+    animation: reveal-in var(--duration-slow) var(--ease-emphasized);
+  }
+  .reveal[data-state='closed'] {
+    animation: reveal-out var(--duration-base) var(--ease-in) forwards;
+    pointer-events: none;
+  }
+  .reveal > * {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    /* Clipped while it opens, without cutting off the bar's shadow. */
+    overflow: clip;
+    overflow-clip-margin: 6px;
+  }
+
+  /*
+   * The accent wheel (AccentWheel.tsx): a grid of dots, each the colour at
+   * its place. Hue runs clockwise from the top, dark at the centre to light
+   * at the rim, matching src/renderer/lib/color-wheel.ts.
+   */
+  .accent-wheel-dots {
+    border-radius: var(--radius-full);
+    /* --wheel-hues is set by the component from the wheel's geometry. */
+    background: var(--wheel-shade), conic-gradient(var(--wheel-hues));
+    mask: radial-gradient(circle, black 1.25px, transparent 1.75px) center / 8px
+      8px;
+    cursor: crosshair;
+  }
+  .accent-wheel-handle {
+    box-shadow:
+      0 0 0 2px var(--wheel-handle-ring),
+      var(--shadow-wheel-handle);
+    transition:
+      box-shadow var(--duration-fast) var(--ease-out),
+      scale var(--duration-fast) var(--ease-out);
+  }
+  .accent-wheel-handle:hover,
+  .accent-wheel-handle:active {
+    scale: 1.12;
+  }
+  .accent-wheel-handle:focus-visible {
+    box-shadow:
+      0 0 0 2px var(--wheel-handle-ring),
+      0 0 0 4px var(--focus-ring),
+      var(--shadow-wheel-handle);
+  }
+
+  /*
+   * Press feedback: controls give a little under the pointer and spring
+   * back, so every click is felt.
+   */
+  .press {
+    transition-property: background-color, color, box-shadow, opacity, scale;
+    transition-duration:
+      var(--duration-fast), var(--duration-fast), var(--duration-fast),
+      var(--duration-fast), var(--duration-base);
+    transition-timing-function:
+      var(--ease-out), var(--ease-out), var(--ease-out), var(--ease-out),
+      var(--ease-spring);
+  }
+  .press:active:not(:disabled) {
+    scale: 0.94;
+    transition-duration: var(--duration-fast);
+    transition-timing-function: var(--ease-out);
   }
 }
 
@@ -178,10 +719,911 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .skeleton,
-  .load-indicator::after,
-  .spinner {
-    animation-duration: 0s;
+@keyframes load-breathe {
+  50% {
+    opacity: 0.35;
   }
+}
+
+/*
+ * Reduced motion: nothing slides. Activity still has to read as activity,
+ * so loading breathes in place instead of sweeping, and spinners slow down
+ * rather than freeze into something that looks finished. data-motion is
+ * set from macOS's setting and Splash's own.
+ */
+:root[data-motion='reduced'] {
+  .skeleton {
+    animation: none;
+  }
+  .load-indicator::after {
+    width: 100%;
+    animation: load-breathe 1.6s ease-in-out infinite;
+  }
+  .spinner,
+  .animate-spin {
+    animation-duration: 2.4s;
+  }
+  .rise-in {
+    animation-delay: 0s;
+  }
+  .press:active:not(:disabled),
+  .icon-button:active:not(:disabled),
+  .button:active:not(:disabled),
+  .accent-wheel-handle:hover,
+  .accent-wheel-handle:active {
+    scale: none;
+  }
+}
+
+/*
+ * One quiet surface marks the current page throughout the sidebar. There's
+ * one for the whole trail (TrailTree), so picking another page glides it
+ * there along with the light below, never showing two at once.
+ */
+.trail-row[data-active='true']:not([data-dragging='true']) {
+  background-color: transparent;
+}
+.trail-current {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  border-radius: var(--radius-row);
+  background-color: var(--row-hover);
+  pointer-events: none;
+  opacity: 0;
+  /* TrailTree sets how long a glide takes from how far it goes. */
+  transition-property: translate, width, height, opacity;
+  transition-duration: var(--trail-glide, var(--duration-fast));
+  transition-timing-function: var(--ease-in-out);
+}
+.trail-current[data-shown='true'] {
+  opacity: 1;
+}
+/*
+ * The line beside the current page carries a soft light, like one segment
+ * of an LED strip: a muted accent strongest across the row's middle that
+ * diffuses into the plain line toward both ends, with the faintest bloom
+ * around it. There's one light for the whole trail (TrailTree), so picking
+ * a page above or below glides it there along the lines, in step with the
+ * path's stroke.
+ */
+.trail-light {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  pointer-events: none;
+  opacity: 0;
+  transition-property: translate, height, opacity;
+  transition-duration: var(--trail-glide, var(--duration-fast));
+  transition-timing-function: var(--ease-in-out);
+}
+.trail-light[data-shown='true'] {
+  opacity: 1;
+}
+.trail-light::before,
+.trail-light::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.trail-light::before {
+  inset: 0 -3px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    color-mix(in oklab, var(--guide-current) 14%, transparent),
+    transparent
+  );
+  mask-image: linear-gradient(transparent 10%, black 50%, transparent 90%);
+}
+.trail-light::after {
+  background-color: color-mix(in oklab, var(--guide-current) 80%, transparent);
+  mask-image: linear-gradient(transparent, black 40%, black 60%, transparent);
+}
+
+/* One hierarchy for saved destinations and the live trail. */
+.sidebar-section-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--sidebar-action-size);
+  align-items: center;
+  column-gap: 8px;
+  min-height: 28px;
+  padding: 2px var(--sidebar-row-inset) 2px var(--lead);
+  color: var(--fg-subtle);
+  font-size: var(--type-small);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+summary.sidebar-section-heading {
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-row);
+}
+summary.sidebar-section-heading::-webkit-details-marker {
+  display: none;
+}
+.sidebar-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sidebar-section-label > svg {
+  flex-shrink: 0;
+  transition: transform var(--duration-base) var(--ease-out);
+}
+details[open] > summary .sidebar-section-label > svg {
+  transform: rotate(90deg);
+}
+.sidebar-folded-count:empty,
+details[open] > summary .sidebar-folded-count {
+  display: none;
+}
+.sidebar-folded-count {
+  font-variant-numeric: tabular-nums;
+}
+.sidebar-folded-count::before {
+  content: '·';
+  margin-right: 6px;
+}
+.sidebar-section-label > svg,
+.trail-branch-toggle {
+  opacity: 0;
+}
+summary:is(:hover, :focus-visible) .sidebar-section-label > svg,
+details:not([open]) > summary .sidebar-section-label > svg,
+.trail-row:is(:hover, :focus-within) .trail-branch-toggle,
+.trail-row[aria-expanded='false'] .trail-branch-toggle {
+  opacity: 1;
+}
+.trail-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.trail-label > .trail-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trail-site {
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-caption);
+}
+
+.sidebar-section-heading > .icon-button {
+  grid-column: 2;
+  grid-row: 1;
+  width: var(--sidebar-action-size);
+  height: var(--sidebar-action-size);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.sidebar-section-heading:is(:hover, :focus-within) > .icon-button {
+  opacity: 1;
+  pointer-events: auto;
+}
+summary.sidebar-section-heading:hover {
+  color: var(--fg-muted);
+  background: var(--row-hover);
+}
+summary.sidebar-section-heading:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+@keyframes sidebar-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+details[open] > .sidebar-section-content {
+  animation: sidebar-reveal var(--duration-base) var(--ease-out);
+}
+:root[data-motion='reduced'] details[open] > .sidebar-section-content {
+  animation: none;
+}
+:root[data-motion='reduced'] .sidebar-section-label > svg {
+  transition: none;
+}
+@media (hover: none) {
+  .sidebar-section-heading > .icon-button {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+.sidebar-section-heading > span:first-child {
+  min-width: 0;
+}
+
+.trail-row[data-pinned-root='true'] {
+  min-height: 38px;
+  margin-bottom: 2px;
+  background: var(--field);
+}
+.trail-row[data-pinned-root='true'] .trail-favicon {
+  padding: 4px;
+  margin-left: -4px;
+  border-radius: var(--radius-inner);
+  background: var(--row-hover);
+}
+.trail-row[data-pinned-root='true'] .trail-title {
+  font-weight: 500;
+}
+
+.sidebar-resize {
+  position: absolute;
+  top: var(--toolbar-height);
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  touch-action: none;
+  outline-offset: -2px;
+}
+.sidebar-resize::after {
+  position: absolute;
+  content: '';
+  top: 8px;
+  bottom: 8px;
+  right: 1px;
+  width: 1px;
+  background: transparent;
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+.sidebar-resize:hover::after,
+.sidebar-resize:focus-visible::after,
+.sidebar-resize[data-resizing='true']::after {
+  background: var(--accent);
+}
+:root:has(.sidebar-resize[data-resizing='true']) aside,
+:root:has(.sidebar-resize[data-resizing='true']) aside > div {
+  transition: none;
+}
+
+/*
+ * The sidebar reads as one list of destinations, separated by quiet space.
+ * Every row's icon sits in one column, `--lead` in from the edge: past the
+ * trail's chevrons when it has them.
+ */
+.sidebar-column {
+  --lead: 30px;
+  container: sidebar / inline-size;
+}
+.sidebar-column[data-flat='true'] {
+  --lead: 10px;
+}
+/* A site's name only where there's room for it beside the title. */
+@container sidebar (width < 320px) {
+  .trail-site {
+    display: none;
+  }
+}
+.sidebar-new-page,
+.trail-row,
+.sidebar-row {
+  font-size: var(--type-lead);
+}
+.sidebar-row {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: var(--row-height);
+  border-radius: var(--radius-row);
+  color: var(--fg);
+  text-align: left;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+button.sidebar-row,
+.sidebar-row-main {
+  padding: 0 var(--sidebar-row-inset) 0 var(--lead);
+}
+.sidebar-row:hover,
+.sidebar-row[data-menu-open='true'] {
+  background: var(--row-hover);
+}
+.sidebar-row:active:not(:has(.sidebar-row-more:active)) {
+  background: var(--row-pressed);
+}
+.sidebar-row-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+  text-align: left;
+}
+.sidebar-row-count {
+  flex-shrink: 0;
+  min-width: var(--sidebar-action-size);
+  color: var(--fg-subtle);
+  font-size: var(--type-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+/* Actions take the count's place on hover. */
+.sidebar-row-more {
+  position: absolute;
+  right: var(--sidebar-row-inset);
+  display: grid;
+  place-items: center;
+  width: var(--sidebar-action-size);
+  height: var(--sidebar-action-size);
+  border-radius: var(--radius-inner);
+  color: var(--fg-subtle);
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+.sidebar-row-more:hover {
+  background: var(--pressed);
+  color: var(--fg);
+}
+.sidebar-row:is(:hover, :focus-within, [data-menu-open='true'])
+  .sidebar-row-more {
+  opacity: 1;
+}
+.sidebar-row:is(:hover, :focus-within, [data-menu-open='true'])
+  .sidebar-row-count {
+  opacity: 0;
+}
+/* A group whose trail is open here reads as present, like the current page. */
+.sidebar-row[data-open='true'] .sidebar-row-main > .truncate {
+  font-weight: 500;
+}
+.sidebar-new-page {
+  color: var(--fg-muted);
+}
+.sidebar-new-page:hover {
+  color: var(--fg);
+}
+
+/*
+ * A stack's mark: its first three site icons on cards, fanned to the right
+ * like a hand. They spread on hover and fly apart when the list pops out.
+ */
+.stacked-icons {
+  position: relative;
+  display: grid;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-right: 15px;
+}
+.stacked-icons[data-count='1'] {
+  margin-right: 0;
+}
+.stacked-icons[data-count='2'] {
+  margin-right: 6px;
+}
+.stacked-icon {
+  position: absolute;
+  inset: -2px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-inner);
+  background: var(--icon-chip);
+  box-shadow: var(--shadow-outline), var(--shadow-stacked);
+  transition:
+    translate var(--duration-slow) var(--ease-spring),
+    rotate var(--duration-slow) var(--ease-spring),
+    opacity var(--duration-base) var(--ease-out);
+}
+.stacked-icon > :is(img, svg) {
+  width: 13px;
+  height: 13px;
+}
+.stacked-icon:nth-child(1) {
+  z-index: 3;
+}
+.stacked-icon:nth-child(2) {
+  z-index: 2;
+  translate: 6px 0;
+  rotate: 4deg;
+  filter: brightness(0.9);
+}
+.stacked-icon:nth-child(3) {
+  z-index: 1;
+  translate: 12px 0;
+  rotate: 8deg;
+  filter: brightness(0.8);
+}
+.sidebar-row:hover .stacked-icon:nth-child(2) {
+  translate: 7px -1px;
+  rotate: 7deg;
+}
+.sidebar-row:hover .stacked-icon:nth-child(3) {
+  translate: 14px -2px;
+  rotate: 13deg;
+}
+/* Open: the cards lift and splay, as if dealing the list below. */
+.icon-stack[data-open='true'] .stacked-icon:nth-child(1) {
+  translate: 0 -1px;
+  rotate: -6deg;
+}
+.icon-stack[data-open='true'] .stacked-icon:nth-child(2) {
+  translate: 7px -2px;
+  rotate: 6deg;
+}
+.icon-stack[data-open='true'] .stacked-icon:nth-child(3) {
+  translate: 14px 0;
+  rotate: 18deg;
+}
+
+.icon-stack-chevron {
+  flex-shrink: 0;
+  color: var(--fg-subtle);
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    rotate var(--duration-base) var(--ease-emphasized);
+}
+.sidebar-row:hover .icon-stack-chevron,
+.icon-stack[data-open='true'] .icon-stack-chevron {
+  opacity: 1;
+}
+.icon-stack[data-open='true'] .icon-stack-chevron {
+  rotate: 90deg;
+}
+.icon-stack[data-open='true'] > .sidebar-row {
+  background: var(--row-hover);
+}
+.icon-stack[data-open='true'] .sidebar-row-main > .truncate {
+  font-weight: 500;
+}
+
+/* The popped-out list: a soft card under its row, dealt out top first. */
+.icon-stack-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 3px var(--sidebar-row-inset) 6px calc(var(--lead) - 6px);
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  /* About eight rows; the trail below stays within reach. */
+  max-height: 258px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.stack-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  min-width: 0;
+  padding: 0 8px 0 6px;
+  border-radius: var(--radius-row);
+  color: var(--fg);
+  font-size: var(--type-body);
+  text-align: left;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    scale var(--duration-fast) var(--ease-out);
+  animation: stack-deal var(--duration-slow) var(--ease-spring) backwards;
+  animation-delay: calc(var(--i, 0) * 22ms);
+}
+.stack-link:hover,
+.stack-link[data-menu-open='true'] {
+  background: var(--row-hover);
+}
+.stack-link:active {
+  scale: 0.98;
+}
+.stack-link[data-current='true'] {
+  background: var(--selected);
+  box-shadow: var(--shadow-row);
+}
+.stack-link-icon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-inner);
+  background: var(--icon-chip);
+  box-shadow: var(--shadow-outline);
+}
+.stack-link-icon > :is(img, svg) {
+  width: 12px;
+  height: 12px;
+}
+.stack-link-host {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--fg-subtle);
+  font-size: var(--type-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container sidebar (width < 300px) {
+  .stack-link-host {
+    display: none;
+  }
+}
+.stack-link-action {
+  margin-top: 3px;
+  color: var(--fg-muted);
+}
+.stack-link-action .stack-link-icon {
+  background: var(--accent-soft);
+  box-shadow: none;
+  color: var(--accent);
+}
+.stack-link-action:hover {
+  color: var(--fg);
+}
+@keyframes stack-deal {
+  from {
+    opacity: 0;
+    translate: -10px -14px;
+    scale: 0.92;
+  }
+}
+
+/* A site's first letter, where it has no icon. */
+.favorite-monogram {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-inner);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--type-caption);
+  font-weight: 600;
+}
+
+/* Favorites as a drop target while a page is dragged from the trail. */
+.favorites {
+  border-radius: var(--radius-row);
+  transition: box-shadow var(--duration-fast) var(--ease-out);
+}
+.favorites-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--row-height);
+  margin-right: var(--sidebar-row-inset);
+  border: 1.5px dashed var(--hairline);
+  border-radius: var(--radius-row);
+  color: var(--fg-subtle);
+  font-size: var(--type-small);
+  animation: reveal-in var(--duration-base) var(--ease-out);
+}
+.favorites[data-over='true'] .favorites-empty {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.favorites[data-over='true'] > .icon-stack > .sidebar-row {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* Dropping a dragged page on one half of the page area. */
+.split-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gutter);
+  padding: 10px;
+  border-radius: var(--radius-content);
+  background: var(--scrim);
+}
+.split-drop-zone {
+  display: grid;
+  place-items: center;
+  border: 1.5px dashed var(--drop-outline);
+  border-radius: calc(var(--radius-content) - 2px);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+.split-drop-zone[data-open='false'] {
+  visibility: hidden;
+}
+.split-drop-zone[data-over='true'] {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.split-drop-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 80%;
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  background: var(--elevated);
+  color: var(--fg-muted);
+  box-shadow: var(--shadow-panel);
+  font-size: var(--type-body);
+  transition:
+    scale var(--duration-base) var(--ease-emphasized),
+    color var(--duration-fast) var(--ease-out);
+}
+.split-drop-zone[data-over='true'] .split-drop-label {
+  scale: 1.06;
+  color: var(--fg);
+}
+:root[data-motion='reduced']
+  :is(.favorite-tile, .stacked-icon, .split-drop-label, .favorites-empty) {
+  transition: none;
+  animation: none;
+}
+.trail-row {
+  color: var(--fg);
+}
+.sidebar-new-page > .shortcut {
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.sidebar-new-page:is(:hover, :focus-visible) > .shortcut {
+  opacity: 1;
+}
+.trail-section + .trail-section {
+  margin-top: 10px;
+}
+
+.trail-row[data-menu-open='true'] .trail-close {
+  opacity: 1;
+}
+
+/*
+ * The AI panel mirrors the sidebar on the right. Its assistants are a row
+ * of icons; the chosen one shows its name, the rest give it room.
+ */
+.ai-provider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--control-height);
+  padding: 0 6px;
+  border-radius: var(--radius-control);
+  color: var(--fg-muted);
+  font-size: var(--type-body);
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    scale var(--duration-base) var(--ease-spring);
+}
+.ai-provider:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+.ai-provider:active {
+  scale: 0.94;
+}
+.ai-provider[data-selected='true'] {
+  padding-right: 10px;
+  background: var(--row-hover);
+  color: var(--fg);
+}
+.ai-provider-name {
+  display: none;
+}
+.ai-provider[data-selected='true'] .ai-provider-name {
+  display: inline;
+  animation: fade-in var(--duration-base) var(--ease-out);
+}
+.ai-provider-mark {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+}
+/* On a chip, so a dark logo still reads on the dark theme. */
+.ai-provider-mark > img {
+  width: 18px;
+  height: 18px;
+  padding: 2px;
+  border-radius: var(--radius-inner);
+  background: var(--icon-chip);
+}
+.ai-provider-mark[data-large='true'] {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--field);
+}
+.ai-provider-mark[data-large='true'] > img {
+  width: 26px;
+  height: 26px;
+  padding: 3px;
+}
+.ai-loading {
+  display: grid;
+  height: 100%;
+  place-items: center;
+}
+.ai-frame[data-loading='true'] .ai-provider-mark {
+  animation: load-breathe 1.6s ease-in-out infinite;
+}
+/* The panel's edge is on its left, against the page. */
+.ai-resize {
+  right: auto;
+  left: 0;
+}
+.ai-resize::after {
+  right: auto;
+  left: 1px;
+}
+:root[data-motion='reduced'] .ai-provider,
+:root[data-motion='reduced'] .ai-provider-name {
+  transition: none;
+}
+:root[data-motion='reduced'] .ai-frame .ai-provider-mark {
+  animation: none;
+}
+
+/*
+ * The workspace editor, after Arc's "Create a Space" sheet: the chosen
+ * theme washes the top, and each part sits in its own soft panel.
+ */
+.workspace-sheet {
+  background:
+    linear-gradient(to bottom, transparent, var(--elevated) 230px),
+    radial-gradient(120% 220px at 50% 0%, var(--accent-soft), transparent),
+    var(--frame-image, none), var(--elevated);
+  background-repeat: no-repeat;
+  background-size:
+    100% 260px,
+    100% 260px,
+    100% 260px,
+    auto;
+}
+.sheet-panel {
+  border-radius: var(--radius-panel);
+  background: var(--field);
+}
+.sheet-panel:has(> input:focus-visible) {
+  box-shadow: var(--shadow-focus);
+}
+
+/* The icon on a fan of three cards, the front one in the accent. */
+.workspace-cards {
+  position: relative;
+  width: 132px;
+  height: 78px;
+}
+.workspace-card {
+  position: absolute;
+  top: 4px;
+  left: calc(50% - 28px);
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 70px;
+  border-radius: var(--radius-card);
+  background: var(--elevated);
+  color: var(--accent);
+  box-shadow: var(--shadow-outline), var(--shadow-card);
+  transition:
+    translate var(--duration-slow) var(--ease-spring),
+    rotate var(--duration-slow) var(--ease-spring);
+}
+.workspace-card[data-card='left'] {
+  translate: -34px 6px;
+  rotate: -9deg;
+}
+.workspace-card[data-card='right'] {
+  translate: 34px 6px;
+  rotate: 9deg;
+}
+.workspace-card:not([data-card='front']) > * {
+  opacity: 0.45;
+}
+.workspace-card[data-card='front'] {
+  z-index: 1;
+  top: 0;
+}
+.workspace-sheet:hover .workspace-card[data-card='left'] {
+  translate: -40px 8px;
+  rotate: -12deg;
+}
+.workspace-sheet:hover .workspace-card[data-card='right'] {
+  translate: 40px 8px;
+  rotate: 12deg;
+}
+
+.symbol-choice {
+  display: grid;
+  place-items: center;
+  height: 36px;
+  border-radius: var(--radius-control);
+  color: var(--fg);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    scale var(--duration-fast) var(--ease-out);
+}
+.symbol-choice:hover {
+  background: var(--hover);
+}
+.symbol-choice:active {
+  scale: 0.92;
+}
+.symbol-choice[aria-checked='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* A theme as a small lit sphere, like Arc's swatches. */
+.theme-orb {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-orb);
+  outline-offset: 3px;
+  transition: scale var(--duration-fast) var(--ease-out);
+}
+.theme-orb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at 32% 26%,
+    var(--orb-highlight),
+    transparent 46%
+  );
+  pointer-events: none;
+}
+.theme-orb:hover {
+  scale: 1.08;
+}
+.theme-orb[aria-checked='true'] {
+  outline: 2px solid var(--accent);
+}
+
+/*
+ * Settings' section icons, in the text colour: a faint body under a solid
+ * detail, so they follow the row from muted to selected.
+ */
+.duo-icon {
+  flex-shrink: 0;
+  fill: currentColor;
+}
+.duo-icon .duo-soft {
+  fill-opacity: 0.32;
+}
+.settings-heading-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--elevated);
+  box-shadow: var(--shadow-row);
 }

@@ -1,10 +1,16 @@
 import {
+  Asterisk,
+  Bell,
   BookOpen,
+  Bookmark,
   Briefcase,
   Camera,
+  Circle,
+  Cloud,
   Code,
   Coffee,
   Dumbbell,
+  Egg,
   Film,
   FlaskConical,
   Gamepad2,
@@ -13,47 +19,98 @@ import {
   Heart,
   House,
   Leaf,
+  Lightbulb,
+  MessageCircle,
+  Moon,
   Music,
   Newspaper,
+  Orbit,
   Palette,
+  PawPrint,
   Plane,
   Rocket,
   ShoppingBag,
+  Skull,
   Sparkles,
   Star,
+  Triangle,
   Users,
+  Utensils,
   Wallet,
+  Wrench,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import type { SYMBOLS } from '../../shared/appearance';
 import type { WorkspaceIcon as Icon } from '../../shared/types';
 
 export const SYMBOL_ICONS: Record<(typeof SYMBOLS)[number], LucideIcon> = {
+  star: Star,
+  bookmark: Bookmark,
+  heart: Heart,
+  zap: Zap,
+  triangle: Triangle,
+  asterisk: Asterisk,
+  bell: Bell,
+  lightbulb: Lightbulb,
+  'message-circle': MessageCircle,
+  users: Users,
+  wrench: Wrench,
+  egg: Egg,
+  circle: Circle,
+  moon: Moon,
+  orbit: Orbit,
+  leaf: Leaf,
+  cloud: Cloud,
+  'paw-print': PawPrint,
+  utensils: Utensils,
+  plane: Plane,
+  music: Music,
+  'gamepad-2': Gamepad2,
+  code: Code,
+  skull: Skull,
   house: House,
   briefcase: Briefcase,
-  code: Code,
   'book-open': BookOpen,
   'graduation-cap': GraduationCap,
   'flask-conical': FlaskConical,
   palette: Palette,
   camera: Camera,
-  music: Music,
   film: Film,
-  'gamepad-2': Gamepad2,
   newspaper: Newspaper,
-  plane: Plane,
   globe: Globe,
-  leaf: Leaf,
   coffee: Coffee,
   'shopping-bag': ShoppingBag,
   wallet: Wallet,
-  heart: Heart,
-  star: Star,
   rocket: Rocket,
   sparkles: Sparkles,
-  users: Users,
   dumbbell: Dumbbell,
 };
+
+/**
+ * Symbols drawn solid, like Arc's: closed shapes read better filled at
+ * sidebar size. The rest are line drawings that a fill would blot out.
+ */
+const FILLED = new Set<string>([
+  'star',
+  'bookmark',
+  'heart',
+  'zap',
+  'triangle',
+  'bell',
+  'lightbulb',
+  'message-circle',
+  'users',
+  'egg',
+  'circle',
+  'moon',
+  'leaf',
+  'cloud',
+  'paw-print',
+  'plane',
+  'music',
+  'sparkles',
+]);
 
 export function initialOf(name: string): string {
   return [...name.trim()][0]?.toUpperCase() ?? '•';
@@ -73,7 +130,13 @@ export function WorkspaceIcon({
     case 'symbol': {
       const Symbol = SYMBOL_ICONS[icon.name as keyof typeof SYMBOL_ICONS];
       return Symbol ? (
-        <Symbol size={size} strokeWidth={1.75} aria-hidden />
+        <Symbol
+          size={size}
+          strokeWidth={1.75}
+          fill={FILLED.has(icon.name) ? 'currentColor' : 'none'}
+          className="workspace-symbol"
+          aria-hidden
+        />
       ) : (
         <span aria-hidden>{initialOf(name)}</span>
       );
@@ -92,7 +155,7 @@ export function WorkspaceIcon({
           width={size + 2}
           height={size + 2}
           draggable={false}
-          className="rounded-[4px] object-cover"
+          className="rounded-mark object-cover"
         />
       );
     default:
