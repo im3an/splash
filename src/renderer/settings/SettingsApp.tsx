@@ -74,7 +74,7 @@ export function SettingsApp() {
             type="button"
             aria-current={id === active ? 'page' : undefined}
             onClick={() => setActive(id)}
-            className="flex h-8 items-center gap-2.5 rounded-row px-2 text-left text-fg-muted transition-colors duration-fast hover:bg-hover hover:text-fg aria-[current=page]:bg-elevated aria-[current=page]:text-fg aria-[current=page]:shadow-row"
+            className="flex h-8 items-center gap-2.5 rounded-row px-2 text-left text-fg transition-colors duration-fast hover:bg-hover aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-on-accent"
           >
             <SectionIcon name={id} />
             <span className="truncate">{label}</span>

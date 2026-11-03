@@ -1607,17 +1607,6 @@ button.sidebar-row,
   outline: 2px solid var(--accent);
 }
 
-/*
- * Settings' section icons, in the text colour: a faint body under a solid
- * detail, so they follow the row from muted to selected.
- */
-.duo-icon {
-  flex-shrink: 0;
-  fill: currentColor;
-}
-.duo-icon .duo-soft {
-  fill-opacity: 0.32;
-}
 .settings-heading-icon {
   display: grid;
   place-items: center;

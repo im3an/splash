@@ -15,7 +15,7 @@ export interface AccentPreset {
 
 export const ACCENTS: readonly AccentPreset[] = [
   { id: 'ember', label: 'Ember', light: '#b4542d', dark: '#e3906a' },
-  { id: 'amber', label: 'Amber', light: '#a86f0c', dark: '#e6b04f' },
+  { id: 'amber', label: 'Amber', light: '#a06a0b', dark: '#e6b04f' },
   { id: 'moss', label: 'Moss', light: '#4c7a37', dark: '#93c279' },
   { id: 'teal', label: 'Teal', light: '#1d7770', dark: '#5ec3b6' },
   { id: 'sky', label: 'Sky', light: '#2d6cb0', dark: '#7eafea' },

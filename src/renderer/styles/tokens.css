@@ -65,7 +65,8 @@
   --accent: #b4542d;
   --accent-soft: rgb(180 84 45 / 0.16);
   --accent-hover: color-mix(in oklab, var(--accent), black 8%);
-  --on-accent: var(--chrome);
+  /* White on the light accents, chrome on the pale dark ones: 4.6:1 or more. */
+  --on-accent: #ffffff;
   --focus-ring: var(--accent);
   /* Status colours. Never the only cue: pair with an icon or words. */
   --danger: #b03a2e;
@@ -227,6 +228,7 @@
     --accent: #e3906a;
     --accent-soft: rgb(227 144 106 / 0.2);
     --accent-hover: color-mix(in oklab, var(--accent), white 8%);
+    --on-accent: var(--chrome);
     --danger: #ec7a6b;
     --success: #8fc27a;
     --warning: #e6b04f;
