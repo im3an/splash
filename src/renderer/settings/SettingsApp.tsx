@@ -74,7 +74,9 @@ export function SettingsApp() {
             type="button"
             aria-current={id === active ? 'page' : undefined}
             onClick={() => setActive(id)}
-            className="flex h-8 items-center gap-2.5 rounded-row px-2 text-left text-fg transition-colors duration-fast hover:bg-hover aria-[current=page]:bg-accent aria-[current=page]:font-medium aria-[current=page]:text-on-accent"
+            // The browser sidebar's current-page surface: accent is kept
+            // for on-states and workspace identity, not for selection.
+            className="flex h-8 items-center gap-2.5 rounded-row px-2 text-left text-fg-muted transition-colors duration-fast hover:bg-row-hover hover:text-fg active:bg-row-pressed aria-[current=page]:bg-row-hover aria-[current=page]:text-fg"
           >
             <SectionIcon name={id} />
             <span className="truncate">{label}</span>

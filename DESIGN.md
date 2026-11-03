@@ -32,7 +32,9 @@ Radii: mark 3px, inner 5px, row 6px, control 7px, pill/content 10px. Window gutt
 
 ## Interaction vocabulary
 
-Native buttons, switches and segmented choices. Share segmented controls between workspace customization and settings. Inactive controls stay quiet; selected controls have a clear surface or mark; keyboard focus remains visible. Primary actions are reserved for the next meaningful step. Use page, trail, branch and workspace consistently.
+Native buttons, switches and segmented choices. Share segmented controls between workspace customization and settings. Inactive controls stay quiet; selected controls have a clear surface or mark; keyboard focus remains visible.
+
+One selection language: the current item in any list or sidebar (the trail, Settings sections) takes the row-hover surface and full-strength text over muted siblings. The accent never marks navigation selection. It means "on" or "yours": switches, the primary action, a chosen swatch or symbol, workspace identity, the current page's guide line and focus rings. Primary actions are reserved for the next meaningful step. Use page, trail, branch and workspace consistently.
 
 ## Panels and states
 
