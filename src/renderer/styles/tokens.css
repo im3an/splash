@@ -82,34 +82,9 @@
   --shadow-content:
     0 0 0 0.5px rgb(var(--ink) / 0.14), 0 1px 3px rgb(var(--ink) / 0.06);
   /*
-   * The page card where the shell shows through (no page, a failed load):
-   * frosted glass over the frame and its gradient, lit along the top edge.
+   * The palette floats over page content: a translucent material, so the
+   * page it was opened from stays in view, blurred, behind its results.
    */
-  --glass: color-mix(in oklab, var(--surface) 62%, transparent);
-  --glass-sheen: linear-gradient(
-    165deg,
-    rgb(255 255 255 / 0.55),
-    rgb(255 255 255 / 0) 45%
-  );
-  /*
-   * Light from behind the glass in the workspace's accent, so it reads as
-   * glass even on a plain frame with nothing to blur.
-   */
-  --glass-glow:
-    radial-gradient(
-      60% 55% at 12% 0%,
-      color-mix(in oklab, var(--accent) 18%, transparent),
-      transparent 70%
-    ),
-    radial-gradient(
-      55% 50% at 92% 100%,
-      color-mix(in oklab, var(--accent) 12%, transparent),
-      transparent 70%
-    );
-  --shadow-glass:
-    var(--shadow-content), inset 0 1px 0 rgb(255 255 255 / 0.7),
-    inset 0 0 0 1px rgb(255 255 255 / 0.3);
-  /* The palette's glass: thicker, since it floats over page content. */
   --glass-panel: color-mix(in oklab, var(--elevated) 74%, transparent);
   --shadow-glass-panel:
     var(--shadow-panel), inset 0 1px 0 rgb(255 255 255 / 0.8),
@@ -121,11 +96,6 @@
   /* A card lifted off the sheet; the edge of one card over the next. */
   --shadow-card: 0 6px 16px -6px rgb(0 0 0 / 0.25);
   --shadow-stacked: -1px 0 3px rgb(0 0 0 / 0.18);
-  /* A theme swatch lit from the top left, like a small sphere. */
-  --shadow-orb:
-    inset 0 0 0 1px rgb(0 0 0 / 0.08), inset 0 -6px 10px -4px rgb(0 0 0 / 0.18),
-    0 2px 6px -2px rgb(0 0 0 / 0.25);
-  --orb-highlight: rgb(255 255 255 / 0.7);
   /* A focused text field: an accent edge with a soft halo, like AppKit. */
   --shadow-focus: 0 0 0 1px var(--accent), 0 0 0 3.5px var(--accent-soft);
   --skeleton: rgb(var(--ink) / 0.07);
@@ -274,26 +244,6 @@
 
     --shadow-content:
       0 0 0 0.5px rgb(var(--ink) / 0.08), 0 1px 3px rgb(0 0 0 / 0.3);
-    --glass: color-mix(in oklab, var(--surface) 55%, transparent);
-    --glass-sheen: linear-gradient(
-      165deg,
-      rgb(var(--ink) / 0.08),
-      rgb(var(--ink) / 0) 45%
-    );
-    --glass-glow:
-      radial-gradient(
-        60% 55% at 12% 0%,
-        color-mix(in oklab, var(--accent) 16%, transparent),
-        transparent 70%
-      ),
-      radial-gradient(
-        55% 50% at 92% 100%,
-        color-mix(in oklab, var(--accent) 10%, transparent),
-        transparent 70%
-      );
-    --shadow-glass:
-      var(--shadow-content), inset 0 1px 0 rgb(var(--ink) / 0.12),
-      inset 0 0 0 1px rgb(var(--ink) / 0.05);
     --glass-panel: color-mix(in oklab, var(--elevated) 70%, transparent);
     --shadow-glass-panel:
       var(--shadow-panel), inset 0 1px 0 rgb(var(--ink) / 0.14),

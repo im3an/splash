@@ -384,7 +384,7 @@ export function WorkspaceEditor({
                     ? framePreset(appearance.frame).dark.chrome
                     : framePreset(appearance.frame).light.elevated,
                 }}
-                className="theme-orb"
+                className="theme-swatch"
               />
               {GRADIENTS.map((option) => (
                 <button
@@ -400,7 +400,7 @@ export function WorkspaceEditor({
                   style={{
                     backgroundImage: gradientImage(option, 'swatch'),
                   }}
-                  className="theme-orb"
+                  className="theme-swatch"
                 />
               ))}
             </div>

@@ -19,10 +19,8 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { SiteInfoPopover } from './SiteInfoPopover';
 import { WorkspaceEditor } from './WorkspaceEditor';
 
-// Frosted glass: only seen where the shell shows through, since a live
-// page's own view covers the card.
 const PANE =
-  'relative overflow-hidden rounded-content shadow-(--shadow-glass) backdrop-blur-2xl backdrop-saturate-150 [background:var(--grain),var(--glass-sheen),var(--glass-glow),var(--glass)]';
+  'relative overflow-hidden rounded-content bg-surface shadow-content';
 
 /**
  * The frame the active page's Chromium view is placed over, or the two views

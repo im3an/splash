@@ -1489,16 +1489,15 @@ button.sidebar-row,
 
 /*
  * The workspace editor, after Arc's "Create a Space" sheet: the chosen
- * theme washes the top, and each part sits in its own soft panel.
+ * theme's gradient previews across the top, and each part sits in its own
+ * soft panel.
  */
 .workspace-sheet {
   background:
     linear-gradient(to bottom, transparent, var(--elevated) 230px),
-    radial-gradient(120% 220px at 50% 0%, var(--accent-soft), transparent),
     var(--frame-image, none), var(--elevated);
   background-repeat: no-repeat;
   background-size:
-    100% 260px,
     100% 260px,
     100% 260px,
     auto;
@@ -1578,31 +1577,21 @@ button.sidebar-row,
   color: var(--accent);
 }
 
-/* A theme as a small lit sphere, like Arc's swatches. */
-.theme-orb {
-  position: relative;
+/*
+ * A theme as a flat dot of its gradient, so the colours read as they will
+ * on the frame. The outline keeps pale ones visible on any sheet.
+ */
+.theme-swatch {
   width: 30px;
   height: 30px;
   border-radius: var(--radius-full);
-  box-shadow: var(--shadow-orb);
+  box-shadow: var(--shadow-outline);
   outline-offset: 3px;
   transition: scale var(--duration-fast) var(--ease-out);
 }
-.theme-orb::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(
-    circle at 32% 26%,
-    var(--orb-highlight),
-    transparent 46%
-  );
-  pointer-events: none;
-}
-.theme-orb:hover {
+.theme-swatch:hover {
   scale: 1.08;
 }
-.theme-orb[aria-checked='true'] {
+.theme-swatch[aria-checked='true'] {
   outline: 2px solid var(--accent);
 }
