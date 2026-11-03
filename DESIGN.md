@@ -40,6 +40,8 @@ Native buttons, switches and segmented choices. Share segmented controls between
 
 One selection language: the current item in any list or sidebar (the trail, Settings sections) takes the row-hover surface and full-strength text over muted siblings. The accent never marks navigation selection. It means "on" or "yours": switches, the primary action, a chosen swatch or symbol, workspace identity, the current page's guide line and focus rings. Primary actions are reserved for the next meaningful step. Use page, trail, branch and workspace consistently.
 
+Settings help text is one short sentence, two only for a privacy fact. It says what the setting does, not how to use the control. Every change applies immediately (the Settings footer says so), so a row mentions timing only when it differs: next launch, or as pages load.
+
 ## Panels and states
 
 History and Downloads share header placement and empty-state hierarchy. Loading must be visible, failures explain a next step, and empty search offers a reset. Dialogs keep keyboard focus inside while open. Saving prevents duplicate submission, preserves entered values on failure and provides inline recovery. Undo feedback remains available while hovered or keyboard-focused.

@@ -49,7 +49,7 @@ export function GeneralSettings() {
       <Section title="Startup">
         <Row
           label="When Splash opens"
-          help="Your workspaces, trails and each page’s back and forward history always come back. This chooses what’s on screen. Applies the next time Splash opens."
+          help="Your workspaces and trails come back either way. Applies from the next launch."
         >
           <Choice
             label="When Splash opens"
@@ -65,7 +65,7 @@ export function GeneralSettings() {
       <Section title="Search">
         <Row
           label="Search engine"
-          help="Used when what you type in the address bar isn’t a web address."
+          help="Used for anything you type that isn’t a web address."
         >
           <select
             aria-label="Search engine"
@@ -86,7 +86,7 @@ export function GeneralSettings() {
         </Row>
         <Row
           label="Show search suggestions"
-          help="While you type in the address bar, your search engine suggests searches. What you type is sent to it as you type; full addresses and local sites never are."
+          help="Sends what you type to your search engine as you type. Full addresses and local sites are never sent."
         >
           <Toggle
             label="Show search suggestions"
@@ -130,7 +130,7 @@ export function AppearanceSettings() {
     <>
       <Section
         title="Toolbar"
-        description="Choose which controls appear and use the arrows to arrange them."
+        description="Choose which controls appear, and in what order."
       >
         {TOOLBAR_ACTIONS.map((action) => {
           const actions =
@@ -178,7 +178,7 @@ export function AppearanceSettings() {
       <Section title="Appearance">
         <Row
           label="Theme"
-          help="Dark is Splash’s default. Websites follow this choice too. A workspace can set its own, which wins while it’s open. Applies immediately."
+          help="Websites follow it too. A workspace’s own theme wins while it’s open."
         >
           <Choice
             label="Theme"
@@ -193,7 +193,7 @@ export function AppearanceSettings() {
         </Row>
         <Row
           label="Address bar"
-          help="In the sidebar, the address and back and forward sit above your pages, and the page fills the window."
+          help="Sidebar moves the address and navigation above your pages, so the page fills the window."
         >
           <Choice
             label="Address bar"
@@ -205,10 +205,7 @@ export function AppearanceSettings() {
             ]}
           />
         </Row>
-        <Row
-          label="Accent, frame and icon"
-          help="These belong to each workspace, so every workspace can look different."
-        >
+        <Row label="Accent, frame and icon" help="Each workspace has its own.">
           <Button
             onClick={() =>
               void api().editWorkspace(
@@ -221,7 +218,7 @@ export function AppearanceSettings() {
         </Row>
         <Row
           label="Reduce motion"
-          help="Splash already follows Reduce motion in macOS Accessibility settings. This calms Splash on its own: nothing slides or springs."
+          help="Stops sliding and springing in Splash only. Splash already follows the macOS setting."
         >
           <Toggle
             label="Reduce motion"
@@ -244,7 +241,7 @@ export function AppearanceSettings() {
         </Row>
         <Row
           label="Show site names"
-          help="The site’s name, in a quieter colour, after each page’s title."
+          help="Shows the site after each page’s title."
         >
           <Toggle
             label="Show site names"
@@ -254,7 +251,7 @@ export function AppearanceSettings() {
         </Row>
         <Row
           label="Show branch lines"
-          help="Hairlines down each branch, so pages opened from a page read as its children."
+          help="Lines connecting each page to the pages opened from it."
         >
           <Toggle
             label="Show branch lines"
@@ -273,7 +270,7 @@ export function WorkspaceSettings() {
   return (
     <Section
       title="Workspaces"
-      description="Each workspace keeps its own trail, active page and look. Deleting one can be undone with Reopen Closed (⇧⌘T)."
+      description="Each keeps its own trail and look. Deleting one can be undone with ⇧⌘T."
     >
       {workspaces.map((workspace, index) => (
         <div
@@ -384,9 +381,9 @@ function ContentBlockingSettings() {
   return (
     <Section
       title="Ads and trackers"
-      description="Splash blocks ads, trackers and harmful sites with uBlock Origin’s filter lists and EasyList. To allow them on one site, open its settings from the address bar."
+      description="Uses uBlock Origin’s filter lists and EasyList, and takes effect as pages load. To allow ads on one site, open its settings from the address bar."
     >
-      <Row label="Block ads and trackers" help="Applies to pages as they load.">
+      <Row label="Block ads and trackers" help="Harmful sites are blocked too.">
         <Toggle
           label="Block ads and trackers"
           checked={preferences.blockAds}
@@ -395,7 +392,7 @@ function ContentBlockingSettings() {
       </Row>
       <Row
         label="Hide cookie notices"
-        help="Rejects cookie banners for you and hides simple notices. Splash never agrees in your name, so a banner with no way to reject stays for you to answer. A site where you allow ads shows its banner. Applies to pages as they load."
+        help="Rejects cookie banners and hides simple notices. Splash never accepts for you, so a banner it can’t reject stays. Off where you allow ads."
       >
         <Toggle
           label="Hide cookie notices"
@@ -493,7 +490,7 @@ export function PrivacySettings() {
       <ContentBlockingSettings />
       <Section
         title="Clear browsing data"
-        description="History follows the time range and can be undone for a minute. Cookies, cached files and permissions are cleared for all time and can’t be brought back."
+        description="Only history follows the time range, and only history can be undone, for a minute."
       >
         <Row label="History from">
           <select
@@ -582,7 +579,7 @@ export function PrivacySettings() {
 
       <Section
         title="Site permissions"
-        description="Choices you made for sites. A site you haven’t decided on asks the first time it needs something."
+        description="Sites you’ve allowed or blocked. Others ask the first time they need something."
       >
         {sitesError ? (
           <Row label="Site permissions unavailable" help={sitesError}>
@@ -662,7 +659,7 @@ export function DownloadSettings() {
       </Row>
       <Row
         label="Files that can run programs"
-        help="Installers and scripts are saved, but Splash warns you and asks before opening them."
+        help="Splash asks before opening installers and scripts."
       />
       <Row label="Downloads folder">
         <Button onClick={() => void api().openDownloadsFolder()}>Open</Button>
@@ -763,7 +760,7 @@ export function AdvancedSettings() {
       <Section title="Memory">
         <Row
           label="Pages kept awake"
-          help="Beyond this, the pages you used least recently fall asleep. They keep their place, history and scroll position, and wake when you open them. Pages playing sound never sleep."
+          help="Beyond this, your least recently used pages sleep. They keep their place and wake when opened. Pages playing sound stay awake."
         >
           <Choice
             label="Pages kept awake"
