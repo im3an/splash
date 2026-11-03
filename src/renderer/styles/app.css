@@ -1606,13 +1606,3 @@ button.sidebar-row,
 .theme-orb[aria-checked='true'] {
   outline: 2px solid var(--accent);
 }
-
-.settings-heading-icon {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-pill);
-  background: var(--elevated);
-  box-shadow: var(--shadow-row);
-}

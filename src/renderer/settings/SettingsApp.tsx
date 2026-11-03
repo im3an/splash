@@ -88,10 +88,7 @@ export function SettingsApp() {
       <main className="min-w-0 flex-1 overflow-y-auto bg-surface">
         <div className="drag h-(--toolbar-height)" />
         <div className="mx-auto flex max-w-(--settings-measure) flex-col gap-7 px-8 pb-10 select-text">
-          <h1 className="flex items-center gap-3 text-display font-semibold tracking-[-0.01em]">
-            <span className="settings-heading-icon">
-              <SectionIcon name={section.id} size={22} />
-            </span>
+          <h1 className="text-display font-semibold tracking-[-0.01em]">
             {section.title ?? section.label}
           </h1>
           <Body />
