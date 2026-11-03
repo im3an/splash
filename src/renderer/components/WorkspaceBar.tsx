@@ -14,7 +14,6 @@ import {
 import { History, Plus, Settings } from 'lucide-react';
 import type { WorkspaceSummary } from '../../shared/types';
 import { api } from '../splash-api';
-import { useOverlay } from '../stores/overlay-store';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
 import { DownloadsButton } from './DownloadsButton';
 import { WorkspaceIcon } from './WorkspaceIcon';
@@ -28,7 +27,6 @@ import { WorkspaceIcon } from './WorkspaceIcon';
 export function WorkspaceBar() {
   const workspaces = useShell(selectWorkspaces);
   const activeId = useShell((state) => state.snapshot?.activeWorkspaceId);
-  const openOverlay = useOverlay((state) => state.open);
   const togglePanel = useShell((state) => state.toggleSidebarPanel);
   const historyShowing = useShell((state) => state.sidebarPanel === 'history');
   const sensors = useSensors(
@@ -41,8 +39,8 @@ export function WorkspaceBar() {
     if (index !== -1) void api().moveWorkspace(String(active.id), index);
   };
 
-  const create = () =>
-    void openOverlay({ kind: 'workspace-editor', workspaceId: null });
+  const editWorkspace = useShell((state) => state.editWorkspace);
+  const create = () => editWorkspace(null);
 
   return (
     <div className="grid h-11 shrink-0 grid-cols-[1fr_minmax(0,auto)_1fr] items-center gap-1 pb-1">

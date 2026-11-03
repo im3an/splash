@@ -1,20 +1,29 @@
-import { useMemo, useRef, useState, type CSSProperties } from 'react';
-import { ChevronUp, ImagePlus, Palette } from 'lucide-react';
-import { useDialogFocus } from '../hooks/use-dialog-focus';
-import { AccentWheel } from './AccentWheel';
-import { Reveal } from './Reveal';
-import { SegmentedControl } from './SegmentedControl';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ACCENTS,
+  ChevronLeft,
+  ChevronRight,
+  ImagePlus,
+  MoonStar,
+  Sparkles,
+  Sun,
+  type LucideIcon,
+} from 'lucide-react';
+import { AccentWheel } from './AccentWheel';
+import { GrainDial } from './GrainDial';
+import { PanelHeader } from './PanelHeader';
+import { SegmentedControl } from './SegmentedControl';
+import { WaveSlider } from './WaveSlider';
+import {
   accentColors,
-  newWorkspaceAppearance,
-  FRAMES,
+  appearanceGrain,
   framePreset,
-  GRADIENTS,
-  gradientImage,
-  gradientPreset,
-  isCustomAccent,
+  INTENSITY,
+  newWorkspaceAppearance,
   SYMBOLS,
+  themeImage,
+  themePreset,
+  THEMES,
+  type ThemePreset,
 } from '../../shared/appearance';
 import type {
   WorkspaceAppearance,
@@ -22,9 +31,7 @@ import type {
   WorkspaceId,
   WorkspaceMode,
 } from '../../shared/types';
-import { themeVariables } from '../hooks/use-workspace-theme';
 import { api } from '../splash-api';
-import { useOverlay } from '../stores/overlay-store';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
 import { WorkspaceIcon } from './WorkspaceIcon';
 
@@ -35,11 +42,115 @@ const ICON_KINDS: { kind: Icon['kind']; label: string }[] = [
   { kind: 'image', label: 'Image' },
 ];
 
-const MODES: { mode: WorkspaceMode; label: string }[] = [
-  { mode: 'system', label: 'System' },
-  { mode: 'light', label: 'Light' },
-  { mode: 'dark', label: 'Dark' },
+const MODES: { mode: WorkspaceMode; label: string; Icon: LucideIcon }[] = [
+  { mode: 'system', label: 'Match the system', Icon: Sparkles },
+  { mode: 'light', label: 'Light', Icon: Sun },
+  { mode: 'dark', label: 'Dark', Icon: MoonStar },
 ];
+
+/** Presets and Plain, nine to a page like Arc's, with arrows to page. */
+const PER_PAGE = 9;
+
+function ThemeSwatches({
+  appearance,
+  dark,
+  onPlain,
+  onPreset,
+}: {
+  appearance: WorkspaceAppearance;
+  dark: boolean;
+  onPlain(): void;
+  onPreset(preset: ThemePreset): void;
+}) {
+  const row = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ start: true, end: false });
+  const plain = !appearance.gradient && !appearance.colors;
+  const checked = (preset: ThemePreset) =>
+    !appearance.colors && appearance.gradient === preset.id;
+
+  const measure = () => {
+    const el = row.current;
+    if (!el) return;
+    setEdges({
+      start: el.scrollLeft <= 1,
+      end: el.scrollLeft + el.clientWidth >= el.scrollWidth - 1,
+    });
+  };
+  // Opens on the page with the chosen preset.
+  useEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    const index = THEMES.findIndex(checked) + 1;
+    el.scrollLeft = Math.floor(index / PER_PAGE) * el.clientWidth;
+    measure();
+    // Only when it opens; paging is up to the person after that.
+  }, []);
+  const page = (direction: 1 | -1) =>
+    row.current?.scrollBy({
+      left: direction * row.current.clientWidth,
+      behavior: 'smooth',
+    });
+
+  return (
+    <div className="flex items-center">
+      <button
+        type="button"
+        aria-label="Previous themes"
+        title="Previous themes"
+        disabled={edges.start}
+        onClick={() => page(-1)}
+        className="icon-button shrink-0 disabled:opacity-30"
+      >
+        <ChevronLeft size={16} strokeWidth={2} />
+      </button>
+      <div
+        ref={row}
+        role="radiogroup"
+        aria-label="Theme"
+        onScroll={measure}
+        className="theme-row min-w-0 flex-1"
+      >
+        <button
+          type="button"
+          role="radio"
+          aria-checked={plain}
+          aria-label="Plain"
+          title="Plain"
+          onClick={onPlain}
+          style={{
+            background: dark
+              ? framePreset(appearance.frame).dark.chrome
+              : framePreset(appearance.frame).light.elevated,
+          }}
+          className="theme-swatch"
+        />
+        {THEMES.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            role="radio"
+            aria-checked={checked(preset)}
+            aria-label={preset.label}
+            title={preset.label}
+            onClick={() => onPreset(preset)}
+            style={{ backgroundImage: themeImage(preset.colors, 'swatch') }}
+            className="theme-swatch"
+          />
+        ))}
+      </div>
+      <button
+        type="button"
+        aria-label="More themes"
+        title="More themes"
+        disabled={edges.end}
+        onClick={() => page(1)}
+        className="icon-button shrink-0 disabled:opacity-30"
+      >
+        <ChevronRight size={16} strokeWidth={2} />
+      </button>
+    </div>
+  );
+}
 
 /** Scales an image file down to a small square PNG for the icon. */
 async function squareIcon(file: File): Promise<string> {
@@ -66,24 +177,13 @@ async function squareIcon(file: File): Promise<string> {
   return canvas.toDataURL('image/png');
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-caption font-medium tracking-[0.02em] text-fg-subtle uppercase">
-        {label}
-      </span>
-      {children}
-    </div>
-  );
-}
+/** Names a group of choices, as Saved and the palette's groups are named. */
+const GROUP_LABEL = 'text-caption font-medium tracking-[0.02em] text-fg-subtle';
 
-/** Creating a workspace, or changing an existing one's name and look. */
+/**
+ * Creating a workspace, or changing an existing one's name and look, in the
+ * widened sidebar. The window frame previews the theme while it's chosen.
+ */
 export function WorkspaceEditor({
   workspaceId,
 }: {
@@ -93,13 +193,13 @@ export function WorkspaceEditor({
     state.snapshot?.workspaces.find((w) => w.id === workspaceId),
   );
   const count = useShell((state) => state.snapshot?.workspaces.length ?? 0);
-  const closeOverlay = useOverlay((state) => state.close);
-  const dialogRef = useDialogFocus<HTMLDivElement>();
+  const setPanel = useShell((state) => state.setSidebarPanel);
+  const setPreview = useShell((state) => state.setAppearancePreview);
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const close = () => {
-    if (!savingRef.current) closeOverlay();
+    if (!savingRef.current) setPanel(null);
   };
   const [name, setName] = useState(existing?.name ?? '');
   const [appearance, setAppearance] = useState<WorkspaceAppearance>(
@@ -116,9 +216,17 @@ export function WorkspaceEditor({
   const [imageError, setImageError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const dark = matchMedia('(prefers-color-scheme: dark)').matches;
-  const previewDark =
-    appearance.mode === 'system' ? dark : appearance.mode === 'dark';
-  const customAccent = isCustomAccent(appearance.accent);
+
+  // The frame shows the look being chosen; leaving the panel, however it
+  // happens, puts the workspace's own back.
+  useEffect(() => setPreview(appearance), [appearance, setPreview]);
+  useEffect(() => () => setPreview(null), [setPreview]);
+  // Light or dark is the main process's to set, so it previews there.
+  useEffect(
+    () => api().previewWorkspaceMode(appearance.mode),
+    [appearance.mode],
+  );
+  useEffect(() => () => api().previewWorkspaceMode(null), []);
 
   const update = (patch: Partial<WorkspaceAppearance>) =>
     setAppearance((current) => ({ ...current, ...patch }));
@@ -145,7 +253,8 @@ export function WorkspaceEditor({
       } else {
         await api().createWorkspace(displayName, appearance);
       }
-      closeOverlay();
+      savingRef.current = false;
+      setPanel(null);
     } catch {
       setSaveError(
         'Couldn’t save this workspace. Your changes are still here. Try again.',
@@ -156,64 +265,49 @@ export function WorkspaceEditor({
     }
   };
 
-  const preview = useMemo(
-    () => themeVariables(appearance, previewDark) as CSSProperties,
-    [appearance, previewDark],
-  );
-
-  const gradient = gradientPreset(appearance.gradient);
-  const [themeOpen, setThemeOpen] = useState(true);
+  // The canvas shows the picked colours, a preset's, or the accent.
+  const wheelColors = appearance.colors ??
+    themePreset(appearance.gradient)?.colors ?? [
+      accentColors(appearance.accent).light,
+    ];
 
   return (
-    <div
-      ref={dialogRef}
-      tabIndex={-1}
-      role="dialog"
-      aria-modal="true"
-      aria-label={existing ? 'Customize workspace' : 'New workspace'}
-      className="scrim-in absolute inset-0 flex items-start justify-center overflow-y-auto bg-scrim p-6 pt-[6vh]"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          close();
-        }
-      }}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) close();
-      }}
-    >
+    <>
+      <PanelHeader title={existing ? 'Edit workspace' : 'New workspace'} />
       <form
         onSubmit={(event) => {
           event.preventDefault();
           void save();
         }}
         aria-busy={saving}
-        style={preview}
-        className="workspace-sheet dialog-in flex w-(--dialog-width) max-w-full flex-col gap-3 rounded-sheet p-4 shadow-panel"
+        aria-label={existing ? 'Edit workspace' : 'New workspace'}
+        className="flex min-h-0 flex-1 flex-col"
       >
-        {/* The workspace as it will look: its icon on a fan of cards. */}
-        <div className="flex flex-col items-center gap-1 pt-3 pb-2 text-center">
-          <div className="workspace-cards" aria-hidden>
-            {['left', 'right', 'front'].map((card) => (
-              <span key={card} className="workspace-card" data-card={card}>
-                <WorkspaceIcon
-                  icon={appearance.icon}
-                  name={displayName}
-                  size={card === 'front' ? 26 : 22}
-                />
-              </span>
-            ))}
-          </div>
-          <h1 className="mt-3 text-display font-semibold tracking-[-0.01em]">
-            {existing ? 'Customize workspace' : 'Create a workspace'}
-          </h1>
-          <p className="max-w-[30ch] text-body leading-copy text-fg-muted">
-            Keep your pages apart for life, work, projects and more.
-          </p>
-        </div>
+        <fieldset
+          disabled={saving}
+          className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-1 pt-1 pb-3"
+        >
+          {/* The workspace as it will look: its icon on a fan of cards. */}
+          {!existing && (
+            <div className="flex flex-col items-center gap-1 pt-2 pb-1 text-center">
+              <div className="workspace-cards" aria-hidden>
+                {['left', 'right', 'front'].map((card) => (
+                  <span key={card} className="workspace-card" data-card={card}>
+                    <WorkspaceIcon
+                      icon={appearance.icon}
+                      name={displayName}
+                      size={card === 'front' ? 26 : 22}
+                    />
+                  </span>
+                ))}
+              </div>
+              <p className="mt-2 max-w-[32ch] text-small leading-copy text-fg-muted">
+                Keep your pages apart for life, work, projects and more.
+              </p>
+            </div>
+          )}
 
-        <fieldset disabled={saving} className="contents">
-          <label className="sheet-panel flex h-11 items-center gap-2.5 px-3.5">
+          <label className="sheet-panel flex h-11 shrink-0 items-center gap-2.5 px-3.5">
             <span
               className="grid size-5 shrink-0 place-items-center text-accent"
               aria-hidden
@@ -242,9 +336,69 @@ export function WorkspaceEditor({
             </p>
           )}
 
-          <section className="sheet-panel flex flex-col gap-2.5 p-3">
+          <section className="sheet-panel flex shrink-0 flex-col gap-2 p-2">
+            <AccentWheel
+              colors={wheelColors}
+              onChange={(colors) =>
+                update({ colors, gradient: undefined, accent: colors[0]! })
+              }
+            >
+              <div
+                role="radiogroup"
+                aria-label="Light or dark"
+                className="flex gap-1"
+              >
+                {MODES.map(({ mode, label, Icon }) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={appearance.mode === mode}
+                    aria-label={label}
+                    title={label}
+                    onClick={() => update({ mode })}
+                    className="grid size-9 place-items-center rounded-control text-fg-subtle transition-colors duration-fast hover:text-fg aria-checked:bg-row-pressed aria-checked:text-fg"
+                  >
+                    <Icon size={18} strokeWidth={1.75} />
+                  </button>
+                ))}
+              </div>
+            </AccentWheel>
+            <ThemeSwatches
+              appearance={appearance}
+              dark={dark}
+              onPlain={() =>
+                update({
+                  gradient: undefined,
+                  colors: undefined,
+                  accent: appearance.colors?.[0] ?? appearance.accent,
+                })
+              }
+              onPreset={(preset) =>
+                update({
+                  gradient: preset.id,
+                  colors: undefined,
+                  accent: preset.colors[0]!,
+                })
+              }
+            />
+            <div className="flex items-center gap-4 pr-1 pb-1 pl-2">
+              <WaveSlider
+                label="Intensity"
+                value={appearance.intensity ?? INTENSITY}
+                onChange={(intensity) => update({ intensity })}
+              />
+              <GrainDial
+                label="Grain"
+                value={appearanceGrain(appearance)}
+                onChange={(grain) => update({ grain })}
+              />
+            </div>
+          </section>
+
+          <section className="sheet-panel flex shrink-0 flex-col gap-2.5 p-3">
             <div className="flex items-center justify-between gap-2 pl-1">
-              <h2 className="text-body font-medium text-fg-muted">Icon</h2>
+              <h2 className={GROUP_LABEL}>Icon</h2>
               <SegmentedControl
                 label="Icon type"
                 options={ICON_KINDS.map(({ kind, label }) => ({
@@ -345,171 +499,17 @@ export function WorkspaceEditor({
             />
           </section>
 
-          <section className="sheet-panel flex flex-col p-3">
-            <button
-              type="button"
-              aria-expanded={themeOpen}
-              onClick={() => setThemeOpen((open) => !open)}
-              className="flex h-7 items-center gap-2 rounded-row pl-1 text-left text-body font-medium text-fg"
+          {saveError && (
+            <p
+              role="alert"
+              className="px-1 text-small leading-relaxed text-danger"
             >
-              <Palette
-                size={16}
-                strokeWidth={1.75}
-                className="text-fg-muted"
-                aria-hidden
-              />
-              <span className="flex-1">Choose a theme</span>
-              <ChevronUp
-                size={14}
-                strokeWidth={2}
-                aria-hidden
-                className="text-fg-subtle transition-transform duration-base ease-emphasized"
-                style={{ rotate: themeOpen ? '0deg' : '180deg' }}
-              />
-            </button>
-            <div
-              role="radiogroup"
-              aria-label="Theme"
-              className="flex flex-wrap gap-2 pt-3 pl-1"
-            >
-              <button
-                type="button"
-                role="radio"
-                aria-checked={!gradient}
-                aria-label="Plain"
-                title="Plain"
-                onClick={() => update({ gradient: undefined })}
-                style={{
-                  background: previewDark
-                    ? framePreset(appearance.frame).dark.chrome
-                    : framePreset(appearance.frame).light.elevated,
-                }}
-                className="theme-swatch"
-              />
-              {GRADIENTS.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={appearance.gradient === option.id}
-                  aria-label={option.label}
-                  title={option.label}
-                  onClick={() =>
-                    update({ gradient: option.id, accent: option.accent })
-                  }
-                  style={{
-                    backgroundImage: gradientImage(option, 'swatch'),
-                  }}
-                  className="theme-swatch"
-                />
-              ))}
-            </div>
-            <Reveal show={themeOpen}>
-              <div className="flex flex-col gap-4 pt-4 pl-1">
-                <Field label="Accent">
-                  <div
-                    role="radiogroup"
-                    aria-label="Accent colour"
-                    className="flex flex-wrap items-center gap-1.5"
-                  >
-                    {ACCENTS.map((accent) => (
-                      <button
-                        key={accent.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={appearance.accent === accent.id}
-                        aria-label={accent.label}
-                        title={accent.label}
-                        onClick={() => update({ accent: accent.id })}
-                        style={{
-                          background: previewDark ? accent.dark : accent.light,
-                        }}
-                        className="size-6 rounded-full shadow-outline outline-offset-2 aria-checked:outline-2 aria-checked:outline-(--fg-muted)"
-                      />
-                    ))}
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={customAccent}
-                      aria-label="Custom colour"
-                      title="Custom colour"
-                      onClick={() => {
-                        // Start the wheel from the colour already chosen.
-                        if (!customAccent)
-                          update({
-                            accent: accentColors(appearance.accent).light,
-                          });
-                      }}
-                      style={{
-                        background: customAccent
-                          ? appearance.accent
-                          : 'conic-gradient(#e55, #ec5, #5c7, #5ae, #85e, #e55)',
-                      }}
-                      className="size-6 rounded-full shadow-outline outline-offset-2 aria-checked:outline-2 aria-checked:outline-(--fg-muted)"
-                    />
-                  </div>
-                  <Reveal show={customAccent}>
-                    <div className="pt-1">
-                      <AccentWheel
-                        value={accentColors(appearance.accent).light}
-                        onChange={(accent) => update({ accent })}
-                      />
-                    </div>
-                  </Reveal>
-                </Field>
-
-                {/* A gradient covers the frame, so its colour only matters without one. */}
-                {!gradient && (
-                  <Field label="Frame">
-                    <div
-                      role="radiogroup"
-                      aria-label="Frame colour"
-                      className="flex flex-wrap gap-1.5"
-                    >
-                      {FRAMES.map((frame) => (
-                        <button
-                          key={frame.id}
-                          type="button"
-                          role="radio"
-                          aria-checked={appearance.frame === frame.id}
-                          aria-label={frame.label}
-                          title={frame.label}
-                          onClick={() => update({ frame: frame.id })}
-                          style={{
-                            background: previewDark
-                              ? frame.dark.chrome
-                              : frame.light.chrome,
-                          }}
-                          className="h-7 w-10 rounded-row shadow-outline outline-offset-2 aria-checked:outline-2 aria-checked:outline-(--fg-muted)"
-                        />
-                      ))}
-                    </div>
-                  </Field>
-                )}
-
-                <Field label="Appearance">
-                  <SegmentedControl
-                    stretch
-                    label="Light or dark"
-                    options={MODES.map(({ mode, label }) => ({
-                      value: mode,
-                      label,
-                    }))}
-                    value={appearance.mode}
-                    onChange={(mode) => update({ mode })}
-                  />
-                </Field>
-              </div>
-            </Reveal>
-          </section>
+              {saveError}
+            </p>
+          )}
         </fieldset>
 
-        {saveError && (
-          <p role="alert" className="text-small leading-relaxed text-danger">
-            {saveError}
-          </p>
-        )}
-        <div className="flex items-center justify-end gap-2 pt-1">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-divider px-1 pt-2 pb-1">
           <button
             type="button"
             onClick={close}
@@ -531,6 +531,6 @@ export function WorkspaceEditor({
           </button>
         </div>
       </form>
-    </div>
+    </>
   );
 }

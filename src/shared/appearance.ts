@@ -1,3 +1,12 @@
+import {
+  hexToOklch,
+  hueDistance,
+  maxChroma,
+  normalizeHue,
+  type Oklch,
+  oklchToHex,
+  pointToHex,
+} from './color';
 import type { WorkspaceAppearance } from './types';
 
 /**
@@ -134,106 +143,191 @@ export const FRAMES: readonly FramePreset[] = [
   },
 ];
 
-export interface GradientPreset {
+/**
+ * A theme preset: up to three places on the colour canvas, the same dots
+ * the picker shows, turned into a gradient by `themeStops`.
+ */
+export interface ThemePreset {
   id: string;
   label: string;
-  /** Three stops, from the top left corner to the bottom right. */
-  light: readonly [string, string, string];
-  dark: readonly [string, string, string];
-  /** Livelier stops for the picker's swatch, which must read in both modes. */
-  swatch: readonly [string, string, string];
-  /** The accent preset that suits it; picking the gradient picks it too. */
-  accent: string;
+  colors: readonly string[];
+}
+
+const theme = (id: string, label: string, ...points: [number, number][]) => ({
+  id,
+  label,
+  colors: points.map(([hue, radius]) => pointToHex({ hue, radius })),
+});
+
+/**
+ * The picker's presets, a page of nine at a time. Hues are OKLCH angles:
+ * red 25, orange 55, yellow 95, green 145, teal 185, blue 255, violet 300,
+ * pink 350. The first eight keep the ids of the gradients they replace, so
+ * workspaces saved with those still find them.
+ */
+export const THEMES: readonly ThemePreset[] = [
+  theme('dusk', 'Dusk', [350, 0.7], [300, 0.7], [262, 0.7]),
+  theme('ember', 'Ember', [50, 0.9], [25, 0.8], [345, 0.6]),
+  theme('meadow', 'Meadow', [140, 0.6], [170, 0.55], [215, 0.5]),
+  theme('lagoon', 'Lagoon', [195, 0.7], [250, 0.65], [290, 0.5]),
+  theme('aurora', 'Aurora', [160, 0.7], [250, 0.6], [310, 0.6]),
+  theme('bloom', 'Bloom', [355, 0.6], [60, 0.6], [95, 0.55]),
+  theme('sand', 'Sand', [80, 0.3], [55, 0.3], [30, 0.2]),
+  theme('graphite', 'Graphite', [260, 0.06]),
+  theme('citrus', 'Citrus', [120, 0.85], [95, 0.8], [145, 0.6]),
+  theme('ocean', 'Ocean', [245, 0.8]),
+  theme('grape', 'Grape', [305, 0.8], [280, 0.7]),
+  theme('coral', 'Coral', [30, 0.7], [0, 0.6]),
+  theme('forest', 'Forest', [150, 0.7]),
+  theme('rose', 'Rose', [355, 0.7]),
+  theme('mint', 'Mint', [175, 0.6], [150, 0.5]),
+  theme('cosmic', 'Cosmic', [275, 0.8], [330, 0.8], [240, 0.7]),
+  theme('peach', 'Peach', [60, 0.5], [10, 0.45]),
+];
+
+export function themePreset(id: string | null | undefined): ThemePreset | null {
+  return THEMES.find((preset) => preset.id === id) ?? null;
+}
+
+/** The colours a workspace paints its frame with: its own or a preset's. */
+export function appearanceColors(
+  appearance: Pick<WorkspaceAppearance, 'gradient' | 'colors'>,
+): readonly string[] | null {
+  if (appearance.colors?.length) return appearance.colors;
+  return themePreset(appearance.gradient)?.colors ?? null;
+}
+
+/** The intensity a workspace has unless it sets one. */
+export const INTENSITY = 0.5;
+/** The grain a gradient has unless it sets some. A plain frame has none. */
+export const GRAIN = 0.375;
+
+export function appearanceGrain(appearance: WorkspaceAppearance): number {
+  return appearance.grain ?? (appearanceColors(appearance) ? GRAIN : 0);
 }
 
 /**
- * Arc-style backgrounds for the window frame: soft three-colour meshes with
- * a little grain. Light ones are pastels and dark ones deep tones, so the
- * sidebar's text keeps the contrast it has on a plain frame.
+ * Three stops from one to three colours, in the order the frame lays them
+ * out: the lit corner (top left), the middle, the far corner.
+ *
+ * One colour gets companions the way a painter shades: a little warmer
+ * towards the light, a little cooler into the shadow, so it still moves.
+ * Two meet along the hue circle at full chroma, so the middle never goes
+ * grey the way an RGB mix does.
  */
-export const GRADIENTS: readonly GradientPreset[] = [
-  {
-    id: 'dusk',
-    swatch: ['#f08bb4', '#a98be8', '#6f8ff0'],
-    label: 'Dusk',
-    light: ['#f7cadb', '#dcc6f2', '#bccbf6'],
-    dark: ['#3d1e37', '#2b2047', '#1b2243'],
-    accent: 'iris',
-  },
-  {
-    id: 'ember',
-    swatch: ['#ffad6b', '#f2735a', '#d9709e'],
-    label: 'Ember',
-    light: ['#ffd6b5', '#f8b9a6', '#efc4d8'],
-    dark: ['#42220f', '#3b1818', '#2d1627'],
-    accent: 'ember',
-  },
-  {
-    id: 'meadow',
-    swatch: ['#a6dc8a', '#6fcfa9', '#79b8dc'],
-    label: 'Meadow',
-    light: ['#dcf2d2', '#c6ebdd', '#d4e8f2'],
-    dark: ['#1c2d19', '#152c25', '#15242c'],
-    accent: 'moss',
-  },
-  {
-    id: 'lagoon',
-    swatch: ['#6fd6e0', '#6aa4f0', '#a093ec'],
-    label: 'Lagoon',
-    light: ['#c9eef1', '#c3daf8', '#d9d2f7'],
-    dark: ['#0e2b31', '#13233a', '#1e1c3b'],
-    accent: 'teal',
-  },
-  {
-    id: 'aurora',
-    swatch: ['#6fe0b4', '#79a6f5', '#c98bec'],
-    label: 'Aurora',
-    light: ['#c6f0df', '#cddffc', '#ebd0f7'],
-    dark: ['#0e2f28', '#142445', '#2e1842'],
-    accent: 'sky',
-  },
-  {
-    id: 'bloom',
-    swatch: ['#f59cc0', '#fbbd8f', '#f4dc7a'],
-    label: 'Bloom',
-    light: ['#fbd3e3', '#fde3cf', '#f9f0c9'],
-    dark: ['#3e1a2c', '#3a2418', '#2f2a14'],
-    accent: 'rose',
-  },
-  {
-    id: 'sand',
-    swatch: ['#e9cfa3', '#ddb08c', '#c9a99a'],
-    label: 'Sand',
-    light: ['#f6e9d3', '#f0dbc4', '#e9d8cf'],
-    dark: ['#2f271b', '#2c2119', '#29201d'],
-    accent: 'amber',
-  },
-  {
-    id: 'graphite',
-    swatch: ['#b9bcc6', '#8d909c', '#5f6270'],
-    label: 'Graphite',
-    light: ['#eeeef1', '#e0e1e6', '#d2d4db'],
-    dark: ['#252529', '#1c1c20', '#131317'],
-    accent: 'graphite',
-  },
-];
-
-export function gradientPreset(
-  id: string | null | undefined,
-): GradientPreset | null {
-  return GRADIENTS.find((gradient) => gradient.id === id) ?? null;
+function stopsOf(colors: readonly string[]): [Oklch, Oklch, Oklch] {
+  const [a, b, c] = colors.map(hexToOklch) as [Oklch, Oklch?, Oklch?];
+  if (!b) {
+    return [
+      { ...a, h: towards(a.h, WARM, 22) },
+      a,
+      { ...a, h: towards(a.h, COOL, 26) },
+    ];
+  }
+  if (!c) {
+    const middle = {
+      l: (a.l + b.l) / 2,
+      c: Math.max((a.c + b.c) / 2, 0.9 * Math.max(a.c, b.c)),
+      h: normalizeHue(a.h + hueDistance(a.h, b.h) / 2),
+    };
+    return [a, middle, b];
+  }
+  return [a, b, c];
 }
 
-/** The CSS background for a gradient: a mesh of its three stops. */
-export function gradientImage(
-  gradient: GradientPreset,
+/** Light leans warm and shadow cool, as in a painting. */
+const WARM = 70;
+const COOL = 255;
+
+function towards(hue: number, target: number, degrees: number): number {
+  const distance = hueDistance(hue, target);
+  return normalizeHue(
+    hue + Math.sign(distance) * Math.min(Math.abs(distance), degrees),
+  );
+}
+
+/**
+ * Each scheme fixes lightness and lets intensity drive chroma, so a stop
+ * keeps the hue it was picked at while text keeps its contrast: pastel in
+ * light, deep in dark. The lit corner is a touch lighter and the far one a
+ * touch deeper.
+ */
+const TONE = {
+  light: { lightness: [0.965, 0.95, 0.93], drop: 0.12, chroma: 0.9 },
+  dark: { lightness: [0.215, 0.2, 0.18], drop: -0.12, chroma: 0.8 },
+} as const;
+/** How far the lit and far stops lean warm and cool, at full vividness. */
+const SHADE = [10, 0, 12];
+
+/**
+ * The lightest a dark stop and the darkest a light stop may be, as relative
+ * luminance: where fg-muted (tokens.css) still has 4.5:1 on it. TONE keeps
+ * inside these; this catches whatever rounding or the gamut leaves.
+ */
+const LUMINANCE = { light: 0.56, dark: 0.048 };
+
+function luminance(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** Lightens (light) or darkens (dark) a stop just enough to stay legible. */
+function legible(color: Oklch, tone: 'light' | 'dark'): string {
+  let hex = oklchToHex(color);
+  for (let step = 0; step < 20; step++) {
+    const lum = luminance(hex);
+    if (tone === 'light' ? lum >= LUMINANCE.light : lum <= LUMINANCE.dark)
+      break;
+    color = { ...color, l: color.l + (tone === 'light' ? 0.01 : -0.01) };
+    hex = oklchToHex(color);
+  }
+  return hex;
+}
+
+/** A gradient's three stops in a scheme, at an intensity from 0 to 1. */
+export function themeStops(
+  colors: readonly string[],
   tone: 'light' | 'dark' | 'swatch',
+  intensity = INTENSITY,
+): [string, string, string] {
+  const stops = stopsOf(colors);
+  // The swatch shows the colours as picked, as the canvas does.
+  if (tone === 'swatch')
+    return stops.map((stop) => oklchToHex(stop)) as [string, string, string];
+  const t = Math.min(1, Math.max(0, intensity));
+  const { lightness, drop, chroma } = TONE[tone];
+  return stops.map((stop, i) => {
+    // How vivid the dot was on the canvas: greys stay grey.
+    const vivid = Math.min(1, stop.c / (maxChroma(stop.l, stop.h) || 1));
+    const l = lightness[i]! - drop * t;
+    const h =
+      i === 0
+        ? towards(stop.h, WARM, SHADE[0]! * vivid)
+        : i === 2
+          ? towards(stop.h, COOL, SHADE[2]! * vivid)
+          : stop.h;
+    const c = vivid * maxChroma(l, h) * chroma * (0.12 + 0.88 * t ** 1.2);
+    return legible({ l, c, h }, tone);
+  }) as [string, string, string];
+}
+
+/**
+ * The CSS background for a gradient: the lit and far corners glow over a
+ * sweep through all three, mixed in OKLab so no band turns muddy.
+ */
+export function themeImage(
+  colors: readonly string[],
+  tone: 'light' | 'dark' | 'swatch',
+  intensity = INTENSITY,
 ): string {
-  const [a, b, c] = gradient[tone];
+  const [a, b, c] = themeStops(colors, tone, intensity);
   return [
-    `radial-gradient(90% 70% at 0% 0%, ${a} 0%, transparent 70%)`,
-    `radial-gradient(80% 80% at 100% 100%, ${c} 0%, transparent 70%)`,
-    `linear-gradient(150deg, ${a}, ${b} 50%, ${c})`,
+    `radial-gradient(90% 70% at 0% 0% in oklab, ${a} 0%, transparent 70%)`,
+    `radial-gradient(80% 80% at 100% 100% in oklab, ${c} 0%, transparent 70%)`,
+    `linear-gradient(150deg in oklab, ${a}, ${b} 50%, ${c})`,
   ].join(', ');
 }
 
@@ -302,14 +396,16 @@ export function framePreset(id: string): FramePreset {
 }
 
 /**
- * Accent colours for light and dark. A custom colour is used as is in
- * light mode; dark mode gets a lighter mix so it stays legible.
+ * Accent colours for light and dark. A custom colour keeps its hue and
+ * chroma at a lightness each scheme can read: deep on light frames, light
+ * on dark ones.
  */
 export function accentColors(accent: string): { light: string; dark: string } {
   if (isCustomAccent(accent)) {
+    const { c, h } = hexToOklch(accent);
     return {
-      light: accent,
-      dark: `color-mix(in oklab, ${accent} 70%, white)`,
+      light: oklchToHex({ l: 0.5, c, h }),
+      dark: oklchToHex({ l: 0.8, c, h }),
     };
   }
   const preset = ACCENTS.find((other) => other.id === accent) ?? ACCENTS[0]!;
@@ -341,23 +437,18 @@ export function frameColor(
   dark: boolean,
 ): string {
   // A gradient's middle stop stands in where only one colour will do.
-  const gradient = gradientPreset(appearance.gradient);
-  if (gradient) return dark ? gradient.dark[1] : gradient.light[1];
+  const colors = appearanceColors(appearance);
+  const intensity = appearance.intensity ?? INTENSITY;
+  if (colors) return themeStops(colors, dark ? 'dark' : 'light', intensity)[1];
   const chrome = dark
     ? framePreset(appearance.frame).dark.chrome
     : framePreset(appearance.frame).light.chrome;
-  let accent: string;
-  if (isCustomAccent(appearance.accent)) {
-    // Dark mode lightens a custom accent the way `accentColors` does.
-    accent = dark
-      ? mixHex(appearance.accent, '#ffffff', 0.7)
-      : appearance.accent;
-  } else {
-    const preset =
-      ACCENTS.find((other) => other.id === appearance.accent) ?? ACCENTS[0]!;
-    accent = dark ? preset.dark : preset.light;
-  }
-  return mixHex(accent, chrome, dark ? FRAME_TINT.dark : FRAME_TINT.light);
+  const accents = accentColors(appearance.accent);
+  const accent = dark ? accents.dark : accents.light;
+  // Intensity scales the tint: none at 0, twice the usual at 1.
+  const tint =
+    (dark ? FRAME_TINT.dark : FRAME_TINT.light) * (intensity / INTENSITY);
+  return mixHex(accent, chrome, tint);
 }
 
 /**

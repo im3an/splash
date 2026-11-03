@@ -298,6 +298,15 @@ export interface WorkspaceAppearance {
   frame: string;
   /** A gradient preset painted over the frame; missing means none. */
   gradient?: string;
+  /**
+   * One to three `#rrggbb` colours picked on the colour wheel, painted over
+   * the frame as a gradient in place of a preset. The first is the accent.
+   */
+  colors?: string[];
+  /** How strongly the colours show, 0–1; missing means `INTENSITY`. */
+  intensity?: number;
+  /** How much grain lies over the frame, 0–1; missing means the default. */
+  grain?: number;
   mode: WorkspaceMode;
 }
 

@@ -111,12 +111,10 @@
 }
 
 /*
- * A workspace's gradient, over the frame colour. Grain keeps the bands out
- * of it, like Arc's. It sits under everything and never takes the pointer.
+ * A workspace's gradient, over the frame colour, under its grain (set by
+ * use-workspace-theme). Grain keeps the bands out of it, like Arc's. It sits
+ * under everything and never takes the pointer.
  */
-:root {
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
 body::before {
   content: '';
   position: fixed;
@@ -647,34 +645,43 @@ body::before {
   }
 
   /*
-   * The accent wheel (AccentWheel.tsx): a grid of dots, each the colour at
-   * its place. Hue runs clockwise from the top, dark at the centre to light
-   * at the rim, matching src/renderer/lib/color-wheel.ts.
+   * The colour canvas (AccentWheel.tsx), after Arc's: a quiet field of grey
+   * dots with the picked colours on it as large white-ringed dots. Where a
+   * colour sits is in src/shared/color.ts.
    */
-  .accent-wheel-dots {
-    border-radius: var(--radius-full);
-    /* --wheel-hues is set by the component from the wheel's geometry. */
-    background: var(--wheel-shade), conic-gradient(var(--wheel-hues));
-    mask: radial-gradient(circle, black 1.25px, transparent 1.75px) center / 8px
-      8px;
+  .color-canvas {
+    border-radius: var(--radius-panel);
+    background:
+      radial-gradient(
+          circle,
+          color-mix(in oklab, var(--fg) 20%, transparent) 0.9px,
+          transparent 1.3px
+        )
+        center / 7px 7px,
+      color-mix(in oklab, var(--fg) 4%, var(--elevated));
+    box-shadow: inset 0 0 0 1px var(--divider);
     cursor: crosshair;
   }
-  .accent-wheel-handle {
+  .color-canvas-dot {
     box-shadow:
-      0 0 0 2px var(--wheel-handle-ring),
+      0 0 0 4px var(--wheel-handle-ring),
       var(--shadow-wheel-handle);
+    cursor: grab;
     transition:
       box-shadow var(--duration-fast) var(--ease-out),
       scale var(--duration-fast) var(--ease-out);
   }
-  .accent-wheel-handle:hover,
-  .accent-wheel-handle:active {
-    scale: 1.12;
+  .color-canvas-dot:hover {
+    scale: 1.06;
   }
-  .accent-wheel-handle:focus-visible {
+  .color-canvas-dot:active {
+    cursor: grabbing;
+    scale: 1.1;
+  }
+  .color-canvas-dot:focus-visible {
     box-shadow:
-      0 0 0 2px var(--wheel-handle-ring),
-      0 0 0 4px var(--focus-ring),
+      0 0 0 4px var(--wheel-handle-ring),
+      0 0 0 6px var(--focus-ring),
       var(--shadow-wheel-handle);
   }
 
@@ -749,8 +756,8 @@ body::before {
   .press:active:not(:disabled),
   .icon-button:active:not(:disabled),
   .button:active:not(:disabled),
-  .accent-wheel-handle:hover,
-  .accent-wheel-handle:active {
+  .color-canvas-dot:hover,
+  .color-canvas-dot:active {
     scale: none;
   }
 }
@@ -1488,20 +1495,10 @@ button.sidebar-row,
 }
 
 /*
- * The workspace editor, after Arc's "Create a Space" sheet: the chosen
- * theme's gradient previews across the top, and each part sits in its own
- * soft panel.
+ * The workspace editor (WorkspaceEditor.tsx), a sidebar panel after Arc's
+ * "Create a Space": each part sits in its own soft panel, and the window
+ * frame itself previews the theme.
  */
-.workspace-sheet {
-  background:
-    linear-gradient(to bottom, transparent, var(--elevated) 230px),
-    var(--frame-image, none), var(--elevated);
-  background-repeat: no-repeat;
-  background-size:
-    100% 260px,
-    100% 260px,
-    auto;
-}
 .sheet-panel {
   border-radius: var(--radius-panel);
   background: var(--field);
@@ -1547,11 +1544,11 @@ button.sidebar-row,
   z-index: 1;
   top: 0;
 }
-.workspace-sheet:hover .workspace-card[data-card='left'] {
+.workspace-cards:hover .workspace-card[data-card='left'] {
   translate: -40px 8px;
   rotate: -12deg;
 }
-.workspace-sheet:hover .workspace-card[data-card='right'] {
+.workspace-cards:hover .workspace-card[data-card='right'] {
   translate: 40px 8px;
   rotate: 12deg;
 }
@@ -1578,20 +1575,81 @@ button.sidebar-row,
 }
 
 /*
- * A theme as a flat dot of its gradient, so the colours read as they will
- * on the frame. The outline keeps pale ones visible on any sheet.
+ * The theme presets (WorkspaceEditor.tsx): nine dots to a page that snap
+ * as it scrolls, each the gradient's colours flat. The outline keeps pale
+ * ones visible; the padding keeps a chosen one's ring from being clipped.
  */
+.theme-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 8 * 6px) / 9);
+  gap: 6px;
+  padding: 5px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 5px;
+  scrollbar-width: none;
+}
 .theme-swatch {
-  width: 30px;
-  height: 30px;
+  width: 100%;
+  aspect-ratio: 1;
   border-radius: var(--radius-full);
   box-shadow: var(--shadow-outline);
-  outline-offset: 3px;
+  outline-offset: 2px;
   transition: scale var(--duration-fast) var(--ease-out);
+}
+/* Pages snap whole: only the first of every nine is a snap point. */
+.theme-swatch:nth-child(9n + 1) {
+  scroll-snap-align: start;
 }
 .theme-swatch:hover {
   scale: 1.08;
 }
 .theme-swatch[aria-checked='true'] {
   outline: 2px solid var(--accent);
+}
+
+/*
+ * The grain dial (GrainDial.tsx), after Arc's: a ring of dots lit up to the
+ * value around a silver knob whose face shows the grain, and a white pill
+ * outside the ring where it points.
+ */
+.grain-dial-dot {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: color-mix(in oklab, var(--fg) 18%, transparent);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+.grain-dial-dot[data-lit] {
+  background: var(--fg-subtle);
+}
+.grain-dial-knob {
+  position: absolute;
+  inset: 15px;
+  border-radius: var(--radius-full);
+  background-color: var(--dial-knob);
+  box-shadow: var(--shadow-outline), var(--shadow-wheel-handle);
+  transition: box-shadow var(--duration-fast) var(--ease-out);
+}
+.grain-dial-marker {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: rotate var(--duration-fast) var(--ease-out);
+}
+.grain-dial-marker::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: calc(50% - 3px);
+  width: 6px;
+  height: 13px;
+  border-radius: var(--radius-full);
+  background: var(--wheel-handle-ring);
+  box-shadow: var(--shadow-wheel-handle);
+}
+.grain-dial:focus-visible .grain-dial-knob {
+  box-shadow: var(--shadow-outline), var(--shadow-focus);
 }

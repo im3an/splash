@@ -24,6 +24,7 @@ import type {
   SitePermission,
   UiCommand,
   WorkspaceAppearance,
+  WorkspaceMode,
 } from '../../shared/types';
 import { BrowserController } from '../browser/browser-controller';
 import { buildPaletteItems, searchSuggestionItems } from '../browser/palette';
@@ -140,6 +141,8 @@ export class TrailWindow {
   private shellRecovering = false;
   private closePending: Promise<boolean> | null = null;
   private insets: ContentInsets | null = null;
+  /** The light or dark the workspace editor is showing, while it's open. */
+  private previewMode: WorkspaceMode | null = null;
   private readonly persister: SessionPersister;
   /** An assistant beside the page, signed in like any other page. */
   private readonly aiPanel: AiPanel;
@@ -460,6 +463,10 @@ export class TrailWindow {
         'view:focus-page': () => this.controller.focusActivePage(),
         'view:set-overlay': ({ active }) =>
           this.controller.setOverlayActive(active),
+        'workspace:preview-mode': ({ mode }) => {
+          this.previewMode = mode;
+          this.applyAppearance();
+        },
         'ai:place': (placement) => this.aiPanel.place(placement),
       },
     };
@@ -601,10 +608,11 @@ export class TrailWindow {
 
   /**
    * A workspace can insist on light or dark; otherwise the app-wide choice
-   * applies. The window frame takes the workspace's frame colour.
+   * applies. The window frame takes the workspace's frame colour. While the
+   * workspace editor is open, the mode it's showing wins.
    */
   applyAppearance(): void {
-    const { mode } = this.controller.activeAppearance;
+    const mode = this.previewMode ?? this.controller.activeAppearance.mode;
     const source =
       mode !== 'system' ? mode : this.options.preferences.get().theme;
     if (nativeTheme.themeSource !== source) nativeTheme.themeSource = source;

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import {
   accentColors,
+  appearanceColors,
+  appearanceGrain,
   frameColor,
   framePreset,
-  gradientImage,
-  gradientPreset,
+  themeImage,
 } from '../../shared/appearance';
 import type { WorkspaceAppearance } from '../../shared/types';
+import { grainImage } from '../lib/grain';
 import { useShell } from '../stores/shell-store';
 
 const DARK = '(prefers-color-scheme: dark)';
@@ -33,13 +35,13 @@ export function themeVariables(
   const accent = accentColors(appearance.accent);
   const accentColor = dark ? accent.dark : accent.light;
   const colors = dark ? frame.dark : frame.light;
-  const gradient = gradientPreset(appearance.gradient);
+  const gradient = appearanceColors(appearance);
   return {
     // Painted over the frame colour, which stands in while it fades in.
     '--frame-image': gradient
-      ? gradientImage(gradient, dark ? 'dark' : 'light')
+      ? themeImage(gradient, dark ? 'dark' : 'light', appearance.intensity)
       : 'none',
-    '--frame-grain': gradient ? 'var(--grain)' : 'none',
+    '--frame-grain': grainImage(appearanceGrain(appearance)),
     '--chrome': colors.chrome,
     '--frame': frameColor(appearance, dark),
     '--surface': colors.surface,
@@ -58,8 +60,10 @@ export function themeVariables(
  * dark itself is set by the main process, so pages follow it too.
  */
 export function useWorkspaceTheme(): void {
+  // The workspace panel previews the look it's editing on the real frame.
   const appearance = useShell(
     (state) =>
+      state.appearancePreview ??
       state.snapshot?.workspaces.find(
         (workspace) => workspace.id === state.snapshot?.activeWorkspaceId,
       )?.appearance,

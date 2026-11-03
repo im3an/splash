@@ -24,13 +24,12 @@ async function performPaletteItem(
   // Commands that open another overlay take over the current one.
   if (item.kind === 'command') {
     if (item.command === 'new-workspace') {
-      return overlay.open({ kind: 'workspace-editor', workspaceId: null });
+      overlay.close();
+      return shell.editWorkspace(null);
     }
     if (item.command === 'customize-workspace' && shell.snapshot) {
-      return overlay.open({
-        kind: 'workspace-editor',
-        workspaceId: shell.snapshot.activeWorkspaceId,
-      });
+      overlay.close();
+      return shell.editWorkspace(shell.snapshot.activeWorkspaceId);
     }
     if (item.command === 'site-info' && active?.url) {
       return overlay.open({ kind: 'site-info' });

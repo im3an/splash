@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AI_PROVIDER_IDS } from './ai';
-import { ACCENTS, FRAMES, GRADIENTS, SYMBOLS } from './appearance';
+import { ACCENTS, FRAMES, SYMBOLS, THEMES } from './appearance';
 import { SEARCH_ENGINES, TOOLBAR_ACTIONS } from './preferences';
 
 /**
@@ -141,8 +141,15 @@ export const workspaceAppearanceSchema = z.strictObject({
   ]),
   frame: z.enum(FRAMES.map((frame) => frame.id) as [string, ...string[]]),
   gradient: z
-    .enum(GRADIENTS.map((gradient) => gradient.id) as [string, ...string[]])
+    .enum(THEMES.map((preset) => preset.id) as [string, ...string[]])
     .optional(),
+  colors: z
+    .array(z.string().regex(/^#[0-9a-f]{6}$/i))
+    .min(1)
+    .max(3)
+    .optional(),
+  intensity: z.number().min(0).max(1).optional(),
+  grain: z.number().min(0).max(1).optional(),
   mode: z.enum(['system', 'light', 'dark']),
 });
 
@@ -333,6 +340,9 @@ export const sendContract = {
   }),
   'view:focus-page': z.undefined(),
   'view:set-overlay': z.strictObject({ active: z.boolean() }),
+  'workspace:preview-mode': z.strictObject({
+    mode: z.enum(['system', 'light', 'dark']).nullable(),
+  }),
   'ai:place': z
     .strictObject({
       provider: z.enum(AI_PROVIDER_IDS),

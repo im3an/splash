@@ -24,3 +24,17 @@ describe('sidebar panels', () => {
     });
   });
 });
+
+describe('workspace panel', () => {
+  it('opens the sidebar on the workspace being edited', () => {
+    useShell.setState({ sidebarOpen: false, sidebarPanel: 'history' });
+    useShell.getState().editWorkspace('work');
+    expect(useShell.getState()).toMatchObject({
+      sidebarOpen: true,
+      sidebarPanel: 'workspace',
+      editingWorkspaceId: 'work',
+    });
+    useShell.getState().editWorkspace(null);
+    expect(useShell.getState().editingWorkspaceId).toBeNull();
+  });
+});

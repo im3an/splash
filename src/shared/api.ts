@@ -21,6 +21,7 @@ import type {
   UiCommand,
   WorkspaceAppearance,
   WorkspaceId,
+  WorkspaceMode,
 } from './types';
 import type { AiPanelAction, AiPanelPlacement, AiPanelState } from './ai';
 import type { PaletteScope } from './palette';
@@ -212,6 +213,11 @@ export interface SplashApi {
   freezePage(): Promise<Record<PageId, string>>;
   /** While true, the live page steps aside so shell popovers are visible. */
   setOverlayActive(active: boolean): void;
+  /**
+   * Shows the app in a workspace's light or dark while it's being edited;
+   * `null` goes back to the active workspace's.
+   */
+  previewWorkspaceMode(mode: WorkspaceMode | null): void;
   /**
    * `complete` lets the leading row fill in the rest of an address from
    * history; the field asks only while the user is typing forward.

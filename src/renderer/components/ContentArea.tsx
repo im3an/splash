@@ -17,7 +17,6 @@ import { AddressSuggestions } from './AddressSuggestions';
 import { CommandPalette } from './CommandPalette';
 import { ErrorBoundary } from './ErrorBoundary';
 import { SiteInfoPopover } from './SiteInfoPopover';
-import { WorkspaceEditor } from './WorkspaceEditor';
 
 const PANE =
   'relative overflow-hidden rounded-content bg-surface shadow-content';
@@ -212,8 +211,6 @@ function OverlayContent({
       return <AddressSuggestions />;
     case 'site-info':
       return <SiteInfoPopover />;
-    case 'workspace-editor':
-      return <WorkspaceEditor workspaceId={overlay.workspaceId} />;
     default:
       return null;
   }

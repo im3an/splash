@@ -10,12 +10,13 @@ import type {
   PageId,
   PageSnapshot,
   SplitView,
+  WorkspaceAppearance,
   WorkspaceId,
   WorkspaceSummary,
 } from '../../shared/types';
 
 /** A view shown in the sidebar in place of the trail. */
-export type SidebarPanel = 'downloads' | 'history';
+export type SidebarPanel = 'downloads' | 'history' | 'workspace';
 
 interface ShellState {
   /** `null` until the main process has sent the first snapshot. */
@@ -23,6 +24,13 @@ interface ShellState {
   preferences: Preferences | null;
   sidebarOpen: boolean;
   sidebarPanel: SidebarPanel | null;
+  /** The workspace the workspace panel edits; `null` creates a new one. */
+  editingWorkspaceId: WorkspaceId | null;
+  /**
+   * The look being edited in the workspace panel, shown on the window frame
+   * in place of the active workspace's until it's saved or dropped.
+   */
+  appearancePreview: WorkspaceAppearance | null;
   /** Incremented to ask the address bar to take focus. */
   addressFocusRequest: number;
   /** The sidebar row currently being renamed in place. */
@@ -45,6 +53,9 @@ interface ShellState {
   setSidebarPanel(panel: SidebarPanel | null): void;
   /** Shows `panel`, or goes back to the trail when it's already showing. */
   toggleSidebarPanel(panel: SidebarPanel): void;
+  /** Opens the workspace panel on a workspace, or on a new one for `null`. */
+  editWorkspace(workspaceId: WorkspaceId | null): void;
+  setAppearancePreview(appearance: WorkspaceAppearance | null): void;
   focusAddressBar(): void;
   startRename(pageId: PageId): void;
   finishRename(): void;
@@ -62,6 +73,8 @@ export const useShell = create<ShellState>()((set) => ({
   preferences: null,
   sidebarOpen: true,
   sidebarPanel: null,
+  editingWorkspaceId: null,
+  appearancePreview: null,
   addressFocusRequest: 0,
   renamingPageId: null,
   editingNotePageId: null,
@@ -85,6 +98,13 @@ export const useShell = create<ShellState>()((set) => ({
         ? { sidebarPanel: null }
         : { sidebarPanel: panel, sidebarOpen: true },
     ),
+  editWorkspace: (workspaceId) =>
+    set({
+      sidebarPanel: 'workspace',
+      editingWorkspaceId: workspaceId,
+      sidebarOpen: true,
+    }),
+  setAppearancePreview: (appearancePreview) => set({ appearancePreview }),
   focusAddressBar: () =>
     set((state) => ({ addressFocusRequest: state.addressFocusRequest + 1 })),
   startRename: (pageId) => set({ renamingPageId: pageId, sidebarOpen: true }),
@@ -235,14 +255,13 @@ export function connectShell(splash: SplashApi): () => void {
       case 'show-history':
         return shell.toggleSidebarPanel('history');
       case 'create-workspace':
-        return void overlay.open({
-          kind: 'workspace-editor',
-          workspaceId: null,
-        });
+        overlay.close();
+        return shell.editWorkspace(null);
       case 'customize-workspace': {
         const workspaceId = shell.snapshot?.activeWorkspaceId;
         if (workspaceId) {
-          void overlay.open({ kind: 'workspace-editor', workspaceId });
+          overlay.close();
+          shell.editWorkspace(workspaceId);
         }
         return;
       }

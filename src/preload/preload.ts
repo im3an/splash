@@ -96,6 +96,7 @@ const api: SplashApi = {
   resetSite: (origin) => invoke('site:reset', { origin }),
   freezePage: () => invoke('view:freeze'),
   setOverlayActive: (active) => send('view:set-overlay', { active }),
+  previewWorkspaceMode: (mode) => send('workspace:preview-mode', { mode }),
   queryPalette: (query, scope, complete) =>
     invoke('palette:query', { query, scope, complete }),
   suggestSearch: (query) => invoke('search:suggest', { query }),

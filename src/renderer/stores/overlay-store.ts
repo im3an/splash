@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { PaletteScope } from '../../shared/palette';
-import type { PageId, WorkspaceId } from '../../shared/types';
+import type { PageId } from '../../shared/types';
 import { durationMs } from '../lib/motion';
 import { api } from '../splash-api';
 
@@ -9,8 +9,7 @@ export type Overlay =
   | { kind: 'palette'; scope: PaletteScope }
   | { kind: 'toolbar-menu' }
   | { kind: 'suggestions' }
-  | { kind: 'site-info' }
-  | { kind: 'workspace-editor'; workspaceId: WorkspaceId | null };
+  | { kind: 'site-info' };
 
 interface OverlayState {
   overlay: Overlay | null;
