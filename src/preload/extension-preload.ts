@@ -5,6 +5,7 @@
  */
 import 'electron-chrome-extensions/preload';
 import { contextBridge } from 'electron';
+import { emptyManagedStorage } from './managed-storage';
 
 /*
  * On extension pages, Electron replaces `chrome` after preloads run,
@@ -45,7 +46,9 @@ function keepExtensionApis(): void {
 // Background pages have no context isolation; extension pages opened as
 // Splash pages do, and there the library's APIs live in the main world.
 if (process.contextIsolated) {
+  contextBridge.executeInMainWorld({ func: emptyManagedStorage });
   contextBridge.executeInMainWorld({ func: keepExtensionApis });
 } else {
+  emptyManagedStorage();
   keepExtensionApis();
 }
