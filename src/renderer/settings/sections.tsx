@@ -679,6 +679,7 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ['Reopen closed', '⇧⌘T'],
       ['Pin or unpin page', '⌘D'],
       ['Open location', '⌘L'],
+      ['Open file', '⌘O'],
       ['Copy page address', '⇧⌘C'],
       ['Command palette', '⌘K'],
       ['Undo a trail change', '⌘Z'],

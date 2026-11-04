@@ -11,7 +11,14 @@ import {
   type WebContents,
 } from 'electron';
 import { eventChannels } from '../shared/api';
-import { isNavigableUrl } from './browser/url';
+import { keepOpenedFiles } from './browser/opened-files';
+import {
+  allowLocalFile,
+  forgetLocalFiles,
+  isNavigableUrl,
+  localFileUrl,
+  OPENABLE_FILE_FILTER,
+} from './browser/url';
 import { BrowsingDataCleaner } from './privacy/browsing-data';
 import type { ContentBlocking } from './privacy/content-blocker';
 import { enableContentBlocking } from './privacy/electron-content-blocker';
@@ -52,6 +59,8 @@ let extensions: ExtensionHost | null = null;
 let settings: SettingsWindow | null = null;
 /** Links macOS handed over before a window was ready. */
 const pendingUrls: string[] = [];
+/** Files macOS handed over before a window was ready. */
+const pendingFiles: string[] = [];
 let quitApproved = false;
 let quitPending = false;
 
@@ -80,6 +89,44 @@ function openExternalUrl(url: string): void {
   trailWindow.controller.createPage({ url });
   if (trailWindow.window.isMinimized()) trailWindow.window.restore();
   trailWindow.window.focus();
+}
+
+/** Opens a file the user picked, here or in the Finder, as a new page. */
+function openLocalFile(file: string): void {
+  const url = localFileUrl(file);
+  if (!url) {
+    void dialog.showMessageBox({
+      type: 'warning',
+      message: `Splash can’t show “${path.basename(file)}”.`,
+      detail: 'It opens web pages, PDFs, images, text, audio and video.',
+    });
+    return;
+  }
+  allowLocalFile(url);
+  const trailWindow = currentWindow() ?? openWindow();
+  trailWindow.controller.createPage({ url });
+  if (trailWindow.window.isMinimized()) trailWindow.window.restore();
+  trailWindow.window.focus();
+}
+
+async function chooseFiles(): Promise<void> {
+  const parent = currentWindow()?.window;
+  const options = {
+    title: 'Open File',
+    filters: [OPENABLE_FILE_FILTER],
+    properties: ['openFile', 'multiSelections'] as (
+      | 'openFile'
+      | 'multiSelections'
+    )[],
+  };
+  try {
+    const { canceled, filePaths } = parent
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options);
+    if (!canceled) filePaths.forEach(openLocalFile);
+  } catch (error) {
+    dialog.showErrorBox('The file couldn’t be opened', String(error));
+  }
 }
 
 interface StartupStore {
@@ -129,6 +176,7 @@ function refreshMenu(): void {
     currentWindow,
     openWindow,
     openSettings,
+    chooseFiles: () => void chooseFiles(),
     store,
     preferences,
   });
@@ -241,6 +289,13 @@ if (!app.requestSingleInstanceLock()) {
     else pendingUrls.push(url);
   });
 
+  // A file dropped on the Dock icon, or opened with Splash from the Finder.
+  app.on('open-file', (event, file) => {
+    event.preventDefault();
+    if (app.isReady() && windows.size > 0) openLocalFile(file);
+    else pendingFiles.push(file);
+  });
+
   registerIpc((sender) => {
     const auth = authenticationTarget(sender);
     if (auth) return auth;
@@ -267,6 +322,8 @@ if (!app.requestSingleInstanceLock()) {
     });
     const startup = openStartupStore();
     store = startup.store;
+    // Before any window restores its pages, which may include opened files.
+    keepOpenedFiles(store);
     configureAppSession(session.defaultSession);
     serveShell(session.defaultSession);
     configureWebSession(session.fromPartition(WEB_PARTITION), store);
@@ -314,6 +371,17 @@ if (!app.requestSingleInstanceLock()) {
       forgetClosedPages: () => {
         for (const trailWindow of windows)
           trailWindow.controller.forgetClosed();
+        // A file that's no longer on any page leaves no trace of its path.
+        forgetLocalFiles(
+          [...windows].flatMap((trailWindow) =>
+            trailWindow.controller
+              .exportSession()
+              .pages.flatMap((page) => [
+                ...(page.url ? [page.url] : []),
+                ...(page.history?.entries.map((entry) => entry.url) ?? []),
+              ]),
+          ),
+        );
       },
       now: Date.now,
       createToken: randomUUID,
@@ -358,6 +426,7 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     for (const url of pendingUrls.splice(0)) openExternalUrl(url);
+    for (const file of pendingFiles.splice(0)) openLocalFile(file);
 
     app.on('activate', () => {
       if (windows.size === 0) openWindow();

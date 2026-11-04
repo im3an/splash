@@ -163,7 +163,45 @@ describe('securityOf', () => {
   });
 });
 
+describe('local files', () => {
+  it('go by their file name', () => {
+    expect(
+      pageLabel(
+        page('a', { url: 'file:///Users/me/My%20Report.pdf', title: '' }),
+      ),
+    ).toBe('My Report.pdf');
+  });
+
+  it('say so when the file has gone', () => {
+    expect(
+      describeError({
+        kind: 'load-failed',
+        code: -6,
+        description: 'ERR_FILE_NOT_FOUND',
+        url: 'file:///Users/me/My%20Report.pdf',
+      }),
+    ).toEqual({
+      title: 'Couldn’t find My Report.pdf',
+      detail: 'It may have been moved, renamed or deleted.',
+    });
+  });
+});
+
 describe('describeError', () => {
+  it.each([
+    [-107, 'ERR_SSL_PROTOCOL_ERROR'],
+    [-113, 'ERR_SSL_VERSION_OR_CIPHER_MISMATCH'],
+  ])('names a failed secure connection (%i)', (code, description) => {
+    const { title, detail } = describeError({
+      kind: 'load-failed',
+      code,
+      description,
+      url: 'https://old.example.com/',
+    });
+    expect(title).toBe('Couldn’t connect securely to old.example.com');
+    expect(detail).toMatch(/nothing was sent/);
+  });
+
   it('explains known network failures', () => {
     const { detail } = describeError({
       kind: 'load-failed',

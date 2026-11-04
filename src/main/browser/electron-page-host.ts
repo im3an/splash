@@ -28,9 +28,12 @@ import type {
   PageHostFactory,
 } from './page-host';
 import {
+  allowLocalFile,
   isExternalAppUrl,
+  isLocalFileUrl,
   isNavigableUrl,
   isPageUrl,
+  mayFollowFileLink,
   mayOpenFromPage,
 } from './url';
 import { requestPageClose } from './close-page';
@@ -396,6 +399,15 @@ class ElectronPageHost implements PageHost {
     });
 
     contents.on('will-navigate', (event) => {
+      // No page reaches a file, not even one opened earlier, unless the page
+      // is itself an opened file and the target sits beside it.
+      if (isLocalFileUrl(event.url)) {
+        if (!mayFollowFileLink(contents.getURL(), event.url)) {
+          event.preventDefault();
+          return;
+        }
+        allowLocalFile(event.url);
+      }
       if (!isPageUrl(event.url)) {
         event.preventDefault();
         // mailto:, tel: and the like: never silently dropped, never opened
@@ -454,7 +466,8 @@ class ElectronPageHost implements PageHost {
       });
     });
     contents.on('will-redirect', (event) => {
-      if (!isPageUrl(event.url)) event.preventDefault();
+      if (!isPageUrl(event.url) || isLocalFileUrl(event.url))
+        event.preventDefault();
     });
 
     contents.on('login', (event, details, info, callback) => {

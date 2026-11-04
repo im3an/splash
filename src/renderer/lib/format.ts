@@ -13,8 +13,18 @@ function parse(url: string): URL | null {
   }
 }
 
+/** The site a URL belongs to; a local file goes by its name. */
 export function hostOf(url: string): string {
-  return parse(url)?.host ?? url;
+  const parsed = parse(url);
+  if (parsed?.protocol === 'file:') {
+    const name = parsed.pathname.split('/').at(-1) ?? '';
+    try {
+      return decodeURIComponent(name) || url;
+    } catch {
+      return name || url;
+    }
+  }
+  return parsed?.host ?? url;
 }
 
 /** How a URL reads in the address bar when it is not being edited. */
@@ -160,6 +170,18 @@ function loadFailure(
   host: string,
 ): { title: string; detail: string } {
   switch (code) {
+    case -6:
+      return {
+        title: `Couldn’t find ${host}`,
+        detail: 'It may have been moved, renamed or deleted.',
+      };
+    case -107:
+    case -113:
+      return {
+        title: `Couldn’t connect securely to ${host}`,
+        detail:
+          'The site and Splash couldn’t agree on a secure connection, so nothing was sent. The site may be misconfigured or out of date.',
+      };
     case -106:
       return {
         title: 'You’re offline',

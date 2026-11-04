@@ -193,7 +193,7 @@ expected.
 - The packaged log shows "Cannot find module 'electron-chrome-extensions/
   preload'" at startup. The library falls back, and Splash registers its own
   preload; it's noise, not a failure.
-- Open File (⌘O) and picture in picture from the context menu are missing.
+- Picture in picture from the context menu is missing.
 - Close pages below (in the page menu) is not implemented.
 
 ## Distribution and device gates

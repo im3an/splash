@@ -21,6 +21,8 @@ export interface MenuActions {
   currentWindow(): TrailWindow | null;
   openWindow(): TrailWindow;
   openSettings(): void;
+  /** Asks which local files to open, each as a new page. */
+  chooseFiles(): void;
   store: TrailStore;
   preferences: PreferencesService;
 }
@@ -180,6 +182,11 @@ export function installApplicationMenu(actions: MenuActions): void {
           accelerator: 'CmdOrCtrl+L',
           click: () =>
             actions.currentWindow()?.sendUiCommand({ type: 'open-location' }),
+        },
+        {
+          label: 'Open File…',
+          accelerator: 'CmdOrCtrl+O',
+          click: () => actions.chooseFiles(),
         },
         {
           label: 'Copy Page Address',

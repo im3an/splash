@@ -1,8 +1,12 @@
 import {
   allowExtensionPages,
+  allowLocalFile,
   isExternalAppUrl,
+  isLocalFileUrl,
   isNavigableUrl,
   isPageUrl,
+  localFileUrl,
+  mayFollowFileLink,
   mayOpenFromPage,
   resolveAddressInput,
   searchUrl,
@@ -115,6 +119,72 @@ it('permits source inspection only for web addresses', () => {
   ]) {
     expect(isPageUrl(address)).toBe(false);
   }
+});
+
+describe('local files', () => {
+  it('refuses every file until the user has opened it', () => {
+    expect(isPageUrl('file:///Users/me/never-opened.html')).toBe(false);
+    allowLocalFile('file:///Users/me/opened.html');
+    expect(isPageUrl('file:///Users/me/opened.html')).toBe(true);
+    expect(isPageUrl('file:///Users/me/opened.html#part')).toBe(true);
+    expect(isPageUrl('file:///Users/me/never-opened.html')).toBe(false);
+  });
+
+  it('never lets a web page open one, even after it was opened', () => {
+    allowLocalFile('file:///Users/me/shared.html');
+    expect(mayOpenFromPage('file:///Users/me/shared.html')).toBe(false);
+    expect(isNavigableUrl('file:///Users/me/shared.html')).toBe(false);
+    expect(isExternalAppUrl('file:///Users/me/shared.html')).toBe(false);
+  });
+
+  it('ignores files on another machine', () => {
+    expect(isLocalFileUrl('file://server/share/a.html')).toBe(false);
+    allowLocalFile('file://server/share/a.html');
+    expect(isPageUrl('file://server/share/a.html')).toBe(false);
+  });
+
+  it('lets an opened file link only to files in its own folder or below', () => {
+    allowLocalFile('file:///Users/me/docs/index.html');
+    const from = 'file:///Users/me/docs/index.html';
+    expect(mayFollowFileLink(from, 'file:///Users/me/docs/two.html')).toBe(
+      true,
+    );
+    expect(mayFollowFileLink(from, 'file:///Users/me/docs/a/b.html')).toBe(
+      true,
+    );
+    expect(mayFollowFileLink(from, 'file:///Users/me/secret.html')).toBe(false);
+    expect(
+      mayFollowFileLink(from, 'file:///Users/me/docs/../secret.html'),
+    ).toBe(false);
+    expect(mayFollowFileLink(from, 'file:///Users/me/docs-2/a.html')).toBe(
+      false,
+    );
+    expect(
+      mayFollowFileLink(from, 'file:///Users/me/docs/..%2Fsecret.html'),
+    ).toBe(false);
+  });
+
+  it('never lets a web page or an unopened file link to a file', () => {
+    expect(
+      mayFollowFileLink('https://example.com/', 'file:///Users/me/a.html'),
+    ).toBe(false);
+    expect(
+      mayFollowFileLink('file:///Users/me/stranger.html', 'file:///Users/me/a'),
+    ).toBe(false);
+  });
+
+  it('turns only files a page can show into addresses', () => {
+    expect(localFileUrl('/Users/me/My Report.PDF')).toBe(
+      'file:///Users/me/My%20Report.PDF',
+    );
+    expect(localFileUrl('/Users/me/#1.html')).toBe(
+      'file:///Users/me/%231.html',
+    );
+    expect(localFileUrl('/Users/me/installer.dmg')).toBeNull();
+    expect(localFileUrl('/Users/me/run.command')).toBeNull();
+    expect(localFileUrl('/Users/me/no-extension')).toBeNull();
+    expect(localFileUrl('relative/page.html')).toBeNull();
+  });
 });
 
 describe('isExternalAppUrl', () => {

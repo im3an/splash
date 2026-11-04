@@ -117,7 +117,8 @@ Found in the 25 October feature check. Unsaved-form protection is a release bloc
 - **HTTP authentication — implemented.** A page-owned native sign-in window identifies the requesting server, masks the password, cancels on navigation or page close, and keeps credentials out of saved state. Verified against a local protected server in the packaged app.
 - **"Leave site?" on close.** Closing a page with unsaved form input closes
   it at once. Reopen Closed brings the address back, not what was typed.
-- **Save Page As and View Source — implemented.** ⇧⌘S saves a single-file web archive, with retry and completion feedback. ⌥⌘U opens web source as a child page. Both were exercised in the packaged app. Open File (⌘O) remains missing.
+- **Save Page As and View Source — implemented.** ⇧⌘S saves a single-file web archive, with retry and completion feedback. ⌥⌘U opens web source as a child page. Both were exercised in the packaged app.
+- **Open File — implemented.** ⌘O, or a file handed over by macOS, opens web pages, PDFs, images, text, audio and video as new pages. Only files the user chose can load, kept in a saved list so they return after a restart; Clear History forgets those no longer on a page. Not yet exercised in a packaged build.
 - **Picture in picture from the context menu** and video controls such as
   Loop.
 - Not yet checked by hand: a mouse's back and forward buttons and the
