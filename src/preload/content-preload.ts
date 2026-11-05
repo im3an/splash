@@ -8,6 +8,7 @@ import '@ghostery/adblocker-electron-preload';
 import AutoConsent from '@duckduckgo/autoconsent';
 import { ipcRenderer } from 'electron';
 import { AUTOCONSENT } from '../shared/page-bridge';
+import './site-settings';
 
 const consent: AutoConsent = new AutoConsent(async (message) => {
   const reply = await ipcRenderer.invoke(AUTOCONSENT, message);

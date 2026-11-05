@@ -101,7 +101,7 @@ function ThemeSwatches({
         onClick={() => page(-1)}
         className="icon-button shrink-0 disabled:opacity-30"
       >
-        <ChevronLeft size={16} strokeWidth={2} />
+        <ChevronLeft size={16} />
       </button>
       <div
         ref={row}
@@ -146,7 +146,7 @@ function ThemeSwatches({
         onClick={() => page(1)}
         className="icon-button shrink-0 disabled:opacity-30"
       >
-        <ChevronRight size={16} strokeWidth={2} />
+        <ChevronRight size={16} />
       </button>
     </div>
   );
@@ -359,7 +359,7 @@ export function WorkspaceEditor({
                     onClick={() => update({ mode })}
                     className="grid size-9 place-items-center rounded-control text-fg-subtle transition-colors duration-fast hover:text-fg aria-checked:bg-row-pressed aria-checked:text-fg"
                   >
-                    <Icon size={18} strokeWidth={1.75} />
+                    <Icon size={18} />
                   </button>
                 ))}
               </div>
@@ -464,7 +464,7 @@ export function WorkspaceEditor({
                 onClick={() => fileInput.current?.click()}
                 className="flex h-9 items-center justify-center gap-1.5 rounded-control bg-field text-small text-fg-muted hover:text-fg"
               >
-                <ImagePlus size={14} strokeWidth={1.75} />
+                <ImagePlus size={14} />
                 Choose another image…
               </button>
             )}

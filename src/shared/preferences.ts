@@ -1,29 +1,7 @@
 import type { AiProviderId } from './ai';
+import { DEFAULT_SEARCH_SHORTCUTS, type SearchShortcut } from './search';
 
 /** App-wide settings. Per-workspace looks live in `appearance.ts`. */
-
-export const SEARCH_ENGINES = [
-  { id: 'duckduckgo', name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=' },
-  { id: 'google', name: 'Google', url: 'https://www.google.com/search?q=' },
-  { id: 'bing', name: 'Bing', url: 'https://www.bing.com/search?q=' },
-  {
-    id: 'brave',
-    name: 'Brave Search',
-    url: 'https://search.brave.com/search?q=',
-  },
-  {
-    id: 'startpage',
-    name: 'Startpage',
-    url: 'https://www.startpage.com/do/search?query=',
-  },
-  { id: 'ecosia', name: 'Ecosia', url: 'https://www.ecosia.org/search?q=' },
-] as const;
-
-export type SearchEngineId = (typeof SEARCH_ENGINES)[number]['id'];
-
-export function searchEngine(id: SearchEngineId) {
-  return SEARCH_ENGINES.find((engine) => engine.id === id) ?? SEARCH_ENGINES[0];
-}
 
 export const TOOLBAR_ACTIONS = [
   'bookmark',
@@ -31,6 +9,7 @@ export const TOOLBAR_ACTIONS = [
   'extensions',
   'split',
   'downloads',
+  'home',
 ] as const;
 export type ToolbarAction = (typeof TOOLBAR_ACTIONS)[number];
 export interface SavedCollection {
@@ -48,11 +27,22 @@ export interface SavedCollection {
   }[];
 }
 
+/** What is cleared each time Splash quits. */
+export interface ClearOnQuit {
+  history: boolean;
+  cookies: boolean;
+  cache: boolean;
+  downloads: boolean;
+}
+
 export interface Preferences {
   sidebarWidth: number;
   toolbarActions: ToolbarAction[];
   collections: SavedCollection[];
-  searchEngine: SearchEngineId;
+  /** The default engine: a built-in engine's id or a shortcut's. */
+  searchEngine: string;
+  /** Engines reached by typing a keyword before the search (`yt cats`). */
+  searchShortcuts: SearchShortcut[];
   /** Ask the search engine for suggestions while typing in the address field. */
   searchSuggestions: boolean;
   /** Dark (the default), light or following macOS; a workspace may override it. */
@@ -64,6 +54,11 @@ export interface Preferences {
   bookmarksBar: boolean;
   /** Hairlines down each branch of the trail. */
   showBranchLines: boolean;
+  /**
+   * How the trail shows nesting: branch lines, or a quiet chevron or dot
+   * beside every page and even steps of indent.
+   */
+  trailStyle: 'branches' | 'minimal';
   /** Turn motion down in Splash even when macOS doesn't. */
   reduceMotion: boolean;
   /**
@@ -75,6 +70,13 @@ export interface Preferences {
   downloads: 'folder' | 'ask';
   /** Pages kept awake; beyond this the least recently used ones sleep. */
   awakePages: number;
+  /**
+   * What a new page shows: the location field alone, a start page of bookmarks
+   * and recent pages, or the homepage.
+   */
+  newPage: 'search' | 'start' | 'homepage';
+  /** Where the Home button and ⇧⌘H go. */
+  homepage: string | null;
   /** On launch, show the pages as they were, or an empty page over them. */
   startup: 'restore' | 'new-page';
   /** Try HTTPS for every public site, and ask before using plain HTTP. */
@@ -83,6 +85,14 @@ export interface Preferences {
   blockAds: boolean;
   /** Reject cookie banners and hide notices, never agreeing; sites can be allowed. */
   hideCookieNotices: boolean;
+  /** Warn before a site on the public phishing and malware lists loads. */
+  warnDangerousSites: boolean;
+  /** Ask every site not to track or sell: Global Privacy Control and DNT. */
+  privacySignal: boolean;
+  /** Pages can't use or set cookies for other sites they embed or load from. */
+  blockThirdPartyCookies: boolean;
+  /** Cleared each time Splash quits; open pages stay in their trails. */
+  clearOnQuit: ClearOnQuit;
   /** The assistant the AI panel shows. */
   aiProvider: AiProviderId;
   aiPanelWidth: number;
@@ -133,20 +143,33 @@ export const DEFAULT_PREFERENCES: Preferences = {
   toolbarActions: ['bookmark', 'share', 'extensions', 'split'],
   collections: [],
   searchEngine: 'duckduckgo',
+  searchShortcuts: [...DEFAULT_SEARCH_SHORTCUTS],
   searchSuggestions: true,
   theme: 'dark',
   density: 'comfortable',
   showSiteNames: true,
   bookmarksBar: false,
   showBranchLines: true,
+  trailStyle: 'minimal',
   reduceMotion: false,
   addressBar: 'toolbar',
   downloads: 'folder',
   awakePages: 12,
+  newPage: 'start',
+  homepage: null,
   startup: 'restore',
   httpsOnly: true,
   blockAds: true,
   hideCookieNotices: true,
+  warnDangerousSites: true,
+  privacySignal: true,
+  blockThirdPartyCookies: false,
+  clearOnQuit: {
+    history: false,
+    cookies: false,
+    cache: false,
+    downloads: false,
+  },
   aiProvider: 'claude',
   aiPanelWidth: 420,
   defaultZoom: 100,
@@ -156,3 +179,19 @@ export const DEFAULT_PREFERENCES: Preferences = {
   defaultFontSize: 16,
   minimumFontSize: 0,
 };
+
+/** A typed homepage as a full web address; `null` if it can't be one. */
+export function normalizeHomepage(text: string): string | null {
+  const typed = text.trim();
+  if (!typed || /\s/.test(typed)) return null;
+  try {
+    const url = new URL(
+      /^[a-z][a-z\d+.-]*:\/\//i.test(typed) ? typed : `https://${typed}`,
+    );
+    const local = url.hostname === 'localhost';
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return local || url.hostname.includes('.') ? url.href : null;
+  } catch {
+    return null;
+  }
+}

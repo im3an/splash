@@ -19,7 +19,7 @@ Build on macOS for the native app. The build fetches the bundled extension if it
 ## Daily browsing
 
 - Open a page with **⌘T**. Ordinary links grow a child page in its trail; same-document links stay in place. Back and forward include the trail relationship.
-- **⌘L** focuses the address field. **⌘K** searches pages, workspaces, commands and history. Prefix a query with `>` to search commands.
+- **⌘L** focuses the address field, and suggests bookmarks and history as you type. **⌘K** searches pages, bookmarks, workspaces, commands and history. Prefix a query with `>` to search commands.
 - Pin an important page with **⌘D**. Closing a pinned page puts it to sleep when another page can take its place. The context menu can unpin and close it.
 - The toolbar star saves a bookmark. Bookmarks (⌥⌘B) searches, renames, moves and deletes them, many at once. Drag a page or link onto Bookmarks or a folder to file it, or use Bookmark Branch to save a whole branch as a folder. An optional bookmarks bar (⇧⌘B) sits over the page. A saved group holds a reusable set of pages. These are separate from live pinned pages.
 - Right-click a page, folder or saved link for contextual actions. Menus support arrows, type-ahead and Escape; folder actions are also available through their visible action button.
@@ -30,6 +30,8 @@ Build on macOS for the native app. The build fetches the bundled extension if it
 - **⌘P** prints, **⇧⌘S** saves a web archive, **⌥⌘U** opens source, and **⇧⌘C** copies the page address.
 
 Settings contains General, Appearance, Workspaces, Privacy, Downloads, Shortcuts and Advanced. The address field can live in the top toolbar or sidebar. Workspace accents remain quiet against neutral surfaces; system and in-app reduced motion are respected.
+
+Privacy holds the tracking signal, third-party cookies, clearing data on quit and a cookie list per site. JavaScript, images and autoplay can be blocked per site from the site's info popover. The dangerous-site warning checks addresses on this Mac against phishing and malware lists Splash downloads from malware-filter every 12 hours; addresses you visit are not sent anywhere for this.
 
 ## Protecting work
 

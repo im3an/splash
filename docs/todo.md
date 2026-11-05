@@ -8,7 +8,16 @@ each cleared against [product-quality.md](product-quality.md) before the next.
 ## Phase A. Switch-blockers (can't use it daily without these)
 
 - [ ] Chrome Web Store install (unpacked extensions only today)
-- [ ] Password manager support: test 1Password, Bitwarden, iCloud Passwords extensions **(check)**
+- [ ] Password manager support. First results in
+      [research/password-managers.md](research/password-managers.md): Bitwarden runs
+      up to its sign-in screen, iCloud Passwords can't reach Apple's helper.
+  - [ ] Sign in to Bitwarden by hand: autofill, form-field menu, saving a login,
+        shortcuts, right-click items, passkeys
+  - [ ] iCloud Passwords in a Developer ID signed build (does the helper still end?)
+  - [ ] 1Password (not tested yet)
+  - [ ] Handle a native helper that ends at once, instead of logging `EPIPE` as an
+        unexpected main-process error
+  - [ ] `sidePanel` is missing, and toolbar icon order changes after a restart
 - [ ] Built-in password save, autofill, generator (after the extension test)
 - [ ] Saved addresses and cards autofill
 - [ ] Passkeys / WebAuthn / Touch ID sign-in **(check)**, no code mentions it
@@ -54,10 +63,11 @@ each cleared against [product-quality.md](product-quality.md) before the next.
 
 Address bar and search
 
-- [ ] Search shortcuts by keyword (`g query`, `yt query`) and custom search engines
-- [ ] Paste and Go, Copy as Markdown / plain text
-- [ ] Choose what a new page shows (a start page with pinned sites / recent pages)
-- [ ] Homepage setting
+- [x] Search shortcuts by keyword (`g query`, `yt query`, `!yt`, `/yt`) and custom search engines
+- [x] Paste and Go, Copy as Markdown / plain text
+- [x] Choose what a new page shows (a start page with pinned sites / recent pages)
+- [x] Homepage setting
+- [x] Find bookmarks from the palette and address suggestions, by title or address, in any folder
 
 Bookmarks
 
@@ -101,15 +111,53 @@ Pages and windows
 
 Privacy and security
 
-- [ ] Global Privacy Control / Do Not Track signal (not present in code)
-- [ ] Clear data on quit
-- [ ] Cookie viewer / per-site cookie delete
-- [ ] Block third-party cookies option
-- [ ] Per-site content settings: JavaScript, images, autoplay
-- [ ] Safe browsing / known-bad-site warning (no equivalent in code)
-- [ ] Client certificate prompt **(check)**
+- [x] Global Privacy Control / Do Not Track, on by default, in Settings › Privacy:
+      `Sec-GPC` and `DNT` on every request, `navigator.globalPrivacyControl` and
+      `doNotTrack` in every frame, even under a strict CSP. Not in workers.
+- [x] Clear data on quit: history, cookies and site data, cache, download list.
+      Runs after the pages are gone, so nothing writes its cookies back. A crash
+      or a forced quit is cleaned up at the next launch, before any page loads.
+      Open pages stay in their trails, including their back and forward lists.
+  - Fixed along the way: clearing "cookies and site data" also wiped uBlock
+    Origin's compiled lists; extensions are now left out.
+  - Fixed along the way: quitting could leave Splash running with no windows.
+- [x] Cookie viewer in Settings › Privacy, grouped by site: delete a site's or a
+      single cookie, undo for a minute. Values never reach the renderer. Site
+      settings in the address bar show the count and a delete too.
+- [x] Block third-party cookies, off by default, with a per-site exception. It
+      drops `Cookie` and `Set-Cookie` on requests and hides `document.cookie`
+      and `cookieStore` in cross-site frames.
+  - [ ] Decide: on by default? Off for now, because there's no Storage Access
+        API support, so some embedded sign-ins and players would simply break.
+  - [ ] Popups don't run preloads in subframes, so only the headers apply there.
+- [x] Per-site JavaScript, images and autoplay, in site settings. JavaScript and
+      images follow the page's site and cover what it embeds. Blocking JavaScript
+      shows `<noscript>` content and clears the site's service workers.
+  - [ ] Autoplay doesn't cover Web Audio (`AudioContext`) or media inside a
+        shadow root started by the `autoplay` attribute
+  - [ ] Changes apply on reload ("Reload to apply"), not live
+- [x] Dangerous-site warning, on by default, using malware-filter's public lists
+      (OpenPhish, PhishTank, URLhaus; about 24,000 hosts, refreshed every 12
+      hours). Checked on this Mac, so no address is sent anywhere, and nothing
+      is requested from the site. "Continue anyway" is remembered per site and
+      revocable in Settings. The list source is CC BY-SA 4.0.
+  - [ ] Popup windows aren't checked; only a page's own address is
+  - [ ] Weaker than Google Safe Browsing: new phishing sites appear later. Its
+        free API is non-commercial only, and it would need a paid key to ship.
+- [x] Client certificate prompt. **Was a privacy bug:** Electron's default sends
+      the first matching certificate without asking. Now a prompt names the site
+      and defaults to sending nothing. Tested with fake certificates through the
+      real app event; this Mac has no client identity, so it has **not** been
+      tried against a real certificate and server.
 - [ ] Permissions panel: geolocation, notifications, camera, microphone all
       verified in the installed app
+  - [x] All four reach the bar in the packaged app, name the site, and remember
+        Block. Usage strings present and the signature valid.
+  - [x] Fixed: sites read "denied" before being asked, so a site that checks first
+        would say the camera was blocked and never ask. They now read "prompt".
+  - [ ] Allow, with a real macOS prompt for each. Needs a person to answer them.
+  - [ ] A location refused in macOS shows the page an error, with no explanation
+        from Splash, unlike the camera and microphone
 
 Media and macOS
 

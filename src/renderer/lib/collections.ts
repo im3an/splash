@@ -2,7 +2,6 @@ import { mainFolder } from '../../shared/bookmarks';
 import type { Preferences, SavedCollection } from '../../shared/preferences';
 import type { BrowserSnapshot, PageId, PageSnapshot } from '../../shared/types';
 import { api } from '../splash-api';
-import { useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 
 export { mainFolder };
@@ -319,102 +318,6 @@ export function branchPages(snapshot: BrowserSnapshot, id: PageId): PageId[] {
     id,
     ...page.childIds.flatMap((child) => branchPages(snapshot, child)),
   ];
-}
-
-/**
- * Saves a trail, the page and every page beneath it, as a group named after
- * the page. Returns the group's id, or null when nothing was saved.
- */
-export async function saveTrailAsGroup(
-  snapshot: BrowserSnapshot,
-  pageId: PageId,
-): Promise<string | null> {
-  const root = snapshot.pages[pageId];
-  const links = branchPages(snapshot, pageId)
-    .map((id) => snapshot.pages[id])
-    .filter((page): page is PageSnapshot => page !== undefined)
-    .map(webLink)
-    .filter((link): link is NonNullable<typeof link> => link !== null);
-  if (!links.length || !root) {
-    collectionNotice('Nothing to save: these pages have no web address.');
-    return null;
-  }
-  const id = crypto.randomUUID();
-  const name =
-    (root.customTitle ?? root.title ?? links[0]!.title).trim().slice(0, 100) ||
-    'Saved trail';
-  const saved = await updateLibrary((items) => [
-    ...items,
-    { id, name, kind: 'group', parentId: null, collapsed: true, links },
-  ]);
-  if (!saved) return null;
-  useToast.getState().show({
-    message: `Saved ${links.length} ${links.length === 1 ? 'page' : 'pages'} as “${name}”`,
-    detail: null,
-    durationMs: 7000,
-    actions: [
-      {
-        label: 'Undo',
-        icon: 'undo',
-        run: () => {
-          void updateLibrary((items) => items.filter((item) => item.id !== id));
-        },
-      },
-    ],
-  });
-  return id;
-}
-
-/** The top-level page whose trail already holds every page of a group. */
-export function openGroupRoot(
-  snapshot: BrowserSnapshot,
-  group: SavedCollection,
-): PageId | null {
-  const first = group.links[0];
-  if (!first) return null;
-  return (
-    snapshot.rootIds.find((id) => {
-      if (snapshot.pages[id]?.url !== first.url) return false;
-      const urls = new Set(
-        branchPages(snapshot, id).map((page) => snapshot.pages[page]?.url),
-      );
-      return group.links.every((link) => urls.has(link.url));
-    }) ?? null
-  );
-}
-
-let opening = false;
-
-/**
- * Opens a saved group as a trail: its first page on top, the rest beneath.
- * A group already open here is shown rather than opened twice.
- */
-export async function openGroup(group: SavedCollection): Promise<void> {
-  if (opening || !group.links.length) return;
-  const splash = api();
-  const snapshot = useShell.getState().snapshot;
-  const open = snapshot && openGroupRoot(snapshot, group);
-  if (open) {
-    await splash.activatePage(open);
-    return;
-  }
-  opening = true;
-  let root: PageId | null = null;
-  let done = 0;
-  try {
-    for (const link of group.links) {
-      if (root) await splash.createChildPage(root, link.url);
-      else root = await splash.createPage(link.url);
-      done++;
-    }
-    if (root) await splash.activatePage(root);
-  } catch {
-    collectionNotice(
-      `Opened ${done} of ${group.links.length} pages from ${group.name}. Open it again for the rest.`,
-    );
-  } finally {
-    opening = false;
-  }
 }
 
 /** Includes a folder and every nested folder/group without recursive loops. */

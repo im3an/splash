@@ -21,6 +21,7 @@ export function page(
     customTitle: null,
     note: null,
     isPinned: false,
+    groupId: null,
     isAudible: false,
     isMuted: false,
     zoomPercent: 100,
@@ -48,6 +49,7 @@ export function sampleSnapshot(
   return {
     pages: Object.fromEntries(pages.map((p) => [p.id, p])),
     rootIds: ['a', 'e'],
+    groups: [],
     activePageId: 'a',
     split: null,
     otherWindows: [],

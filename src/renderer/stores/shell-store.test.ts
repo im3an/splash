@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useShell } from './shell-store';
+import { DEFAULT_PREFERENCES } from '../../shared/preferences';
+import type { PageSnapshot } from '../../shared/types';
+import { sampleSnapshot } from '../test-fixtures';
+import { selectStartPageFocus, useShell } from './shell-store';
 
 describe('sidebar panels', () => {
   beforeEach(() => {
@@ -36,5 +39,47 @@ describe('workspace panel', () => {
     });
     useShell.getState().editWorkspace(null);
     expect(useShell.getState().editingWorkspaceId).toBeNull();
+  });
+});
+
+describe('selectStartPageFocus', () => {
+  const state = (newPage: 'search' | 'start', page: Partial<PageSnapshot>) => {
+    const snapshot = sampleSnapshot();
+    snapshot.pages[snapshot.activePageId!] = {
+      ...snapshot.pages[snapshot.activePageId!]!,
+      ...page,
+    };
+    return {
+      ...useShell.getState(),
+      snapshot,
+      preferences: { ...DEFAULT_PREFERENCES, newPage },
+    };
+  };
+
+  it('asks for the field on an empty page, once per page', () => {
+    const blank = state('start', { url: null, error: null, isLoading: false });
+    expect(selectStartPageFocus(blank)).toBe(blank.snapshot.activePageId);
+  });
+
+  it('asks for the field in an empty workspace', () => {
+    const blank = state('start', {});
+    expect(
+      selectStartPageFocus({
+        ...blank,
+        snapshot: { ...blank.snapshot, activePageId: null },
+      }),
+    ).toBe('none');
+  });
+
+  it('leaves a page with content alone, and the Search setting', () => {
+    expect(
+      selectStartPageFocus(state('start', { url: 'https://example.com/' })),
+    ).toBeNull();
+    expect(
+      selectStartPageFocus(state('search', { url: null, error: null })),
+    ).toBeNull();
+    expect(
+      selectStartPageFocus(state('start', { url: null, isLoading: true })),
+    ).toBeNull();
   });
 });

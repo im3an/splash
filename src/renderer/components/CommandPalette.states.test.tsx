@@ -92,3 +92,34 @@ it('uses the newest typed address when Enter beats the suggestion response', asy
     expect(navigate).toHaveBeenCalledWith('a', 'http://127.0.0.1:8769/form'),
   );
 });
+
+it('shows what Return does on the selected row', async () => {
+  setup();
+  render(<CommandPalette scope="palette" />);
+  const row = await screen.findByRole('option', { name: /Open example\.org/ });
+  expect(row.getAttribute('aria-selected')).toBe('true');
+  expect(row.textContent).toContain('Open in new page');
+});
+
+it('switches between everything and commands with Tab, keeping the words', async () => {
+  const methods = setup();
+  render(<CommandPalette scope="palette" />);
+  const input = screen.getByRole<HTMLInputElement>('combobox');
+  fireEvent.change(input, { target: { value: 'pin' } });
+  fireEvent.keyDown(input, { key: 'Tab' });
+  expect(input.value).toBe('>pin');
+  expect(
+    screen
+      .getByRole('button', { name: 'Commands' })
+      .getAttribute('aria-pressed'),
+  ).toBe('true');
+  await waitFor(() =>
+    expect(methods.queryPalette).toHaveBeenLastCalledWith(
+      '>pin',
+      'palette',
+      false,
+    ),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'All' }));
+  expect(input.value).toBe('pin');
+});

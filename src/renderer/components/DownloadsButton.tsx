@@ -1,4 +1,4 @@
-import { Download } from 'lucide-react';
+import { ArrowDownToLine } from 'lucide-react';
 import { useDownloads } from '../stores/downloads-store';
 import { useShell } from '../stores/shell-store';
 import { DownloadRing } from './DownloadRing';
@@ -36,7 +36,7 @@ export function DownloadsButton({ always = false }: { always?: boolean }) {
       {active.length > 0 ? (
         <DownloadRing received={received} total={total} size={16} />
       ) : (
-        <Download size={15} strokeWidth={1.75} />
+        <ArrowDownToLine size={15} />
       )}
       {unseenProblems > 0 && (
         <span

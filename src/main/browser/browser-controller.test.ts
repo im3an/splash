@@ -107,6 +107,7 @@ function setup(
     idPrefix?: string;
     defaultZoom?: () => number;
     allowPlainHttp?: (url: string) => void;
+    allowDangerousSite?: (url: string) => void;
   } = {},
 ) {
   const { idPrefix = 'page', ...controllerOptions } = options;
@@ -242,6 +243,37 @@ describe('BrowserController', () => {
       controller.continueOverHttp(id);
       expect(allowPlainHttp).toHaveBeenCalledWith('http://a.com/');
       expect(hosts[0]!.loaded.at(-1)).toBe('http://a.com/');
+      expect(latest().pages[id]!.error).toBeNull();
+    });
+
+    it('continues to a dangerous site only from its warning', () => {
+      const allowDangerousSite = vi.fn();
+      const { controller, hosts, latest } = setup({ allowDangerousSite });
+      const id = controller.createPage({ url: 'https://evil.example/' });
+
+      controller.continueToDangerousSite(id);
+      hosts[0]!.events.onStateChange({
+        error: {
+          kind: 'load-failed',
+          code: -20,
+          description: 'ERR_BLOCKED_BY_CLIENT',
+          url: 'https://evil.example/',
+        },
+      });
+      controller.continueToDangerousSite(id);
+      expect(allowDangerousSite).not.toHaveBeenCalled();
+
+      hosts[0]!.events.onStateChange({
+        error: {
+          kind: 'dangerous-site',
+          code: -20,
+          description: 'ERR_BLOCKED_BY_CLIENT',
+          url: 'https://evil.example/',
+        },
+      });
+      controller.continueToDangerousSite(id);
+      expect(allowDangerousSite).toHaveBeenCalledWith('https://evil.example/');
+      expect(hosts[0]!.loaded.at(-1)).toBe('https://evil.example/');
       expect(latest().pages[id]!.error).toBeNull();
     });
 
@@ -404,61 +436,6 @@ describe('BrowserController', () => {
     expect(hosts[0]?.calls).not.toContain('reload');
     expect(latest().pages[id]?.error).toBeNull();
     expect(hosts[0]?.visible).toBe(true);
-  });
-
-  describe('HTTPS-only mode', () => {
-    const failure = (kind: 'no-secure-connection' | 'load-failed') => ({
-      error: {
-        kind,
-        code: -102,
-        description: 'ERR_CONNECTION_REFUSED',
-        url: 'http://a.com/',
-      },
-    });
-
-    it('tells the page a typed host may fall back, but not a typed https://', () => {
-      const { controller, hosts } = setup();
-      const id = controller.createPage({ input: 'a.com' });
-      controller.navigate(id, 'https://b.com/');
-      controller.navigate(id, 'c.com');
-      expect(hosts[0]!.plainAddresses).toEqual([
-        'http://a.com/',
-        undefined,
-        'http://c.com/',
-      ]);
-    });
-
-    it('does not treat a link as typed', () => {
-      const { controller, hosts } = setup();
-      controller.createPage({ url: 'https://a.com/' });
-      expect(hosts[0]!.plainAddresses).toEqual([undefined]);
-    });
-
-    it('continues over HTTP only from the warning, and remembers the site', () => {
-      const allowPlainHttp = vi.fn();
-      const { controller, hosts, latest } = setup({ allowPlainHttp });
-      const id = controller.createPage({ url: 'http://a.com/' });
-
-      controller.continueOverHttp(id);
-      expect(allowPlainHttp).not.toHaveBeenCalled();
-      hosts[0]!.events.onStateChange(failure('load-failed'));
-      controller.continueOverHttp(id);
-      expect(allowPlainHttp).not.toHaveBeenCalled();
-
-      hosts[0]!.events.onStateChange(failure('no-secure-connection'));
-      controller.continueOverHttp(id);
-      expect(allowPlainHttp).toHaveBeenCalledWith('http://a.com/');
-      expect(hosts[0]!.loaded.at(-1)).toBe('http://a.com/');
-      expect(latest().pages[id]!.error).toBeNull();
-    });
-
-    it('tries the plain address again, so the upgrade runs again', () => {
-      const { controller, hosts } = setup();
-      const id = controller.createPage({ url: 'http://a.com/' });
-      hosts[0]!.events.onStateChange(failure('no-secure-connection'));
-      controller.reload(id);
-      expect(hosts[0]!.loaded).toEqual(['http://a.com/', 'http://a.com/']);
-    });
   });
 
   it('closes a page, destroys its view and activates its successor', () => {
@@ -1226,6 +1203,121 @@ describe('BrowserController', () => {
         ],
       });
       expect(broken.latest().split).toBeNull();
+    });
+  });
+
+  describe('groups', () => {
+    it('files pages in a group, kept together ahead of the loose ones', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const b = controller.createPage({ url: 'https://b.example/' });
+      const c = controller.createPage({ url: 'https://c.example/' });
+      const group = controller.createGroup('Trip', c);
+      controller.setPageGroup(a, group);
+
+      expect(latest().groups).toEqual([
+        { id: group, name: 'Trip', collapsed: false },
+      ]);
+      expect(latest().rootIds).toEqual([c, a, b]);
+      expect(latest().pages[a]!.groupId).toBe(group);
+      expect(latest().pages[b]!.groupId).toBeNull();
+    });
+
+    it('brings a child page up to the top level when it is filed', () => {
+      const { controller, latest } = setup();
+      const parent = controller.createPage({ url: 'https://a.example/' });
+      const child = controller.createPage({
+        url: 'https://b.example/',
+        parentId: parent,
+      });
+      const group = controller.createGroup('Reading', child);
+      expect(latest().pages[child]).toMatchObject({
+        parentId: null,
+        groupId: group,
+      });
+      expect(latest().pages[parent]!.childIds).toEqual([]);
+    });
+
+    it('keeps its pages when it is dissolved', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const group = controller.createGroup('Trip', a);
+      controller.deleteGroup(group);
+      expect(latest().groups).toEqual([]);
+      expect(latest().pages[a]!.groupId).toBeNull();
+    });
+
+    it('folds and renames without touching the pages', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const group = controller.createGroup('Trip', a);
+      controller.setGroupCollapsed(group, true);
+      controller.renameGroup(group, '  Lisbon  ');
+      expect(latest().groups[0]).toMatchObject({
+        name: 'Lisbon',
+        collapsed: true,
+      });
+      expect(latest().pages[a]!.url).toBe('https://a.example/');
+    });
+
+    it('joins a page dropped between two of its pages, and leaves when dropped out', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const b = controller.createPage({ url: 'https://b.example/' });
+      const c = controller.createPage({ url: 'https://c.example/' });
+      const x = controller.createPage({ url: 'https://x.example/' });
+      const group = controller.createGroup('G', a);
+      controller.setPageGroup(b, group);
+      expect(latest().rootIds).toEqual([a, b, c, x]);
+
+      controller.movePage(x, null, a);
+      expect(latest().pages[x]!.groupId).toBe(group);
+      controller.movePage(x, null, c);
+      expect(latest().pages[x]!.groupId).toBeNull();
+    });
+
+    it('lets a closed page’s children stay in its group', () => {
+      const { controller, latest } = setup();
+      const parent = controller.createPage({ url: 'https://a.example/' });
+      const child = controller.createPage({
+        url: 'https://b.example/',
+        parentId: parent,
+      });
+      const group = controller.createGroup('G', parent);
+      controller.closePage(parent);
+      expect(latest().pages[child]!.groupId).toBe(group);
+    });
+
+    it('returns a closed grouped page to its group', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const b = controller.createPage({ url: 'https://b.example/' });
+      const group = controller.createGroup('G', a);
+      controller.setPageGroup(b, group);
+      controller.closePage(a);
+      controller.reopenClosed();
+      expect(latest().pages[a]!.groupId).toBe(group);
+    });
+
+    it('survives a restart, with imported pages left unloaded', () => {
+      const { controller, hosts } = setup();
+      const group = controller.importGroup('Saved', true, [
+        { url: 'https://one.example/', title: 'One' },
+        { url: 'https://two.example/', title: 'Two' },
+      ]);
+      expect(hosts).toHaveLength(0);
+      const session = controller.exportSession();
+      expect(session.workspaces[0]!.groups).toEqual([
+        { id: group, name: 'Saved', collapsed: true },
+      ]);
+
+      const restored = setup({ idPrefix: 'r' });
+      restored.controller.restoreSession(session);
+      const snapshot = restored.latest();
+      expect(snapshot.groups).toHaveLength(1);
+      expect(snapshot.rootIds.map((id) => snapshot.pages[id]!.groupId)).toEqual(
+        [group, group],
+      );
     });
   });
 

@@ -8,11 +8,13 @@ import type { IpcTarget } from '../ipc/register-ipc';
 import type { PreferencesService } from '../preferences';
 import type { BrowsingDataCleaner } from '../privacy/browsing-data';
 import type { ContentBlocking } from '../privacy/content-blocker';
+import type { CookieViewer } from '../privacy/cookies';
 import {
   decisionOf,
   PERMISSION_LABELS,
   SITE_PERMISSIONS,
 } from '../security/permissions';
+import type { ThreatList } from '../security/threat-list';
 import type { TrailStore } from '../storage/trail-store';
 import type { TrailWindow } from './browser-window';
 import { isSameDocument, shellUrl } from './shell-url';
@@ -23,6 +25,8 @@ export interface SettingsWindowOptions {
   downloads: DownloadManager;
   cleaner: BrowsingDataCleaner;
   blocker: ContentBlocking;
+  cookies: CookieViewer;
+  threats: ThreatList;
   /** The browser window that workspace settings act on. */
   browserWindow(): TrailWindow | null;
 }
@@ -87,7 +91,7 @@ export class SettingsWindow {
   /** Browser-window channels it may use, plus its own. */
   get ipc(): IpcTarget {
     const browser = this.options.browserWindow();
-    const { cleaner } = this.options;
+    const { cleaner, cookies } = this.options;
     return {
       isShellUrl: (candidate) => isSameDocument(candidate, this.url),
       invoke: {
@@ -111,7 +115,11 @@ export class SettingsWindow {
         'preferences:update': ({ patch }) =>
           this.options.preferences.update(patch),
         'settings:sites': () => this.sites(),
+        'cookies:list': ({ host }) => cookies.list(host),
+        'cookies:delete': ({ site, only }) => cookies.delete(site, only),
+        'cookies:undo': ({ token }) => cookies.restore(token),
         'settings:content-blocking': () => this.options.blocker.getStatus(),
+        'settings:threat-list': () => this.options.threats.getStatus(),
         'settings:update-filter-lists': async () => {
           await this.options.blocker.update().catch(() => undefined);
           return this.options.blocker.getStatus();

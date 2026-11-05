@@ -22,12 +22,7 @@ export function PanelState({
       role={error ? 'alert' : 'status'}
       className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center"
     >
-      <Icon
-        size={24}
-        strokeWidth={1.5}
-        aria-hidden
-        className="mb-3 shrink-0 text-fg-subtle"
-      />
+      <Icon size={24} aria-hidden className="mb-3 shrink-0 text-fg-subtle" />
       <h3 className="text-body font-medium text-fg">{title}</h3>
       <p className="mt-1 max-w-[28ch] text-small leading-relaxed text-fg-muted wrap-anywhere">
         {detail}

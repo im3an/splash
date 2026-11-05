@@ -16,6 +16,11 @@ export const SITE_PERMISSIONS: readonly SitePermission[] = [
   'popups',
   'sound',
   'ads',
+  'javascript',
+  'images',
+  'autoplay',
+  'third-party-cookies',
+  'dangerous',
   'midi',
   'clipboard',
   'apps',
@@ -34,6 +39,11 @@ export const PERMISSION_LABELS: Record<SitePermission, string> = {
   clipboard: 'Clipboard',
   apps: 'Open apps',
   insecure: 'Unencrypted HTTP',
+  javascript: 'JavaScript',
+  images: 'Images',
+  autoplay: 'Autoplay',
+  'third-party-cookies': 'Third-party cookies',
+  dangerous: 'Reported as dangerous',
 };
 
 /**

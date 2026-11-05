@@ -79,7 +79,7 @@ function ToastCard({
       title={action.title}
       className="press flex h-6 shrink-0 items-center gap-1 rounded-inner px-2 text-fg hover:bg-hover"
     >
-      {action.icon === 'undo' && <RotateCcw size={12} strokeWidth={2} />}
+      {action.icon === 'undo' && <RotateCcw size={12} />}
       {action.label}
     </button>
   ));

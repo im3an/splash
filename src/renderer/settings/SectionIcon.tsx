@@ -43,7 +43,5 @@ export function SectionIcon({
   size?: number;
 }) {
   const Icon = ICONS[name];
-  return (
-    <Icon size={size} strokeWidth={1.75} className="shrink-0" aria-hidden />
-  );
+  return <Icon size={size} className="shrink-0" aria-hidden />;
 }

@@ -8,11 +8,12 @@ import {
   FONT_SIZE_CHOICES,
   MINIMUM_FONT_SIZE_CHOICES,
   MONOSPACE_FONTS,
-  SEARCH_ENGINES,
   STANDARD_FONTS,
   type Preferences,
 } from '../../shared/preferences';
+import { customEngines, SEARCH_ENGINES } from '../../shared/search';
 import type {
+  ThreatListStatus,
   AboutInfo,
   ClearRange,
   ContentBlockingStatus,
@@ -24,8 +25,15 @@ import { toolbarLabels } from '../components/ToolbarActions';
 import { WorkspaceIcon } from '../components/WorkspaceIcon';
 import { api } from '../splash-api';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
-import { filterListsSummary, siteDecisionOptions } from '../lib/format';
+import {
+  filterListsSummary,
+  siteDecisionOptions,
+  threatListSummary,
+} from '../lib/format';
 import { Button, Choice, Row, Section, Toggle } from './controls';
+import { CookieSettings } from './CookieSettings';
+import { NewPageSettings } from './NewPageSettings';
+import { SearchShortcuts } from './SearchShortcuts';
 
 function usePreferences(): [
   Preferences | null,
@@ -65,6 +73,7 @@ export function GeneralSettings() {
           />
         </Row>
       </Section>
+      <NewPageSettings preferences={preferences} update={update} />
       <Section title="Search">
         <Row
           label="Search engine"
@@ -73,18 +82,16 @@ export function GeneralSettings() {
           <select
             aria-label="Search engine"
             value={preferences.searchEngine}
-            onChange={(event) =>
-              update({
-                searchEngine: event.target.value as Preferences['searchEngine'],
-              })
-            }
+            onChange={(event) => update({ searchEngine: event.target.value })}
             className="h-7 rounded-control bg-field px-2 text-small text-fg"
           >
-            {SEARCH_ENGINES.map((engine) => (
-              <option key={engine.id} value={engine.id}>
-                {engine.name}
-              </option>
-            ))}
+            {[...SEARCH_ENGINES, ...customEngines(preferences)].map(
+              (engine) => (
+                <option key={engine.id} value={engine.id}>
+                  {engine.name}
+                </option>
+              ),
+            )}
           </select>
         </Row>
         <Row
@@ -98,6 +105,7 @@ export function GeneralSettings() {
           />
         </Row>
       </Section>
+      <SearchShortcuts preferences={preferences} update={update} />
       <Section title="Default browser">
         <Row
           label={
@@ -265,15 +273,31 @@ export function AppearanceSettings() {
           />
         </Row>
         <Row
-          label="Show branch lines"
-          help="Lines connecting each page to the pages opened from it."
+          label="Trail style"
+          help="Minimal drops the branch lines for a chevron or dot beside each page."
         >
-          <Toggle
-            label="Show branch lines"
-            checked={preferences.showBranchLines}
-            onChange={(showBranchLines) => update({ showBranchLines })}
+          <Choice
+            label="Trail style"
+            value={preferences.trailStyle}
+            onChange={(trailStyle) => update({ trailStyle })}
+            options={[
+              { value: 'branches', label: 'Branches' },
+              { value: 'minimal', label: 'Minimal' },
+            ]}
           />
         </Row>
+        {preferences.trailStyle === 'branches' && (
+          <Row
+            label="Show branch lines"
+            help="Lines connecting each page to the pages opened from it."
+          >
+            <Toggle
+              label="Show branch lines"
+              checked={preferences.showBranchLines}
+              onChange={(showBranchLines) => update({ showBranchLines })}
+            />
+          </Row>
+        )}
       </Section>
     </>
   );
@@ -317,7 +341,7 @@ export function WorkspaceSettings() {
             disabled={index === 0}
             onClick={() => void api().moveWorkspace(workspace.id, index - 1)}
           >
-            <ArrowUp size={14} strokeWidth={1.75} />
+            <ArrowUp size={14} />
           </button>
           <button
             type="button"
@@ -327,7 +351,7 @@ export function WorkspaceSettings() {
             disabled={index === workspaces.length - 1}
             onClick={() => void api().moveWorkspace(workspace.id, index + 1)}
           >
-            <ArrowDown size={14} strokeWidth={1.75} />
+            <ArrowDown size={14} />
           </button>
           <Button onClick={() => void api().editWorkspace(workspace.id)}>
             Customize…
@@ -404,6 +428,28 @@ function ContentBlockingSettings() {
           label="Hide cookie notices"
           checked={preferences.hideCookieNotices}
           onChange={(hideCookieNotices) => update({ hideCookieNotices })}
+        />
+      </Row>
+      <Row
+        label="Ask sites not to track me"
+        help="Sends Global Privacy Control and Do Not Track to every site. Some sites must honor it by law; others ignore it."
+      >
+        <Toggle
+          label="Ask sites not to track me"
+          checked={preferences.privacySignal}
+          onChange={(privacySignal) => update({ privacySignal })}
+        />
+      </Row>
+      <Row
+        label="Block third-party cookies"
+        help="Stops sites a page embeds or loads from from using their cookies there. Some sign-ins and embedded players need them; allow those per site from the address bar."
+      >
+        <Toggle
+          label="Block third-party cookies"
+          checked={preferences.blockThirdPartyCookies}
+          onChange={(blockThirdPartyCookies) =>
+            update({ blockThirdPartyCookies })
+          }
         />
       </Row>
       <Row
@@ -540,8 +586,60 @@ export function PageSettings() {
   );
 }
 
+const CLEAR_ON_QUIT_ROWS = [
+  ['history', 'Browsing history'],
+  ['cookies', 'Cookies and site data'],
+  ['cache', 'Cached files'],
+  ['downloads', 'Download list'],
+] as const;
+
+function ClearOnQuitSettings() {
+  const [preferences, update] = usePreferences();
+  if (!preferences) return null;
+  return (
+    <Section
+      title="Clear when you quit"
+      description="Each time you quit Splash. Open pages stay in your trails; clearing cookies signs you out of them."
+    >
+      {CLEAR_ON_QUIT_ROWS.map(([key, label]) => (
+        <Row key={key} label={label}>
+          <Toggle
+            label={`Clear ${label.toLowerCase()} when you quit`}
+            checked={preferences.clearOnQuit[key]}
+            onChange={(checked) =>
+              update({
+                clearOnQuit: { ...preferences.clearOnQuit, [key]: checked },
+              })
+            }
+          />
+        </Row>
+      ))}
+    </Section>
+  );
+}
+
 function SecureConnectionSettings() {
   const [preferences, update] = usePreferences();
+  const [threats, setThreats] = useState<ThreatListStatus | null>(null);
+  const warns = preferences?.warnDangerousSites;
+  useEffect(() => {
+    if (warns === undefined) return;
+    let cancelled = false;
+    const refresh = () =>
+      api()
+        .getThreatListStatus()
+        .then((status) => {
+          if (cancelled) return;
+          setThreats(status);
+          // A list being downloaded is ready in moments; say so when it is.
+          if (status.state === 'loading') setTimeout(refresh, 1000);
+        })
+        .catch(() => undefined);
+    void refresh();
+    return () => {
+      cancelled = true;
+    };
+  }, [warns]);
   if (!preferences) return null;
   return (
     <Section title="Connections">
@@ -553,6 +651,25 @@ function SecureConnectionSettings() {
           label="HTTPS-only mode"
           checked={preferences.httpsOnly}
           onChange={(httpsOnly) => update({ httpsOnly })}
+        />
+      </Row>
+      <Row
+        label="Warn about dangerous sites"
+        help={
+          <>
+            Checks each address against phishing and malware lists kept on this
+            Mac, so what you browse isn’t sent anywhere. Lists from
+            malware-filter, updated twice a day.
+            {threats && threats.state !== 'off' && (
+              <> {threatListSummary(threats, Date.now())}</>
+            )}
+          </>
+        }
+      >
+        <Toggle
+          label="Warn about dangerous sites"
+          checked={preferences.warnDangerousSites}
+          onChange={(warnDangerousSites) => update({ warnDangerousSites })}
         />
       </Row>
     </Section>
@@ -718,6 +835,9 @@ export function PrivacySettings() {
         )}
       </Section>
 
+      <ClearOnQuitSettings />
+      <CookieSettings />
+
       <Section
         title="Site permissions"
         description="Sites you’ve allowed or blocked. Others ask the first time they need something."
@@ -818,6 +938,9 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ['Open location', '⌘L'],
       ['Open file', '⌘O'],
       ['Copy page address', '⇧⌘C'],
+      ['Copy page as Markdown', '⌥⇧⌘C'],
+      ['Paste and go', '⌥⌘V'],
+      ['Go to homepage', '⇧⌘H'],
       ['Command palette', '⌘K'],
       ['Undo a trail change', '⌘Z'],
     ],

@@ -21,7 +21,18 @@ export function bareUrl(url: string, keepWww = false): string {
   return host.replace(/^([^/?#]+)\/$/, '$1');
 }
 
-function parts(url: string): { host: string; rest: string } | null {
+/**
+ * What makes two addresses the same result: sites redirect "/learn" to
+ * "/learn/" and "www." away, so a saved address and its open page can differ.
+ */
+export function addressKey(url: string): string {
+  return bareUrl(url)
+    .toLowerCase()
+    .replace(/\/(?=$|[?#])/, '');
+}
+
+/** An address split the way people think of it, or null if it isn't one. */
+export function parts(url: string): { host: string; rest: string } | null {
   try {
     const parsed = new URL(url);
     return {
@@ -225,10 +236,10 @@ export function suggestedHistory(
   hidden: Iterable<string | null | undefined> = [],
 ): RankedHistory[] {
   const skip = new Set<string>();
-  for (const url of hidden) if (url) skip.add(bareUrl(url).toLowerCase());
+  for (const url of hidden) if (url) skip.add(addressKey(url));
   const looks = new Set<string>();
   return rankHistory(query, entries, now).filter(({ entry }) => {
-    if (skip.has(bareUrl(entry.url).toLowerCase())) return false;
+    if (skip.has(addressKey(entry.url))) return false;
     const host = parts(entry.url)?.host ?? '';
     const look = `${entry.title.trim().toLowerCase()}\n${host}`;
     if (looks.has(look)) return false;

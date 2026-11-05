@@ -3,7 +3,7 @@ import { undoLast } from '../lib/trail-undo';
 import type { SplashApi } from '../../shared/api';
 import type { Preferences } from '../../shared/preferences';
 import { closedToast, noticeToast } from '../lib/notices';
-import { openLocation, useOverlay } from './overlay-store';
+import { useOverlay } from './overlay-store';
 import { useToast } from './toast-store';
 import type {
   BrowserSnapshot,
@@ -167,17 +167,56 @@ export function selectActivePage(state: ShellState): PageSnapshot | null {
  */
 export function selectBlank(state: ShellState): boolean {
   if (!state.snapshot || selectVisibleSplit(state)) return false;
+  // A start page keeps the toolbar: it's where typing happens.
+  if (state.preferences?.newPage !== 'search') return false;
   const page = selectActivePage(state);
   return !page || (page.url === null && !page.error && !page.isLoading);
+}
+
+/** An empty page shows the start page rather than only the location field. */
+export function selectHasStartPage(state: ShellState): boolean {
+  return state.preferences !== null && state.preferences.newPage !== 'search';
+}
+
+/**
+ * The empty page (or empty workspace) a start page is showing for, which gets
+ * the cursor in the address field once. `null` for anything else.
+ */
+export function selectStartPageFocus(state: ShellState): string | null {
+  if (!selectHasStartPage(state) || selectVisibleSplit(state)) return null;
+  if (!state.snapshot) return null;
+  const page = selectActivePage(state);
+  if (page && (page.url !== null || page.error || page.isLoading)) return null;
+  return state.snapshot.activePageId ?? 'none';
+}
+
+/**
+ * Where to type an address next: the palette, standing in for the address
+ * bar on a blank page, or the address field when a start page or the
+ * homepage is showing beneath it.
+ */
+export function openLocation(): Promise<void> {
+  const shell = useShell.getState();
+  if (shell.preferences && shell.preferences.newPage !== 'search') {
+    shell.focusAddressBar();
+    return Promise.resolve();
+  }
+  return useOverlay.getState().open({ kind: 'palette', scope: 'location' });
 }
 
 /**
  * No page in the workspace has pages beneath it, so the trail needs no
  * chevron column and its rows sit closer to the edge.
  */
+export function selectMinimalTrail(state: ShellState): boolean {
+  return state.preferences?.trailStyle !== 'branches';
+}
+
 export function selectFlatTrail(state: ShellState): boolean {
   const snapshot = state.snapshot;
   if (!snapshot) return false;
+  // Every page has its chevron or dot here, so the column always stays.
+  if (selectMinimalTrail(state)) return false;
   return snapshot.rootIds.every((id) => !snapshot.pages[id]?.childIds.length);
 }
 
@@ -234,6 +273,8 @@ export function connectShell(splash: SplashApi): () => void {
         // A blank page has no toolbar; the palette stands in for it.
         if (selectBlank(shell)) return void openLocation();
         return shell.focusAddressBar();
+      case 'close-overlay':
+        return overlay.close();
       case 'toggle-sidebar':
         return shell.toggleSidebar();
       case 'rename-page':

@@ -20,6 +20,8 @@ export interface ClosedPage {
   note: string | null;
   /** Missing in records saved before pages could be pinned. */
   pinned?: boolean;
+  /** The group the page was filed under, if it still exists on undo. */
+  groupId?: string | null;
   state: PageRuntimeState;
   history: PageHistory | null;
   createdAt: number;

@@ -1,6 +1,8 @@
 import type { PageListing } from './browser-controller';
 import { DEFAULT_APPEARANCE } from '../../shared/appearance';
-import type { WorkspaceSummary } from '../../shared/types';
+import type { SavedCollection } from '../../shared/preferences';
+import type { PaletteItem, WorkspaceSummary } from '../../shared/types';
+import type { HistoryMatch } from '../storage/trail-store';
 import {
   buildPaletteItems,
   matchScore,
@@ -70,6 +72,299 @@ function activePage(overrides: Partial<ActivePageFacts> = {}): ActivePageFacts {
     ...overrides,
   };
 }
+
+function saved(
+  id: string,
+  name: string,
+  links: [title: string, url: string][],
+  parentId: string | null = null,
+  kind: SavedCollection['kind'] = 'folder',
+): SavedCollection {
+  return {
+    id,
+    name,
+    kind,
+    parentId,
+    collapsed: false,
+    links: links.map(([title, url]) => ({ id: `${id}:${url}`, title, url })),
+  };
+}
+
+const NOW = 1_000_000_000_000;
+
+function visited(url: string, title: string, visitCount = 1): HistoryMatch {
+  return { url, title, visitCount, lastVisitedAt: NOW, faviconUrl: null };
+}
+
+describe('bookmark results', () => {
+  const LIBRARY = [
+    saved('main', 'Bookmarks', [['Rust book', 'https://rust.example/book']]),
+    saved('work', 'Work', [['Invoices', 'https://billing.example/invoices']]),
+    saved(
+      'deep',
+      'Tax 2026',
+      [['Filing guide', 'https://tax.example/guide']],
+      'work',
+    ),
+    saved(
+      'group',
+      'Saved',
+      [['Grouped', 'https://grouped.example/']],
+      null,
+      'group',
+    ),
+  ];
+  const find = (overrides: Partial<PaletteInput>) =>
+    buildPaletteItems(input({ collections: LIBRARY, now: NOW, ...overrides }));
+  const kinds = (items: PaletteItem[]) => items.map((item) => item.kind);
+
+  it('finds a bookmark in the palette by title or address', () => {
+    for (const query of ['rust book', 'rust.example']) {
+      expect(
+        find({ query }).find((item) => item.kind === 'bookmark'),
+      ).toMatchObject({
+        section: 'bookmarks',
+        title: 'Rust book',
+        url: 'https://rust.example/book',
+      });
+    }
+  });
+
+  it('leads with going to an address, even a saved one', () => {
+    expect(find({ query: 'rust.example' })[0]?.id).toBe('navigate');
+  });
+
+  it('does not repeat an address typed out in full', () => {
+    for (const scope of ['palette', 'address'] as const) {
+      const items = find({ query: 'https://rust.example/book', scope });
+      expect(items.map((item) => item.id)).toContain('navigate');
+      expect(kinds(items)).not.toContain('bookmark');
+    }
+  });
+
+  it('leads with the bookmark for words that are not an address', () => {
+    expect(find({ query: 'rust book' })[0]?.kind).toBe('bookmark');
+  });
+
+  it('finds bookmarks in nested folders and says which folder', () => {
+    const [first] = find({ query: 'filing' });
+    expect(first).toMatchObject({
+      title: 'Filing guide',
+      subtitle: 'tax.example · Bookmark in Tax 2026',
+    });
+  });
+
+  it('names no folder for the top level', () => {
+    const [first] = find({ query: 'rust' });
+    expect(first?.subtitle).toBe('rust.example · Bookmark');
+  });
+
+  it('does not treat a saved group as bookmarks', () => {
+    expect(kinds(find({ query: 'grouped' }))).not.toContain('bookmark');
+  });
+
+  it('does not match a bookmark on its folder name', () => {
+    expect(kinds(find({ query: 'tax 2026' }))).not.toContain('bookmark');
+  });
+
+  it('offers no bookmarks before typing, or among commands', () => {
+    expect(kinds(find({ query: '' }))).not.toContain('bookmark');
+    expect(kinds(find({ query: '>rust' }))).not.toContain('bookmark');
+    expect(kinds(find({ query: '', scope: 'address' }))).toEqual([]);
+  });
+
+  it('copes with no library', () => {
+    expect(
+      kinds(find({ query: 'rust', collections: undefined })),
+    ).not.toContain('bookmark');
+  });
+
+  it('caps the section', () => {
+    const many = [
+      saved(
+        'main',
+        'Bookmarks',
+        Array.from({ length: 9 }, (_, index): [string, string] => [
+          `Rust ${index}`,
+          `https://rust${index}.example/`,
+        ]),
+      ),
+    ];
+    const items = find({ query: 'rust', collections: many });
+    expect(kinds(items).filter((kind) => kind === 'bookmark')).toHaveLength(5);
+  });
+
+  it('keeps an open page ahead of an equal bookmark', () => {
+    const items = find({
+      query: 'trail',
+      collections: [
+        saved('main', 'Bookmarks', [['Trail maps', 'https://maps.example/']]),
+      ],
+    });
+    expect(items.map((item) => item.title).slice(0, 2)).toEqual([
+      'Trail running guide',
+      'Trail maps',
+    ]);
+  });
+
+  it('leads with a bookmark that matches better than any page', () => {
+    const items = find({
+      query: 'guide',
+      collections: [
+        saved('main', 'Bookmarks', [['Guide dogs', 'https://dogs.example/']]),
+      ],
+    });
+    expect(items[0]?.title).toBe('Guide dogs');
+  });
+
+  it('keeps a command ahead of a bookmark with the same words', () => {
+    const items = find({
+      query: 'settings',
+      collections: [
+        saved('main', 'Bookmarks', [['Settings', 'https://s.example/']]),
+      ],
+    });
+    expect(kinds(items).slice(0, 2)).toEqual(['command', 'bookmark']);
+  });
+
+  it('keeps bookmarks ahead of history in the palette', () => {
+    const items = find({
+      query: 'rust',
+      history: [visited('https://rust.example/news', 'Rust news', 50)],
+    });
+    expect(
+      kinds(items).filter((kind) => kind === 'bookmark' || kind === 'history'),
+    ).toEqual(['bookmark', 'history']);
+  });
+
+  it('does not repeat a bookmark as history', () => {
+    for (const scope of ['palette', 'address'] as const) {
+      const items = find({
+        query: 'rust',
+        scope,
+        history: [visited('http://www.rust.example/book', 'Rust book')],
+      });
+      expect(kinds(items).filter((kind) => kind === 'history')).toEqual([]);
+      expect(kinds(items).filter((kind) => kind === 'bookmark')).toHaveLength(
+        1,
+      );
+    }
+  });
+
+  it('does not repeat a bookmark beside its open page', () => {
+    const pages = [listing('r', 'Rust book', 'https://rust.example/book')];
+    for (const scope of ['palette', 'address'] as const) {
+      const items = find({ query: 'rust book', scope, pages });
+      expect(kinds(items)).toContain('page');
+      expect(kinds(items)).not.toContain('bookmark');
+    }
+  });
+
+  it("knows a bookmark's open page after a redirect", () => {
+    const pages = [listing('r', 'Rust book', 'https://www.rust.example/book/')];
+    const items = find({ query: 'rust book', pages });
+    expect(kinds(items)).toContain('page');
+    expect(kinds(items)).not.toContain('bookmark');
+  });
+
+  it('does not repeat a bookmark as a visit after a redirect', () => {
+    const items = find({
+      query: 'rust',
+      history: [visited('https://rust.example/book/', 'Rust book')],
+    });
+    expect(kinds(items)).not.toContain('history');
+  });
+
+  it('finds a bookmark by its own name when the open page reads otherwise', () => {
+    const pages = [listing('b', 'Sign in', 'https://login.example/')];
+    const collections = [
+      saved('main', 'Bookmarks', [['My bank', 'https://login.example/']]),
+    ];
+    const items = find({ query: 'bank', pages, collections });
+    expect(items[0]).toMatchObject({ kind: 'bookmark', title: 'My bank' });
+  });
+
+  it('still shows the bookmark of the page on screen', () => {
+    const pages = [listing('r', 'Rust book', 'https://rust.example/book')];
+    const items = find({ query: 'rust book', pages, activePageId: 'r' });
+    expect(items[0]?.kind).toBe('bookmark');
+  });
+
+  describe('in the address bar', () => {
+    const address = (overrides: Partial<PaletteInput>) =>
+      find({ scope: 'address', ...overrides });
+
+    it('leaves the first row to what was typed', () => {
+      const items = address({ query: 'rust' });
+      expect(items[0]?.id).toBe('navigate');
+      expect(items[1]).toMatchObject({
+        kind: 'bookmark',
+        url: 'https://rust.example/book',
+      });
+    });
+
+    it('does not repeat the address a completion leads to', () => {
+      const items = address({
+        query: 'rust.ex',
+        complete: true,
+        collections: [
+          saved('main', 'Bookmarks', [['Rust', 'https://rust.example/']]),
+        ],
+        history: [visited('https://rust.example/', 'Rust')],
+      });
+      expect(items[0]?.id).toBe('complete');
+      expect(kinds(items)).not.toContain('bookmark');
+    });
+
+    it('ranks a good bookmark above a page visited once', () => {
+      const items = address({
+        query: 'rust',
+        history: [visited('https://other.example/rust-notes', 'Rust notes')],
+      });
+      expect(kinds(items).slice(1, 3)).toEqual(['bookmark', 'history']);
+    });
+
+    it('ranks a site in daily use above a weak bookmark', () => {
+      const items = address({
+        query: 'git',
+        collections: [
+          saved('main', 'Bookmarks', [
+            ['Digital archive', 'https://a.example/'],
+          ]),
+        ],
+        history: [visited('https://github.com/', 'GitHub', 64)],
+      });
+      expect(items.slice(1, 3).map((item) => item.title)).toEqual([
+        'GitHub',
+        'Digital archive',
+      ]);
+    });
+
+    it('shares its rows with history rather than growing the list', () => {
+      const items = address({
+        query: 'rust',
+        collections: [
+          saved(
+            'main',
+            'Bookmarks',
+            Array.from({ length: 4 }, (_, index): [string, string] => [
+              `Rust ${index}`,
+              `https://saved${index}.example/`,
+            ]),
+          ),
+        ],
+        history: Array.from({ length: 6 }, (_, index) =>
+          visited(`https://seen${index}.example/rust`, `Rust seen ${index}`),
+        ),
+      });
+      expect(
+        kinds(items).filter(
+          (kind) => kind === 'bookmark' || kind === 'history',
+        ),
+      ).toHaveLength(6);
+    });
+  });
+});
 
 describe('buildPaletteItems', () => {
   it('offers recent pages and common commands before typing', () => {
@@ -258,7 +553,6 @@ describe('buildPaletteItems', () => {
     const items = searchSuggestionItems(
       ['Weather', 'weather berlin', 'weather radar'],
       'weather',
-      'duckduckgo',
     );
     expect(items).toEqual([
       expect.objectContaining({
@@ -268,6 +562,28 @@ describe('buildPaletteItems', () => {
       }),
       expect.objectContaining({ title: 'weather radar' }),
     ]);
+  });
+
+  it('names the shortcut a keyword searches, ahead of everything else', () => {
+    for (const scope of ['palette', 'location', 'address'] as const) {
+      expect(buildPaletteItems(input({ query: 'yt cats', scope }))[0]).toEqual(
+        expect.objectContaining({
+          kind: 'navigate',
+          input: 'yt cats',
+          title: 'Search YouTube for “cats”',
+          subtitle: 'www.youtube.com',
+        }),
+      );
+    }
+  });
+
+  it('mentions the shortcut while only its keyword is typed', () => {
+    expect(
+      buildPaletteItems(input({ query: 'yt', scope: 'address' }))[0],
+    ).toMatchObject({
+      title: 'Search for “yt”',
+      subtitle: 'DuckDuckGo · add words to search YouTube',
+    });
   });
 
   it('shows nothing in the address bar until something is typed', () => {

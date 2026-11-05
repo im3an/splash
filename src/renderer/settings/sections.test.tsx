@@ -8,6 +8,13 @@ import { PrivacySettings } from './sections';
 function stubApi() {
   const splash = {
     listSiteSettings: vi.fn(async () => []),
+    listCookies: vi.fn(async () => []),
+    getThreatListStatus: vi.fn(async () => ({
+      state: 'ready' as const,
+      updatedAt: Date.now(),
+      updateFailed: false,
+      count: 1000,
+    })),
     contentBlockingStatus: vi.fn(async () => ({
       state: 'ready' as const,
       updatedAt: Date.now(),

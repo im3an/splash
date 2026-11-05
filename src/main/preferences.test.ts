@@ -121,6 +121,13 @@ it('does not announce or replace settings after a failed preference write', () =
   expect(listener).not.toHaveBeenCalled();
 });
 
+it('gives a new profile the Minimal trail but keeps a saved choice', () => {
+  expect(new PreferencesService(store()).get().trailStyle).toBe('minimal');
+  const backing = store();
+  backing.setPreference('preferences', '{"trailStyle":"branches"}');
+  expect(new PreferencesService(backing).get().trailStyle).toBe('branches');
+});
+
 it('retires saved current-page styles without resetting other preferences', () => {
   const backing = store();
   backing.setPreference(

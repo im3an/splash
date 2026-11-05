@@ -70,6 +70,8 @@ export function noticeMessage(notice: Notice): string {
       return `Saved “${notice.filename}”.`;
     case 'no-app':
       return `No app on this Mac opens “${notice.scheme}:” links.`;
+    case 'nothing-to-paste':
+      return 'There’s no text on the clipboard to open.';
     case 'shell-recovered':
       return 'Splash’s window had a problem and reloaded. Your pages are as you left them.';
     case 'copied':
@@ -78,6 +80,14 @@ export function noticeMessage(notice: Notice): string {
           return notice.subject
             ? `Copied link to “${shortName(notice.subject)}”.`
             : 'Copied link.';
+        case 'markdown':
+          return notice.subject
+            ? `Copied “${shortName(notice.subject)}” as Markdown.`
+            : 'Copied as Markdown.';
+        case 'text':
+          return notice.subject
+            ? `Copied “${shortName(notice.subject)}” as plain text.`
+            : 'Copied as plain text.';
         case 'image':
           return 'Copied image.';
         case 'image-address':
@@ -93,6 +103,7 @@ export function noticeToast(notice: Notice): ToastInput {
     case 'page-saved':
     case 'copied':
     case 'no-app':
+    case 'nothing-to-paste':
     case 'shell-recovered':
       return { message, detail: null, durationMs: CONFIRM_MS, actions: [] };
     case 'pinned': {

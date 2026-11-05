@@ -9,6 +9,7 @@ import type {
   ClosedSummary,
   MoveOrigin,
   Notice,
+  PageGroup,
   PageId,
   PageSnapshot,
   PermissionRequest,
@@ -34,15 +35,17 @@ import type {
 import { splitBounds } from './layout';
 import { TrailTree } from './trail-tree';
 import { typedPlainAddress } from '../security/https-only';
-import { isPageUrl, resolveAddressInput } from './url';
+import { isPageUrl, resolveAddressInput, searchUrl } from './url';
 import { stepZoom } from './zoom';
-import type { SearchEngineId } from '../../shared/preferences';
+import type { SearchSettings } from '../../shared/search';
 
 interface Workspace {
   id: WorkspaceId;
   name: string;
   appearance: WorkspaceAppearance;
   tree: TrailTree;
+  /** Named sets of top-level pages, in the order they show. */
+  groups: PageGroup[];
   createdAt: number;
 }
 
@@ -71,6 +74,8 @@ interface Page {
   note: string | null;
   /** Kept at the top of the trail; closing puts it to sleep instead. */
   pinned: boolean;
+  /** The group a top-level page is filed under; never set on a pinned page. */
+  groupId: string | null;
   /** The last address the page actually committed, as opposed to requested. */
   committedUrl: string | null;
   /** Permission requests waiting for the user, oldest first. */
@@ -122,10 +127,14 @@ export interface BrowserControllerOptions {
   maxLiveViews?: number;
   /** What resetting a page's zoom goes back to, in percent. */
   defaultZoom?: () => number;
-  /** The engine typed searches go to. */
-  searchEngine?: () => SearchEngineId;
+  /** Where typed searches go. */
+  search?: () => SearchSettings;
   /** The user chose to use this site's plain HTTP address from now on. */
   allowPlainHttp?(url: string): void;
+  /** The user chose to visit a site reported as dangerous. */
+  allowDangerousSite?(url: string): void;
+  /** What a page opened with no address loads, if anything. */
+  newPageUrl?: () => string | null;
   /** Something happened that the shell should confirm (a move, a copy). */
   onNotice?(notice: Notice): void;
 }
@@ -140,6 +149,8 @@ export interface CreatePageOptions {
   index?: number;
   activate?: boolean;
   referrer?: string;
+  /** File the new top-level page under this group. */
+  groupId?: string;
 }
 
 /** How a page is named in confirmations: "Closed “Docs”." */
@@ -325,14 +336,23 @@ export class BrowserController {
       parentId === null ? this.workspace : this.workspaceOf(parentId);
     const id = this.createId();
     workspace.tree.add(id, parentId, options.index);
-    this.pages.set(id, this.newPage(workspace.id));
+    const created = this.newPage(workspace.id);
+    if (
+      options.groupId !== undefined &&
+      parentId === null &&
+      workspace.groups.some((group) => group.id === options.groupId)
+    ) {
+      created.groupId = options.groupId;
+    }
+    this.pages.set(id, created);
+    this.settleRoots(workspace);
 
     const url =
       options.url !== undefined
         ? options.url
         : options.input !== undefined
           ? this.resolve(options.input)
-          : null;
+          : (this.options.newPageUrl?.() ?? null);
     if (url !== null) {
       this.load(id, url, {
         referrer: options.referrer,
@@ -379,6 +399,8 @@ export class BrowserController {
     });
     if (empty === undefined) return this.createPage();
     this.activatePage(empty);
+    const url = this.options.newPageUrl?.();
+    if (url) this.load(empty, url);
     return empty;
   }
 
@@ -439,7 +461,14 @@ export class BrowserController {
     const heir = tree.successorOf(id);
     const { activePageId } = this.viewOf(workspace);
     const successor = activePageId === id ? heir : activePageId;
+    const groupId =
+      tree.get(id)?.parentId === null ? this.require(id).groupId : null;
+    const promoted = [...(tree.get(id)?.childIds ?? [])];
     tree.remove(id);
+    // Pages that stepped up into the page's place stay in its group.
+    if (groupId !== null) {
+      for (const childId of promoted) this.require(childId).groupId = groupId;
+    }
     this.release(id);
     this.afterRemoval(workspace, successor, heir);
   }
@@ -548,6 +577,12 @@ export class BrowserController {
         customTitle: closed.customTitle,
         note: closed.note,
         pinned: closed.pinned ?? false,
+        groupId:
+          closed.groupId &&
+          closed.parentId === null &&
+          workspace.groups.some((group) => group.id === closed.groupId)
+            ? closed.groupId
+            : null,
         history: closed.history,
         createdAt: closed.createdAt,
         // Records saved by older versions may lack newer fields.
@@ -619,6 +654,23 @@ export class BrowserController {
     }
     tree.move(id, parentId, index);
     if (parentId !== null) this.collapsedIds.delete(parentId);
+    const page = this.require(id);
+    if (parentId !== null) page.groupId = null;
+    else if (!page.pinned) {
+      // Dropped between two pages of a group, or after its last one, it joins.
+      const roots = tree.rootIds;
+      const at = roots.indexOf(id);
+      const before = roots[at - 1];
+      const after = roots[at + 1];
+      const beforeGroup = before ? this.require(before).groupId : null;
+      const afterGroup = after ? this.require(after).groupId : null;
+      page.groupId =
+        beforeGroup !== null &&
+        (after === undefined || beforeGroup === afterGroup)
+          ? beforeGroup
+          : null;
+    }
+    this.settleRoots(this.workspaceOf(id));
     this.changed();
   }
 
@@ -640,6 +692,7 @@ export class BrowserController {
       (rootId) => rootId !== id && this.require(rootId).pinned,
     ).length;
     page.pinned = pinned;
+    if (pinned) page.groupId = null;
     const canReturn =
       origin !== undefined &&
       (origin.parentId === null ||
@@ -648,6 +701,7 @@ export class BrowserController {
     else if (pinned || node.parentId === null) {
       tree.move(id, null, pinnedRoots);
     }
+    this.settleRoots(this.workspaceOf(id));
     if (origin === undefined) {
       this.options.onNotice?.({
         kind: 'pinned',
@@ -658,6 +712,154 @@ export class BrowserController {
       });
     }
     this.changed();
+  }
+
+  // ── Groups ─────────────────────────────────────────────────────────────
+
+  /**
+   * Starts a group in the active workspace, optionally filing a page and
+   * its branch in it. Its pages stay ordinary pages, just kept together.
+   */
+  createGroup(name?: string, pageId?: PageId): string {
+    const workspace = this.workspace;
+    const id = this.createId();
+    workspace.groups.push({
+      id,
+      name: cleanText(name ?? null)?.slice(0, 100) ?? 'New group',
+      collapsed: false,
+    });
+    if (pageId !== undefined) this.setPageGroup(pageId, id);
+    else this.changed();
+    return id;
+  }
+
+  renameGroup(groupId: string, name: string): void {
+    const { group } = this.requireGroup(groupId);
+    const clean = cleanText(name)?.slice(0, 100);
+    if (clean) group.name = clean;
+    this.changed();
+  }
+
+  setGroupCollapsed(groupId: string, collapsed: boolean): void {
+    this.requireGroup(groupId).group.collapsed = collapsed;
+    this.changed();
+  }
+
+  /** Dissolves a group; its pages stay where they are, no longer filed. */
+  deleteGroup(groupId: string): void {
+    const { workspace } = this.requireGroup(groupId);
+    workspace.groups = workspace.groups.filter((group) => group.id !== groupId);
+    for (const id of workspace.tree.rootIds) {
+      const page = this.require(id);
+      if (page.groupId === groupId) page.groupId = null;
+    }
+    this.settleRoots(workspace);
+    this.changed();
+  }
+
+  /**
+   * Files a page (brought to the top level, with its branch) at the end of
+   * a group, or takes it out of its group with `null`.
+   */
+  setPageGroup(id: PageId, groupId: string | null): void {
+    const page = this.require(id);
+    const workspace = this.workspaceOf(id);
+    if (groupId !== null) {
+      if (!workspace.groups.some((group) => group.id === groupId)) {
+        throw new Error(`Group ${groupId} is not in this workspace`);
+      }
+      const node = workspace.tree.get(id)!;
+      if (node.parentId !== null) {
+        workspace.tree.move(id, null, workspace.tree.rootIds.length);
+      }
+      page.pinned = false;
+      workspace.groups.find((group) => group.id === groupId)!.collapsed = false;
+    }
+    page.groupId = groupId;
+    if (groupId !== null) {
+      // At the end of the group.
+      workspace.tree.move(id, null, workspace.tree.rootIds.length);
+    }
+    this.settleRoots(workspace);
+    this.changed();
+  }
+
+  /**
+   * Brings a saved group in as real pages of the active workspace. They
+   * come without views and load when opened, like a restored session.
+   */
+  importGroup(
+    name: string,
+    collapsed: boolean,
+    links: { url: string; title: string; faviconUrl?: string | null }[],
+  ): string {
+    const workspace = this.workspace;
+    const groupId = this.createId();
+    workspace.groups.push({
+      id: groupId,
+      name: cleanText(name)?.slice(0, 100) ?? 'Group',
+      collapsed,
+    });
+    for (const link of links) {
+      const id = this.createId();
+      workspace.tree.add(id, null);
+      this.pages.set(id, {
+        ...this.newPage(workspace.id),
+        state: {
+          ...EMPTY_STATE,
+          url: link.url,
+          title: link.title,
+          faviconUrl: link.faviconUrl ?? null,
+        },
+        committedUrl: link.url,
+        groupId,
+      });
+    }
+    this.settleRoots(workspace);
+    this.changed();
+    return groupId;
+  }
+
+  /**
+   * Keeps the top level in the order the sidebar shows it: pinned pages,
+   * then each group's pages in group order, then the rest. Pages keep
+   * their order within each part.
+   */
+  private settleRoots(workspace: Workspace): void {
+    const { tree } = workspace;
+    const rank = (id: PageId): number => {
+      const page = this.require(id);
+      if (page.pinned) {
+        page.groupId = null;
+        return 0;
+      }
+      const index = workspace.groups.findIndex(
+        (group) => group.id === page.groupId,
+      );
+      if (index === -1) {
+        page.groupId = null;
+        return workspace.groups.length + 1;
+      }
+      return index + 1;
+    };
+    const wanted = tree.rootIds
+      .map((id, position) => ({ id, position, rank: rank(id) }))
+      .sort((a, b) => a.rank - b.rank || a.position - b.position)
+      .map((entry) => entry.id);
+    wanted.forEach((id, index) => {
+      if (tree.rootIds[index] !== id) tree.move(id, null, index);
+    });
+  }
+
+  private requireGroup(groupId: string): {
+    workspace: Workspace;
+    group: PageGroup;
+  } {
+    for (const workspace of this.workspaces.values()) {
+      const group = workspace.groups.find((item) => item.id === groupId);
+      if (group) return { workspace, group };
+    }
+    throw new Error(`Group ${groupId} does not exist`);
   }
 
   /** Opens a child, optionally loading its destination before activation. */
@@ -759,6 +961,17 @@ export class BrowserController {
     const { error } = this.require(id).state;
     if (error?.kind !== 'no-secure-connection') return;
     this.options.allowPlainHttp?.(error.url);
+    this.load(id, error.url);
+  }
+
+  /**
+   * The user read the warning and wants the site anyway, now and next time.
+   * Only the shell can ask, and only from that warning.
+   */
+  continueToDangerousSite(id: PageId): void {
+    const { error } = this.require(id).state;
+    if (error?.kind !== 'dangerous-site') return;
+    this.options.allowDangerousSite?.(error.url);
     this.load(id, error.url);
   }
 
@@ -1243,9 +1456,11 @@ export class BrowserController {
         isRoot ? index : undefined,
       );
       this.require(node.pageId).workspaceId = target.id;
+      this.require(node.pageId).groupId = null;
     }
     const targetView = this.viewOf(target);
     targetView.activePageId ??= id;
+    this.settleRoots(target);
     this.afterRemoval(source, successor, heir);
     return branch.length;
   }
@@ -1270,6 +1485,7 @@ export class BrowserController {
           customTitle: page.customTitle,
           note: page.note,
           pinned: page.pinned,
+          groupId: page.groupId,
           collapsed: this.collapsedIds.has(id),
           history: page.host?.captureHistory() ?? page.history,
           createdAt: page.createdAt,
@@ -1286,6 +1502,7 @@ export class BrowserController {
           appearance: workspace.appearance,
           activePageId: this.viewOf(workspace).activePageId,
           split: this.viewOf(workspace).split,
+          groups: workspace.groups.map((group) => ({ ...group })),
           createdAt: workspace.createdAt,
         };
       }),
@@ -1311,6 +1528,7 @@ export class BrowserController {
       const workspace = this.addWorkspace(stored.name, stored.id);
       workspace.createdAt = stored.createdAt;
       workspace.appearance = stored.appearance ?? DEFAULT_APPEARANCE;
+      workspace.groups = (stored.groups ?? []).map((group) => ({ ...group }));
     }
     for (const stored of session.pages) {
       const workspace = this.workspaces.get(stored.workspaceId);
@@ -1335,10 +1553,18 @@ export class BrowserController {
         customTitle: stored.customTitle,
         note: stored.note,
         pinned: stored.pinned,
+        groupId:
+          parentId === null &&
+          !stored.pinned &&
+          workspace.groups.some((group) => group.id === stored.groupId)
+            ? (stored.groupId ?? null)
+            : null,
         createdAt: stored.createdAt,
         lastActiveAt: stored.lastActiveAt,
       });
     }
+    for (const workspace of this.workspaces.values())
+      this.settleRoots(workspace);
     for (const stored of session.workspaces) {
       const workspace = this.workspaces.get(stored.id)!;
       const split = stored.split ?? null;
@@ -1389,6 +1615,7 @@ export class BrowserController {
         customTitle: page.customTitle,
         note: page.note,
         isPinned: page.pinned,
+        groupId: page.groupId,
         blockedPermissions: [...page.blocked],
         blockedPopups: [...page.blockedPopups],
         permissionRequest: page.permissionQueue[0]?.request ?? null,
@@ -1398,6 +1625,7 @@ export class BrowserController {
     return {
       pages,
       rootIds: [...workspace.tree.rootIds],
+      groups: workspace.groups.map((group) => ({ ...group })),
       activePageId,
       split: split && { ...split },
       otherWindows: [...this.trails.viewers]
@@ -1652,7 +1880,7 @@ export class BrowserController {
   // ── Internals ──────────────────────────────────────────────────────────
 
   private resolve(input: string): string {
-    return resolveAddressInput(input, this.options.searchEngine?.());
+    return resolveAddressInput(input, this.options.search?.());
   }
 
   private get workspace(): Workspace {
@@ -1669,6 +1897,7 @@ export class BrowserController {
       name,
       appearance: DEFAULT_APPEARANCE,
       tree: new TrailTree(),
+      groups: [],
       createdAt: this.now(),
     };
     this.workspaces.set(id, workspace);
@@ -1723,6 +1952,7 @@ export class BrowserController {
       customTitle: null,
       note: null,
       pinned: false,
+      groupId: null,
       committedUrl: null,
       permissionQueue: [],
       blocked: new Set(),
@@ -1755,6 +1985,7 @@ export class BrowserController {
         customTitle: page.customTitle,
         note: page.note,
         pinned: page.pinned,
+        groupId: page.groupId,
         state: page.state,
         history: page.host?.captureHistory() ?? page.history,
         createdAt: page.createdAt,
@@ -1923,6 +2154,7 @@ export class BrowserController {
         else at().reload(id);
       },
       navigationAvailability: () => this.trailNavigation(id),
+      searchUrlFor: (query) => searchUrl(query, this.options.search?.()),
       onFocus: () => {
         // Clicking into the other side of a split view makes it active.
         const viewer = at();

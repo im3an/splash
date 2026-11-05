@@ -225,7 +225,7 @@ export function HistoryPanel() {
               aria-label="Searching history"
             />
           ) : (
-            <Search size={14} strokeWidth={1.75} aria-hidden />
+            <Search size={14} aria-hidden />
           )}
         </span>
         <input
@@ -256,7 +256,7 @@ export function HistoryPanel() {
             title="Clear search (esc)"
             onClick={() => setQuery('')}
           >
-            <X size={12} strokeWidth={2} />
+            <X size={12} />
           </button>
         )}
       </div>
@@ -360,7 +360,7 @@ export function HistoryPanel() {
                       }}
                       className="icon-button absolute right-1.5 hidden size-6 shrink-0 group-data-[selected=true]:grid"
                     >
-                      <X size={12} strokeWidth={2} />
+                      <X size={12} />
                     </button>
                   </div>
                 ))}

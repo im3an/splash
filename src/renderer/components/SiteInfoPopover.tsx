@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CircleAlert, Lock, LockOpen, RotateCw } from 'lucide-react';
 import type {
+  CookieSite,
   PermissionDecision,
   SiteInfo,
   SitePermission,
@@ -108,17 +109,9 @@ export function SiteInfoPopover() {
           <>
             <div className="flex items-start gap-2.5 border-b border-divider px-4 py-3">
               {info.security === 'secure' ? (
-                <Lock
-                  size={15}
-                  strokeWidth={2}
-                  className="mt-0.5 shrink-0 text-fg-muted"
-                />
+                <Lock size={15} className="mt-0.5 shrink-0 text-fg-muted" />
               ) : (
-                <LockOpen
-                  size={15}
-                  strokeWidth={2}
-                  className="mt-0.5 shrink-0 text-danger"
-                />
+                <LockOpen size={15} className="mt-0.5 shrink-0 text-danger" />
               )}
               <div className="min-w-0">
                 <p className="truncate font-medium">{info.host}</p>
@@ -159,6 +152,7 @@ export function SiteInfoPopover() {
                 </div>
               ))}
             </div>
+            <SiteCookies host={info.host} onChange={() => setChanged(true)} />
             {error && (
               <p
                 role="alert"
@@ -177,7 +171,7 @@ export function SiteInfoPopover() {
                   }}
                   className="button button-sm text-fg"
                 >
-                  <RotateCw size={12} strokeWidth={2} />
+                  <RotateCw size={12} />
                   Reload to apply
                 </button>
               ) : (
@@ -198,6 +192,86 @@ export function SiteInfoPopover() {
         )}
       </AnchoredPanel>
     </>
+  );
+}
+
+/** How many cookies the site keeps, and a way to delete them. */
+function SiteCookies({ host, onChange }: { host: string; onChange(): void }) {
+  const [site, setSite] = useState<CookieSite | null | undefined>(undefined);
+  const [undoToken, setUndoToken] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const load = useCallback(async () => {
+    setSite((await api().listCookies(host))[0] ?? null);
+  }, [host]);
+  useEffect(() => {
+    load().catch(() => setFailed(true));
+  }, [load]);
+
+  const act = async (run: () => Promise<void>) => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      await run();
+      await load();
+      onChange();
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const count = site?.cookies.length ?? 0;
+
+  if (site === undefined && !failed) return null;
+  return (
+    <div className="flex min-h-9 items-center justify-between gap-3 border-t border-divider px-4 py-1.5">
+      <span
+        role="status"
+        className={`min-w-0 text-small ${failed ? 'text-danger' : 'text-fg-muted'}`}
+      >
+        {failed
+          ? 'Couldn’t read or change cookies.'
+          : undoToken
+            ? 'Cookies deleted.'
+            : count === 0
+              ? 'No cookies from this site.'
+              : `${count === 1 ? 'A cookie' : `${count} cookies`} from this site.`}
+      </span>
+      {undoToken ? (
+        <button
+          type="button"
+          disabled={busy}
+          className="button button-sm shrink-0"
+          onClick={() =>
+            void act(async () => {
+              await api().undoDeleteCookies(undoToken);
+              setUndoToken(null);
+            })
+          }
+        >
+          Undo
+        </button>
+      ) : (
+        count > 0 &&
+        site && (
+          <button
+            type="button"
+            disabled={busy}
+            className="button button-sm shrink-0"
+            aria-label={`Delete cookies from ${site.site}`}
+            onClick={() =>
+              void act(async () => {
+                setUndoToken((await api().deleteCookies(site.site)).undoToken);
+              })
+            }
+          >
+            Delete
+          </button>
+        )
+      )}
+    </div>
   );
 }
 

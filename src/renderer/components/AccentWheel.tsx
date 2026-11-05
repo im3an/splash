@@ -193,7 +193,7 @@ export function AccentWheel({
           onClick={() => emit(point, count - 1, spread)}
           className="icon-button text-fg-muted disabled:opacity-30"
         >
-          <Minus size={18} strokeWidth={2.5} />
+          <Minus size={18} />
         </button>
         <button
           type="button"
@@ -203,7 +203,7 @@ export function AccentWheel({
           onClick={() => emit(point, count + 1, spread)}
           className="icon-button text-fg-muted disabled:opacity-30"
         >
-          <Plus size={18} strokeWidth={2.5} />
+          <Plus size={18} />
         </button>
       </div>
     </div>

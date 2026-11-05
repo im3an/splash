@@ -12,6 +12,7 @@ import { api } from '../splash-api';
 import { useOverlay } from '../stores/overlay-store';
 import { selectActivePage, useShell } from '../stores/shell-store';
 import { PaletteList } from './PaletteList';
+import { SearchScopeChip, useSearchScope } from './SearchScope';
 
 /** What Enter does with the selected row, for the footer. */
 function actionOf(
@@ -26,6 +27,7 @@ function actionOf(
     case 'workspace':
       return 'Switch workspace';
     case 'history':
+    case 'bookmark':
     case 'navigate':
     case 'search':
       return scope === 'location' ? 'Open' : 'Open in new page';
@@ -35,8 +37,8 @@ function actionOf(
 }
 
 /**
- * ⌘K: switch to any page or workspace, open pinned pages and history, run
- * commands. Typing `>` first narrows it to commands.
+ * ⌘K: switch to any page or workspace, open pinned pages, bookmarks and
+ * history, run commands. Typing `>` first narrows it to commands.
  *
  * On a blank page it stands in for the hidden address bar (`location`):
  * Enter then goes to the address or search in that page.
@@ -63,10 +65,12 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
   const [actionError, setActionError] = useState(false);
   const runningRef = useRef(false);
   const isLocation = scope === 'location';
+  const searchScope = useSearchScope();
+  const { scope: site, lineFor } = searchScope;
   const inline = useInlineCompletion(inputRef, query);
   const { offer } = inline;
   const complete = isLocation && inline.forward;
-  const commandsOnly = query.trimStart().startsWith(COMMAND_PREFIX);
+  const commandsOnly = !site && query.trimStart().startsWith(COMMAND_PREFIX);
 
   const items = useMemo(
     () => (isLocation ? withSearchSuggestions(local, search, 0) : local),
@@ -82,10 +86,10 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
     setQueryError(false);
     setLoaded(false);
     void api()
-      .queryPalette(query, scope, complete)
+      .queryPalette(lineFor(query), scope, complete && !site)
       .then((results) => {
         if (!current) return;
-        if (isLocation) offer(results, query);
+        if (isLocation && !site) offer(results, query);
         resolvedQuery.current = query;
         setLocal(results);
         setSelected(0);
@@ -100,10 +104,11 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
     return () => {
       current = false;
     };
-  }, [query, scope, complete, isLocation, offer, retry]);
+  }, [query, scope, complete, isLocation, offer, retry, lineFor, site]);
 
   useEffect(() => {
-    if (!isLocation || commandsOnly || !query.trim()) {
+    // A site's search isn't the default engine's to suggest for.
+    if (!isLocation || commandsOnly || site || !query.trim()) {
       setSearch([]);
       return;
     }
@@ -129,7 +134,7 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
       current = false;
       window.clearTimeout(timer);
     };
-  }, [query, isLocation, commandsOnly]);
+  }, [query, isLocation, commandsOnly, site]);
 
   // An address it opens with is selected, so typing replaces it.
   useEffect(() => inputRef.current?.select(), []);
@@ -150,11 +155,22 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
         setRunning(false);
       });
   };
-  const action = actionOf(items[selected], scope);
+  // Tab or the footer switches between everything and commands only,
+  // keeping the words typed.
+  const showCommands = (on: boolean) => {
+    if (on === commandsOnly) return;
+    const next = on
+      ? `${COMMAND_PREFIX}${query.trimStart()}`
+      : query.trimStart().slice(COMMAND_PREFIX.length).trimStart();
+    inline.clear();
+    latestTyped.current = next;
+    setQuery(next);
+    inputRef.current?.focus();
+  };
   const label =
     scope === 'location'
       ? 'Search or enter address'
-      : 'Search pages, workspaces, history and commands';
+      : 'Search pages, bookmarks, workspaces, history and commands';
 
   return (
     <div
@@ -172,14 +188,16 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
         className="scrim-in pointer-events-none absolute inset-0 bg-scrim"
         aria-hidden
       />
-      <div className="dialog-in relative flex h-fit w-(--palette-width) max-w-full flex-col overflow-hidden rounded-content shadow-(--shadow-glass-panel) backdrop-blur-3xl backdrop-saturate-150 bg-(--glass-panel)">
+      <div
+        style={searchScope.style}
+        className="dialog-in relative flex h-fit w-(--palette-width) max-w-full flex-col overflow-hidden rounded-content shadow-(--shadow-glass-panel) backdrop-blur-3xl backdrop-saturate-150 bg-(--glass-panel)"
+      >
         <div className="flex h-12 items-center gap-2.5 border-b border-divider px-3.5">
-          <Search
-            size={16}
-            strokeWidth={1.75}
-            className="shrink-0 text-fg-subtle"
-            aria-hidden
-          />
+          {site ? (
+            <SearchScopeChip shortcut={site} icon={searchScope.icon} />
+          ) : (
+            <Search size={16} className="shrink-0 text-fg-subtle" aria-hidden />
+          )}
           <input
             ref={inputRef}
             autoFocus
@@ -187,14 +205,52 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
             maxLength={8192}
             onChange={(event) => {
               inline.onInput(event);
-              latestTyped.current = event.target.value;
-              setQuery(event.target.value);
+              // `!yt ` hands the field over to that site's search.
+              const rest = site
+                ? null
+                : searchScope.enterFrom(event.target.value);
+              const next = rest ?? event.target.value;
+              if (rest !== null) inline.clear();
+              latestTyped.current = next;
+              setQuery(next);
             }}
+            onContextMenu={
+              isLocation
+                ? (event) => {
+                    event.preventDefault();
+                    void api().showAddressMenu();
+                  }
+                : undefined
+            }
             onKeyDown={(event) => {
-              if (event.key === 'Escape') {
+              if (
+                event.key === 'Tab' &&
+                !event.shiftKey &&
+                !site &&
+                searchScope.enterOnTab(latestTyped.current)
+              ) {
                 event.preventDefault();
-                // The first press takes back a filled-in address.
-                if (inline.active) inline.clear();
+                inline.clear();
+                latestTyped.current = '';
+                setQuery('');
+              } else if (event.key === 'Tab' && !event.shiftKey) {
+                event.preventDefault();
+                if (!site) showCommands(!commandsOnly);
+              } else if (
+                event.key === 'Backspace' &&
+                site &&
+                !latestTyped.current
+              ) {
+                // Backing out of it gives the keyword back to edit.
+                event.preventDefault();
+                searchScope.clear();
+                latestTyped.current = `!${site.keyword}`;
+                setQuery(latestTyped.current);
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                // The first press leaves the site's search, keeping the words.
+                if (site) searchScope.clear();
+                else if (inline.active) inline.clear();
                 else close();
               } else if (event.key === 'ArrowDown') {
                 event.preventDefault();
@@ -214,7 +270,7 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
                 if (
                   isLocation &&
                   typed &&
-                  !typed.startsWith(COMMAND_PREFIX) &&
+                  (site || !typed.startsWith(COMMAND_PREFIX)) &&
                   (!loaded ||
                     queryError ||
                     resolvedQuery.current !== latestTyped.current ||
@@ -224,7 +280,7 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
                     {
                       id: 'typed',
                       kind: 'navigate',
-                      input: typed,
+                      input: lineFor(typed),
                       title: typed,
                       subtitle: '',
                       section: 'go',
@@ -240,7 +296,13 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
                 if (item) run(item);
               }
             }}
-            placeholder={commandsOnly ? 'Run a command' : label}
+            placeholder={
+              site
+                ? `Search ${site.name}`
+                : commandsOnly
+                  ? 'Run a command'
+                  : label
+            }
             role="combobox"
             aria-expanded={items.length > 0}
             aria-controls="palette-results"
@@ -267,7 +329,7 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
         <div id="palette-results" aria-busy={!loaded || running}>
           {!loaded && (
             <p className="px-3.5 py-3 text-small text-fg-muted" role="status">
-              Searching your pages and history…
+              Searching your pages, bookmarks and history…
             </p>
           )}
           {running && (
@@ -301,6 +363,7 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
             onSelect={setSelected}
             onRun={run}
             query={words}
+            actionOf={(item) => actionOf(item, scope)}
             sectioned
             emptyLabel={
               loaded && !queryError && query.trim()
@@ -313,12 +376,12 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
             }
             emptyHint={
               commandsOnly
-                ? `Delete “${COMMAND_PREFIX}” to search pages and history too.`
+                ? `Delete “${COMMAND_PREFIX}” to search pages, bookmarks and history too.`
                 : 'Try fewer words, or part of an address.'
             }
           />
         </div>
-        <div className="flex h-9 items-center gap-4 border-t border-divider px-3.5 text-caption text-fg-subtle">
+        <div className="flex h-9 items-center gap-3 border-t border-divider pr-1.5 pl-3.5 text-caption text-fg-subtle">
           {items.length > 1 && (
             <span className="flex items-center gap-1.5">
               <kbd className="keycap" aria-label="Up and down arrows">
@@ -327,23 +390,41 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
               Move
             </span>
           )}
-          {action && (
-            <span className="flex min-w-0 items-center gap-1.5">
-              <kbd className="keycap" aria-label="Return">
-                ↵
-              </kbd>
-              <span className="truncate">{action}</span>
-            </span>
-          )}
-          <span className="ml-auto flex shrink-0 items-center gap-1.5">
-            {commandsOnly ? (
-              'Commands only'
-            ) : (
-              <>
-                Type <kbd className="keycap">{COMMAND_PREFIX}</kbd> for commands
-              </>
-            )}
-          </span>
+          <div
+            role="group"
+            aria-label="Search in"
+            className="ml-auto flex shrink-0 items-center gap-0.5"
+          >
+            <kbd
+              className="keycap mr-1"
+              aria-label="Tab"
+              title="Switch with Tab"
+            >
+              ⇥
+            </kbd>
+            {(
+              [
+                [false, 'All'],
+                [true, 'Commands'],
+              ] as const
+            ).map(([commands, name]) => (
+              <button
+                key={name}
+                type="button"
+                aria-pressed={commandsOnly === commands}
+                title={
+                  commands
+                    ? `Commands only (type ${COMMAND_PREFIX})`
+                    : 'Everything'
+                }
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => showCommands(commands)}
+                className="h-6 rounded-inner px-1.5 text-caption font-medium text-fg-subtle transition-colors duration-fast hover:text-fg aria-pressed:bg-row-hover aria-pressed:text-fg"
+              >
+                {name}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>

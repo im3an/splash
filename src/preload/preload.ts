@@ -35,6 +35,10 @@ function subscribe<T>(channel: string, listener: (value: T) => void) {
 const api: SplashApi = {
   manageExtensions: () => invoke('extensions:manage'),
   sharePage: (pageId) => invoke('page:share', { pageId }),
+  copyPageAs: (pageId, format) => invoke('page:copy-as', { pageId, format }),
+  pasteAndGo: () => invoke('page:paste-and-go'),
+  goHome: () => invoke('page:go-home'),
+  showAddressMenu: () => invoke('address:show-menu'),
   getAuthChallenge: () => invoke('auth:challenge'),
   respondAuth: (credentials) => invoke('auth:respond', credentials),
   platform: process.platform,
@@ -49,6 +53,8 @@ const api: SplashApi = {
   goForward: (pageId) => invoke('page:go-forward', { pageId }),
   reload: (pageId) => invoke('page:reload', { pageId }),
   continueOverHttp: (pageId) => invoke('page:continue-over-http', { pageId }),
+  continueToDangerousSite: (pageId) =>
+    invoke('page:continue-to-dangerous-site', { pageId }),
   stop: (pageId) => invoke('page:stop', { pageId }),
   setCollapsed: (pageId, collapsed) =>
     invoke('page:set-collapsed', { pageId, collapsed }),
@@ -66,6 +72,13 @@ const api: SplashApi = {
   returnPage: (pageId, origin) => invoke('page:return', { pageId, origin }),
   setPinned: (pageId, pinned, origin) =>
     invoke('page:set-pinned', { pageId, pinned, origin }),
+  createGroup: (name, pageId) => invoke('group:create', { name, pageId }),
+  renameGroup: (groupId, name) => invoke('group:rename', { groupId, name }),
+  setGroupCollapsed: (groupId, collapsed) =>
+    invoke('group:set-collapsed', { groupId, collapsed }),
+  deleteGroup: (groupId) => invoke('group:delete', { groupId }),
+  setPageGroup: (pageId, groupId) =>
+    invoke('page:set-group', { pageId, groupId }),
   openSettings: () => invoke('app:open-settings'),
   renamePage: (pageId, title) => invoke('page:rename', { pageId, title }),
   duplicatePage: (pageId) => invoke('page:duplicate', { pageId }),
@@ -105,6 +118,7 @@ const api: SplashApi = {
   queryPalette: (query, scope, complete) =>
     invoke('palette:query', { query, scope, complete }),
   suggestSearch: (query) => invoke('search:suggest', { query }),
+  siteIcon: (url) => invoke('search:site-icon', { url }),
   moveWorkspace: (workspaceId, index) =>
     invoke('workspace:move', { workspaceId, index }),
   setContentInsets: (insets) => send('view:set-content-insets', insets),
@@ -123,6 +137,10 @@ const api: SplashApi = {
   deleteHistoryEntry: (url) => invoke('history:delete', { url }),
   restoreHistoryEntry: (entry) => invoke('history:restore', { entry }),
   listSiteSettings: () => invoke('settings:sites'),
+  getThreatListStatus: () => invoke('settings:threat-list'),
+  listCookies: (host) => invoke('cookies:list', { host }),
+  deleteCookies: (site, only) => invoke('cookies:delete', { site, only }),
+  undoDeleteCookies: (token) => invoke('cookies:undo', { token }),
   contentBlockingStatus: () => invoke('settings:content-blocking'),
   updateFilterLists: () => invoke('settings:update-filter-lists'),
   clearBrowsingData: (request) => invoke('settings:clear-data', request),

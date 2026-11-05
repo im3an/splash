@@ -44,7 +44,13 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import type { BrowserSnapshot, PageId, WorkspaceId } from '../../shared/types';
+import type {
+  BrowserSnapshot,
+  PageGroup,
+  PageId,
+  PageSnapshot,
+  WorkspaceId,
+} from '../../shared/types';
 import {
   projectDrop,
   rowsWhileDragging,
@@ -52,6 +58,7 @@ import {
 } from '../lib/drop-projection';
 import { useOverlay } from '../stores/overlay-store';
 import { Highlighted } from './PaletteList';
+import { TrailGroup } from './TrailGroup';
 import { pageLabel, pageParts } from '../lib/format';
 import { renamedToast, trailMoveToast } from '../lib/notices';
 import {
@@ -74,9 +81,19 @@ import {
   type TreeKey,
 } from '../lib/trail';
 import { durationMs, easing } from '../lib/motion';
+import {
+  CHEVRON_CENTER,
+  FLAT_LEAD,
+  INDENT,
+  LEAD,
+  MINIMAL_INDENT,
+  rowBox,
+  rowOffset,
+} from '../lib/trail-rows';
 import { api } from '../splash-api';
 import {
   selectFlatTrail,
+  selectMinimalTrail,
   selectVisibleSplit,
   selectWorkspaces,
   useShell,
@@ -96,21 +113,31 @@ import { Favicon } from './Favicon';
 import { usePagePreview } from './PagePreview';
 import { PageNote } from './PageNote';
 
-const INDENT = 14;
-/** Where a row's chevron sits, so guides line up under it. */
-const CHEVRON_CENTER = 6 + 8;
-/** Where a top-level favicon starts, after the chevron column or without it. */
-const LEAD = 6 + 16 + 8;
-const FLAT_LEAD = 10;
-/**
- * A nested row's box starts just past its parent's branch line, so its
- * fill wraps the row rather than running out to the sidebar's edge.
- */
-const NEST_INSET = 3;
+type Section =
+  | { key: string; kind: 'pinned' }
+  | { key: string; kind: 'pages' }
+  | { key: string; kind: 'group'; group: PageGroup };
 
-/** How far a row's box sits in from the trail's edge. */
-function rowOffset(depth: number): number {
-  return depth === 0 ? 0 : depth * INDENT + NEST_INSET;
+/** Which part of the trail a top-level page shows in. */
+function sectionOf(page: PageSnapshot | undefined): string {
+  if (!page) return 'pages';
+  return page.isPinned ? 'pinned' : (page.groupId ?? 'pages');
+}
+
+/** Pages in each group, counting the ones beneath its top-level pages. */
+function groupBranchCounts(snapshot: BrowserSnapshot): Record<string, number> {
+  const counts: Record<string, number> = {};
+  const size = (id: PageId): number =>
+    1 +
+    (snapshot.pages[id]?.childIds ?? []).reduce(
+      (total, child) => total + size(child),
+      0,
+    );
+  for (const id of snapshot.rootIds) {
+    const groupId = snapshot.pages[id]?.groupId;
+    if (groupId) counts[groupId] = (counts[groupId] ?? 0) + size(id);
+  }
+  return counts;
 }
 
 interface DragState {
@@ -123,6 +150,8 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
   const snapshot = useShell((state) => state.snapshot);
   const visibleSplit = useShell(selectVisibleSplit);
   const flat = useShell(selectFlatTrail);
+  const minimal = useShell(selectMinimalTrail);
+  const indent = minimal ? MINIMAL_INDENT : INDENT;
   // Rows that arrive after the first paint grow in; the first ones don't.
   const painted = useRef(false);
   useEffect(() => {
@@ -239,7 +268,7 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
   }, []);
   const rows = drag ? rowsWhileDragging(allRows, drag.activeId) : allRows;
   const projection: DropProjection | null = drag
-    ? projectDrop(allRows, drag.activeId, drag.overId, drag.offsetX, INDENT)
+    ? projectDrop(allRows, drag.activeId, drag.overId, drag.offsetX, indent)
     : null;
 
   if (snapshot === null) return <TrailSkeleton />;
@@ -253,6 +282,21 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
     );
 
   const sectionCounts = trailSectionCounts(snapshot);
+  const sections: Section[] = [
+    { key: 'pinned', kind: 'pinned' },
+    ...snapshot.groups.map(
+      (group): Section => ({
+        key: group.id,
+        kind: 'group',
+        group,
+      }),
+    ),
+    { key: 'pages', kind: 'pages' },
+  ];
+  const groupCounts = new Map<string, number>();
+  for (const [key, count] of Object.entries(groupBranchCounts(snapshot))) {
+    groupCounts.set(key, count);
+  }
   const split = snapshot.split;
   const tabStop =
     focusedId && allRows.some((row) => row.id === focusedId)
@@ -316,7 +360,7 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
       String(active.id),
       String(over.id),
       delta.x,
-      INDENT,
+      indent,
     );
     if (!target) return;
     const current = allRows.find((row) => row.id === active.id);
@@ -370,18 +414,24 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
             }
           }}
         >
-          {[true, false].map((pinned) => {
+          {sections.map((section) => {
             let inSection = false;
             const sectionRows = rows.filter((row) => {
               if (row.depth === 0)
-                inSection = snapshot.pages[row.id]?.isPinned === pinned;
+                inSection = sectionOf(snapshot.pages[row.id]) === section.key;
               return inSection;
             });
+            const pinned = section.kind === 'pinned';
             // New page leads the open pages, even when every page is pinned.
-            if (!sectionRows.length && (pinned || !newPage)) return null;
+            if (
+              !sectionRows.length &&
+              section.kind !== 'group' &&
+              (pinned || !newPage)
+            )
+              return null;
             const content = (
               <div className="sidebar-section-content flex flex-col gap-px">
-                {!pinned && newPage}
+                {section.kind === 'pages' && newPage}
                 {sectionRows.map((row) => (
                   <Fragment key={row.id}>
                     <TrailRow
@@ -408,13 +458,14 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
                       dragging={row.id === drag?.activeId}
                       hidden={hidden.get(row.id) ?? null}
                       flat={flat}
+                      minimal={minimal}
                       appear={painted.current}
                     />
                     {!drag && (
                       <PageNote
                         pageId={row.id}
                         depth={row.depth}
-                        indent={INDENT}
+                        indent={indent}
                         lead={flat ? FLAT_LEAD : LEAD}
                       />
                     )}
@@ -422,11 +473,22 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
                 ))}
               </div>
             );
+            if (section.kind === 'group') {
+              return (
+                <TrailGroup
+                  key={section.key}
+                  group={section.group}
+                  count={groupCounts.get(section.key) ?? 0}
+                >
+                  {content}
+                </TrailGroup>
+              );
+            }
             // One kind of page needs no heading over it.
             if (!sectionCounts.pinned)
-              return <Fragment key={String(pinned)}>{content}</Fragment>;
+              return <Fragment key={section.key}>{content}</Fragment>;
             return (
-              <details key={String(pinned)} className="trail-section" open>
+              <details key={section.key} className="trail-section" open>
                 <summary className="sidebar-section-heading">
                   <span className="sidebar-section-label">
                     {pinned ? 'Pinned' : 'Pages'}
@@ -565,6 +627,7 @@ const TrailRow = memo(function TrailRow({
   dragging,
   hidden,
   flat,
+  minimal,
   appear,
 }: {
   row: Row;
@@ -584,6 +647,8 @@ const TrailRow = memo(function TrailRow({
   hidden: HiddenSummary | null;
   /** No row has a chevron, so none keeps a column for one. */
   flat: boolean;
+  /** The Minimal trail style: a chevron or dot, and rows edge to edge. */
+  minimal: boolean;
   /** Animate in on mount: the row was just opened or revealed. */
   appear: boolean;
 }) {
@@ -634,16 +699,11 @@ const TrailRow = memo(function TrailRow({
   const marker = page.shownElsewhere ? (
     <AppWindow size={11} aria-label="Showing in another window" />
   ) : inSplit ? (
-    <Columns2 size={11} strokeWidth={2} aria-label="In split view" />
+    <Columns2 size={11} aria-label="In split view" />
   ) : page.note ? (
-    <StickyNote size={11} strokeWidth={2} aria-label="Has a note" />
+    <StickyNote size={11} aria-label="Has a note" />
   ) : page.isDiscarded && !active ? (
-    <Moon
-      size={10}
-      strokeWidth={2}
-      aria-label="Asleep"
-      className="opacity-60"
-    />
+    <Moon size={10} aria-label="Asleep" className="opacity-60" />
   ) : null;
 
   const menuOpen = usePageMenu((state) => state.menu?.pageId === row.id);
@@ -748,7 +808,8 @@ const TrailRow = memo(function TrailRow({
       onKeyDown={onKeyDown}
       data-active={active}
       data-flat={flat}
-      data-pinned-root={page.isPinned && row.depth === 0}
+      // Minimal keeps every row alike; the pin at its end says enough.
+      data-pinned-root={!minimal && page.isPinned && row.depth === 0}
       data-paired={paired}
       data-menu-open={menuOpen}
       data-dragging={dragging}
@@ -759,8 +820,7 @@ const TrailRow = memo(function TrailRow({
       className={`${appearing && !dragging ? 'row-in' : ''} trail-row group relative flex h-(--row-height) shrink-0 items-center gap-2 rounded-row pr-1.5 text-fg-muted outline-offset-[-2px] transition-[background-color,color,box-shadow,scale] duration-fast ease-out hover:bg-row-hover hover:text-fg active:bg-row-pressed data-[paired=true]:bg-row-hover data-[paired=true]:text-fg data-[menu-open=true]:bg-row-hover data-[menu-open=true]:text-fg data-[active=true]:text-fg data-[dragging=true]:z-10 data-[dragging=true]:bg-selected data-[dragging=true]:text-fg data-[dragging=true]:scale-[1.02] data-[dragging=true]:shadow-panel`}
       style={{
         // The content keeps its place; only the box moves in.
-        marginLeft: rowOffset(depth),
-        paddingLeft: (flat ? FLAT_LEAD : 6) + depth * INDENT - rowOffset(depth),
+        ...rowBox(depth, flat, minimal),
         // Rows only ever slide vertically; depth comes from the projection.
         transform: transform
           ? `translate3d(0, ${transform.y}px, 0)`
@@ -783,14 +843,17 @@ const TrailRow = memo(function TrailRow({
           className="trail-branch-toggle -mx-0.5 grid size-5 shrink-0 place-items-center rounded-inner text-fg-subtle transition-colors duration-fast hover:bg-pressed hover:text-fg"
         >
           <ChevronRight
-            size={12}
-            strokeWidth={2}
+            size={minimal ? 13 : 12}
             className="transition-transform duration-base ease-emphasized"
             style={{ transform: expanded ? 'rotate(90deg)' : undefined }}
           />
         </button>
       ) : (
-        !flat && <span className="size-4 shrink-0" aria-hidden />
+        !flat && (
+          <span className="grid size-4 shrink-0 place-items-center" aria-hidden>
+            {minimal && <span className="trail-dot" />}
+          </span>
+        )
       )}
       {/* Holds the current page's dot, Dock-style, when that's the marker. */}
       <span className="trail-favicon relative grid shrink-0">
@@ -838,7 +901,6 @@ const TrailRow = memo(function TrailRow({
       {page.isPinned && !renaming && (
         <Pin
           size={11}
-          strokeWidth={2}
           aria-hidden
           className="shrink-0 -rotate-45 text-fg-subtle"
         />
@@ -869,11 +931,7 @@ const TrailRow = memo(function TrailRow({
           className="-my-1 grid size-6 shrink-0 place-items-center rounded-inner text-fg-subtle hover:bg-pressed hover:text-fg data-[playing=true]:text-accent"
           data-playing={page.isAudible && !page.isMuted}
         >
-          {page.isMuted ? (
-            <VolumeX size={13} strokeWidth={2} />
-          ) : (
-            <Volume2 size={13} strokeWidth={2} />
-          )}
+          {page.isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
         </button>
       )}
       {hidden && !renaming && (
@@ -906,7 +964,7 @@ const TrailRow = memo(function TrailRow({
             onPointerDown={(event) => event.stopPropagation()}
             className="trail-close absolute inset-y-0 right-0 grid w-6 place-items-center rounded-inner text-fg-subtle opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-pressed hover:text-fg"
           >
-            <MoreHorizontal size={14} strokeWidth={1.75} />
+            <MoreHorizontal size={14} />
           </button>
         </span>
       )}
@@ -926,7 +984,8 @@ function IndentGuides({
   lines: readonly DrawnHalf[];
 }) {
   const shown = useShell((state) => state.preferences?.showBranchLines ?? true);
-  if (depth === 0 || !shown) return null;
+  const minimal = useShell(selectMinimalTrail);
+  if (depth === 0 || !shown || minimal) return null;
   return (
     // Measured from the trail's edge, out past the row's inset box.
     <span
@@ -971,6 +1030,7 @@ function CurrentMarker({
   activeId: PageId | null;
   dragging: boolean;
 }) {
+  const minimal = useShell(selectMinimalTrail);
   const surfaceRef = useRef<HTMLSpanElement>(null);
   const lightRef = useRef<HTMLSpanElement>(null);
   // Where the surface was last put, and for which page; null while out.
@@ -1006,7 +1066,7 @@ function CurrentMarker({
       );
       tree.style.setProperty('--trail-glide', `${ms}ms`);
     }
-    const inset = row.dataset.flat === 'true' ? 0 : SURFACE_INSET;
+    const inset = minimal || row.dataset.flat === 'true' ? 0 : SURFACE_INSET;
     move(surface, glide, {
       translate: `${at.left - box.left + inset}px ${y}px`,
       width: `${at.width - inset}px`,
@@ -1023,7 +1083,7 @@ function CurrentMarker({
       light.dataset.shown = 'false';
     }
     spot.current = { id: activeId, y };
-  }, [treeRef, activeId, dragging]);
+  }, [treeRef, activeId, dragging, minimal]);
   // Every render: rows open, close and move under it.
   useLayoutEffect(place);
   useEffect(() => {
@@ -1199,7 +1259,7 @@ function HiddenState({
           onPointerDown={(event) => event.stopPropagation()}
           className="-my-1 grid size-6 shrink-0 place-items-center rounded-inner text-accent hover:bg-pressed"
         >
-          <Volume2 size={13} strokeWidth={2} />
+          <Volume2 size={13} />
         </button>
       )}
       {failedId && failedLabel && (
@@ -1215,7 +1275,7 @@ function HiddenState({
           onPointerDown={(event) => event.stopPropagation()}
           className="-my-1 grid size-6 shrink-0 place-items-center rounded-inner text-danger hover:bg-pressed"
         >
-          <CircleAlert size={13} strokeWidth={2} />
+          <CircleAlert size={13} />
         </button>
       )}
       <span

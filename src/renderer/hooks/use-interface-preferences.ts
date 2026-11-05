@@ -13,14 +13,16 @@ export function useInterfacePreferences() {
     );
   }, [sidebarWidth]);
   const density = useShell((state) => state.preferences?.density);
+  const trailStyle = useShell((state) => state.preferences?.trailStyle);
   const reduceMotion = useShell((state) => state.preferences?.reduceMotion);
   const systemReduced = useSyncExternalStore(subscribeMotion, systemMotion);
   useEffect(() => {
     const root = document.documentElement.dataset;
     root.density = density ?? 'comfortable';
+    root.trail = trailStyle ?? 'minimal';
     // One switch for CSS: macOS's Reduce motion or Splash's own.
     root.motion = reduceMotion || systemReduced ? 'reduced' : 'full';
-  }, [density, reduceMotion, systemReduced]);
+  }, [density, trailStyle, reduceMotion, systemReduced]);
 }
 
 const REDUCED = '(prefers-reduced-motion: reduce)';

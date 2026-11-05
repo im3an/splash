@@ -1,4 +1,4 @@
-import type { SearchEngineId } from '../../shared/preferences';
+import type { SearchEngineId } from '../../shared/search';
 
 /**
  * Where each engine answers "what might I be searching for?", all in the

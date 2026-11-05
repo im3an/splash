@@ -16,8 +16,8 @@ import {
   BRANCH_LINK,
   FORM_EDITED,
   FRAME_GESTURE,
-  LINK_ACTIVATED,
   LINK_DROPPED,
+  LINK_ACTIVATED,
   NAVIGATION_BUTTON,
 } from '../../shared/page-bridge';
 import type { ExternalApp, Notice, SitePermission } from '../../shared/types';
@@ -100,6 +100,8 @@ export interface PageHandle {
   ): Promise<boolean>;
   blocked(permissions: SitePermission[]): void;
   notify(notice: Notice): void;
+  /** Its main-frame request for `url` was stopped: reported as dangerous. */
+  flaggedDangerous(url: string): void;
   /** Its main-frame request for `plain` is going to `secure` instead. */
   upgraded(plain: string, secure: string): void;
 }
@@ -147,6 +149,8 @@ class ElectronPageHost implements PageHost {
   private readonly secureAttempt = new SecureAttempt();
   /** The HTTPS address showing the warning, and the HTTP one it stands for. */
   private failedUpgrade: { secure: string; plain: string } | null = null;
+  /** The address this navigation was stopped at for being dangerous. */
+  private flaggedUrl: string | null = null;
   private attached = false;
   private closing = false;
   private hasFormEdits = false;
@@ -189,6 +193,9 @@ class ElectronPageHost implements PageHost {
         this.events.onPermissionRequest(origin, permissions, opens),
       blocked: (permissions) => this.events.onPermissionBlocked(permissions),
       notify: (notice) => this.events.onNotice(notice),
+      flaggedDangerous: (url) => {
+        this.flaggedUrl = url;
+      },
       upgraded: (plain, secure) => this.secureAttempt.begin(plain, secure),
     });
     this.view.webContents.once('destroyed', () => pageHandles.delete(id));
@@ -455,6 +462,7 @@ class ElectronPageHost implements PageHost {
         this.events.onOpenRequest(url, { background: false }),
       ),
     );
+
     // `input-event` above doesn't see clicks inside a frame from another site.
     contents.ipc.on(FRAME_GESTURE, (event) => {
       if (event.senderFrame?.parent) this.gestures.record();
@@ -468,7 +476,6 @@ class ElectronPageHost implements PageHost {
         this.events.onOpenRequest(href, { background: false });
       }
     });
-
     contents.ipc.on(FORM_EDITED, (event, edited: unknown) => {
       if (!event.senderFrame || edited !== true) return;
       this.hasFormEdits = true;
@@ -540,6 +547,7 @@ class ElectronPageHost implements PageHost {
     contents.on('context-menu', (_event, params) => {
       const template = webContextMenu(contents, params, {
         ...this.events.navigationAvailability(),
+        searchUrlFor: (query) => this.events.searchUrlFor(query),
         openChild: (url, options) => this.events.onOpenRequest(url, options),
         back: () => this.events.onNavigationCommand('back'),
         forward: () => this.events.onNavigationCommand('forward'),
@@ -596,6 +604,7 @@ class ElectronPageHost implements PageHost {
       if (!details.isMainFrame || details.isSameDocument) return;
       this.secureAttempt.navigationStarted(details.url);
       this.failedUpgrade = null;
+      this.flaggedUrl = null;
       emit({ error: null });
     });
     contents.on('did-start-loading', () => emit({ isLoading: true }));
@@ -658,6 +667,15 @@ class ElectronPageHost implements PageHost {
       'did-fail-load',
       (_event, code, description, url, isMainFrame) => {
         if (!isMainFrame || code === ERR_ABORTED) return;
+        if (this.flaggedUrl) {
+          const flagged = this.flaggedUrl;
+          this.flaggedUrl = null;
+          emit({
+            isLoading: false,
+            error: { kind: 'dangerous-site', code, description, url: flagged },
+          });
+          return;
+        }
         const plain = this.secureAttempt.failed(code);
         // Typed without a scheme, on a site the user already chose HTTP for.
         if (plain && this.environment.plainHttpAllowed(plain)) {

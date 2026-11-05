@@ -4,8 +4,8 @@ import { AnchoredPanel } from './AnchoredPanel';
 import { PaletteList } from './PaletteList';
 
 /**
- * Suggestions under the address bar: go there, history, the engine's
- * suggestions and open pages.
+ * Suggestions under the address bar: go there, bookmarks and history, the
+ * engine's suggestions and open pages.
  */
 export function AddressSuggestions() {
   const items = useSuggestions((state) => state.items);

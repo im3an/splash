@@ -5,7 +5,9 @@ export type PageErrorKind =
   | 'load-failed'
   | 'crashed'
   /** HTTPS failed where HTTP might work; `url` is the plain HTTP address. */
-  | 'no-secure-connection';
+  | 'no-secure-connection'
+  /** On the phishing and malware lists; nothing was requested from `url`. */
+  | 'dangerous-site';
 
 export interface PageError {
   kind: PageErrorKind;
@@ -64,6 +66,8 @@ export interface PageSnapshot {
   note: string | null;
   /** Kept at the top of the trail; closing puts it to sleep instead. */
   isPinned: boolean;
+  /** The group this top-level page is filed under, if any. */
+  groupId: string | null;
   isAudible: boolean;
   isMuted: boolean;
   zoomPercent: number;
@@ -94,7 +98,16 @@ export type SitePermission =
   /** Links that open an app on the Mac: mailto:, tel:, zoommtg: … */
   | 'apps'
   /** Allowed means HTTPS-only mode leaves the site's plain HTTP address alone. */
-  | 'insecure';
+  | 'insecure'
+  /** Scripts on the site's pages and everything they embed. */
+  | 'javascript'
+  | 'images'
+  /** Audio and video starting before the user touched the page. */
+  | 'autoplay'
+  /** Cookies of other sites while on this one. */
+  | 'third-party-cookies'
+  /** The user chose to visit a site the lists report as dangerous. */
+  | 'dangerous';
 
 export type PermissionDecision = 'allow' | 'block' | 'ask';
 
@@ -118,6 +131,7 @@ export type PaletteSection =
   | 'pages'
   | 'workspaces'
   | 'commands'
+  | 'bookmarks'
   | 'history'
   | 'search';
 
@@ -142,7 +156,7 @@ export type PaletteItem = {
       shortcut: string | null;
     }
   | {
-      kind: 'history';
+      kind: 'history' | 'bookmark';
       url: string;
       faviconUrl: string | null;
     }
@@ -186,6 +200,10 @@ export type PaletteCommand =
   | 'reload'
   | 'duplicate-page'
   | 'copy-link'
+  | 'copy-markdown'
+  | 'copy-text'
+  | 'paste-and-go'
+  | 'go-home'
   | 'close-branch'
   | 'rename-page'
   | 'edit-note'
@@ -261,6 +279,28 @@ export interface SiteSettings {
   }[];
 }
 
+/** A cookie as the viewer shows it. Values never leave the main process. */
+export interface CookieEntry {
+  name: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  /** Milliseconds since the epoch; `null` when it ends with the session. */
+  expires: number | null;
+}
+
+/** One site's cookies, including its subdomains'. */
+export interface CookieSite {
+  site: string;
+  cookies: CookieEntry[];
+}
+
+export interface CookieDeletion {
+  deleted: number;
+  undoToken: string | null;
+}
+
 /** Whether the ad and tracker filter lists are ready to use. */
 export interface ContentBlockingStatus {
   state: 'loading' | 'ready' | 'failed';
@@ -268,6 +308,17 @@ export interface ContentBlockingStatus {
   updatedAt: number | null;
   /** The last try to download newer lists failed. */
   updateFailed: boolean;
+}
+
+/** Whether the phishing and malware lists are ready to use. */
+export interface ThreatListStatus {
+  state: 'off' | 'loading' | 'ready' | 'failed';
+  /** When the lists in use were downloaded. */
+  updatedAt: number | null;
+  /** The last try to download newer lists failed. */
+  updateFailed: boolean;
+  /** How many reported sites the lists hold. */
+  count: number;
 }
 
 export interface DefaultBrowserStatus {
@@ -368,6 +419,13 @@ export interface SplitView {
   rightId: PageId;
 }
 
+/** A named set of top-level pages in a workspace; its pages are ordinary pages, just filed together. */
+export interface PageGroup {
+  id: string;
+  name: string;
+  collapsed: boolean;
+}
+
 export interface OtherWindow {
   id: string;
   title: string;
@@ -377,6 +435,8 @@ export interface OtherWindow {
 export interface BrowserSnapshot {
   pages: Record<PageId, PageSnapshot>;
   rootIds: PageId[];
+  /** The workspace's groups, in the order they show. */
+  groups: PageGroup[];
   activePageId: PageId | null;
   /** The workspace's split view; on screen while either of its pages is active. */
   split: SplitView | null;
@@ -417,11 +477,13 @@ export type Notice =
   | { kind: 'page-saved'; filename: string }
   /** The window's interface crashed and was reloaded; pages kept running. */
   | { kind: 'shell-recovered' }
+  /** Paste and Go, with no text on the clipboard. */
+  | { kind: 'nothing-to-paste' }
   /** A page's link needs an app this Mac doesn't have. */
   | { kind: 'no-app'; scheme: string }
   | {
       kind: 'copied';
-      what: 'link' | 'image' | 'image-address';
+      what: 'link' | 'image' | 'image-address' | 'markdown' | 'text';
       /** The page or host the link points to; `null` to say nothing more. */
       subject: string | null;
     }
@@ -465,6 +527,8 @@ export type UiCommand =
   | { type: 'create-workspace' }
   | { type: 'customize-workspace' }
   | { type: 'open-palette' }
+  /** Something done from a native menu made the open overlay pointless. */
+  | { type: 'close-overlay' }
   | { type: 'site-info' }
   | { type: 'find'; action: 'open' | 'next' | 'previous' }
   | { type: 'show-downloads' }

@@ -1,10 +1,14 @@
 import { extname, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { DEFAULT_PREFERENCES } from '../../shared/preferences';
 import {
-  DEFAULT_PREFERENCES,
-  searchEngine,
-  type SearchEngineId,
-} from '../../shared/preferences';
+  commandOnly,
+  defaultEngine,
+  fillSearchUrl,
+  keywordSearch,
+  shortcutOrigin,
+  type SearchSettings,
+} from '../../shared/search';
 
 const NAVIGABLE_PROTOCOLS = new Set(['http:', 'https:']);
 
@@ -214,9 +218,20 @@ export function mayOpenFromPage(value: string): boolean {
 
 export function searchUrl(
   query: string,
-  engine: SearchEngineId = DEFAULT_PREFERENCES.searchEngine,
+  search: SearchSettings = DEFAULT_PREFERENCES,
 ): string {
-  return searchEngine(engine).url + encodeURIComponent(query);
+  return fillSearchUrl(defaultEngine(search).url, query);
+}
+
+/**
+ * What to go to for text from the clipboard: an address wrapped over several
+ * lines joins back up; anything else with line breaks is one search.
+ */
+export function clipboardAddressInput(text: string): string {
+  const trimmed = text.trim().slice(0, 8192);
+  if (!/\n/.test(trimmed)) return trimmed;
+  const joined = trimmed.replace(/\s*\n\s*/g, '');
+  return /\s/.test(joined) ? trimmed.replace(/\s+/g, ' ') : joined;
 }
 
 function looksLikeHost(hostname: string): boolean {
@@ -228,16 +243,21 @@ function looksLikeHost(hostname: string): boolean {
 }
 
 /**
- * Turns whatever the user typed into the address bar into an http(s) URL.
- * Anything that is not recognisably a web address becomes a search, so this
- * never produces a `file:`, `javascript:` or other privileged URL.
+ * Turns whatever the user typed into the address bar into an http(s) URL. A
+ * keyword first (`yt cats`) searches with that shortcut. Anything else that is
+ * not recognisably a web address becomes a search, so this never produces a
+ * `file:`, `javascript:` or other privileged URL.
  */
 export function resolveAddressInput(
   raw: string,
-  engine: SearchEngineId = DEFAULT_PREFERENCES.searchEngine,
+  settings: SearchSettings = DEFAULT_PREFERENCES,
 ): string {
   const input = raw.trim();
-  const search = () => searchUrl(input, engine);
+  const keyed = keywordSearch(input, settings.searchShortcuts);
+  if (keyed) return fillSearchUrl(keyed.shortcut.url, keyed.query);
+  const command = commandOnly(input, settings.searchShortcuts);
+  if (command) return shortcutOrigin(command);
+  const search = () => searchUrl(input, settings);
   if (input === '' || /\s/.test(input)) return search();
   if (isSourceUrl(input)) return input;
 

@@ -3,6 +3,8 @@ import {
   app,
   dialog,
   BrowserWindow,
+  clipboard,
+  Menu,
   nativeTheme,
   ShareMenu,
   net,
@@ -14,6 +16,12 @@ import {
 import { eventChannels } from '../../shared/api';
 import { DEFAULT_APPEARANCE, frameColor } from '../../shared/appearance';
 import type { Preferences } from '../../shared/preferences';
+import {
+  builtInEngine,
+  fillSearchUrl,
+  keywordSearch,
+} from '../../shared/search';
+import { formatPageLink, type CopyFormat } from '../../shared/page-link';
 import type {
   BrowserSnapshot,
   ContentInsets,
@@ -33,7 +41,11 @@ import {
   type SharedTrails,
 } from '../browser/browser-controller';
 import { buildPaletteItems, searchSuggestionItems } from '../browser/palette';
+import { clipboardAddressInput } from '../browser/url';
 import { SearchSuggestions } from '../browser/search-suggestions';
+import { pageWebPreferences } from '../browser/page-preferences';
+import { rememberZoom, zoomFor } from '../browser/site-zoom';
+import { SiteIcons } from '../browser/site-icons';
 import {
   contentsForPage,
   createElectronPageHostFactory,
@@ -41,12 +53,11 @@ import {
 } from '../browser/electron-page-host';
 import { requestExternalOpen } from '../security/external-apps';
 import { contentBounds } from '../browser/layout';
-import { pageWebPreferences } from '../browser/page-preferences';
-import { rememberZoom, zoomFor } from '../browser/site-zoom';
 import { savePage } from '../browser/save-page';
 import { OfflineRetry } from '../browser/offline-retry';
 import { isSameDocument, shellUrl } from './shell-url';
 import type { IpcTarget } from '../ipc/register-ipc';
+import { addressMenuItems } from '../menus/address-menu';
 import { showWorkspaceMenu } from '../menus/workspace-menu';
 import {
   decisionOf,
@@ -54,12 +65,14 @@ import {
   SITE_PERMISSIONS,
   webOrigin,
 } from '../security/permissions';
+import { dangerousSiteKey } from '../security/threat-list';
 import { WEB_PARTITION } from '../security/web-security';
 import { AiPanel } from '../ai/ai-panel';
 import type { HistoryMatch, TrailStore } from '../storage/trail-store';
 import type { PreferencesService } from '../preferences';
 import type { DownloadManager } from '../downloads/download-manager';
 import type { ContentBlocking } from '../privacy/content-blocker';
+import type { CookieViewer } from '../privacy/cookies';
 import type { ExtensionHost } from '../extensions/extension-host';
 
 const BOUNDS_KEY = 'window.bounds';
@@ -69,6 +82,10 @@ const BOUNDS_KEY = 'window.bounds';
  * so the engine can't tie suggestions to a signed-in account.
  */
 const engineSuggestions = new SearchSuggestions((url, init) =>
+  net.fetch(url, { ...init, credentials: 'omit' }),
+);
+
+const siteIcons = new SiteIcons((url, init) =>
   net.fetch(url, { ...init, credentials: 'omit' }),
 );
 
@@ -85,6 +102,7 @@ export interface TrailWindowOptions {
   preferences: PreferencesService;
   downloads: DownloadManager;
   blocker: ContentBlocking;
+  cookies: CookieViewer;
   /**
    * Called when the list of workspaces, their names or the active one
    * changes, or the active page's pin or mute, so the menu bar can follow.
@@ -308,12 +326,20 @@ export class TrailWindow {
       },
       maxLiveViews: options.preferences.get().awakePages,
       defaultZoom: () => options.preferences.get().defaultZoom,
+      search: () => options.preferences.get(),
       allowPlainHttp: (address) => {
         this.safely(() =>
           store.setPermission(new URL(address).origin, 'insecure', true),
         );
       },
-      searchEngine: () => options.preferences.get().searchEngine,
+      allowDangerousSite: (address) => {
+        const key = dangerousSiteKey(address);
+        if (key) this.safely(() => store.setPermission(key, 'dangerous', true));
+      },
+      newPageUrl: () => {
+        const { newPage, homepage } = options.preferences.get();
+        return newPage === 'homepage' ? homepage : null;
+      },
       onVisit: (visited) =>
         this.safely(() => store.recordVisit(visited, Date.now())),
       onTitle: (visited, title) =>
@@ -338,6 +364,7 @@ export class TrailWindow {
         if (options.preferences.get().startup === 'new-page')
           this.controller.startWithNewPage();
       }
+      this.adoptSavedGroups(store);
     }
     if (options.show && 'pageId' in options.show) {
       this.controller.activatePage(options.show.pageId);
@@ -370,6 +397,8 @@ export class TrailWindow {
         'page:reload': ({ pageId }) => this.controller.reload(pageId),
         'page:continue-over-http': ({ pageId }) =>
           this.controller.continueOverHttp(pageId),
+        'page:continue-to-dangerous-site': ({ pageId }) =>
+          this.controller.continueToDangerousSite(pageId),
         'page:stop': ({ pageId }) => this.controller.stop(pageId),
         'page:set-collapsed': ({ pageId, collapsed }) =>
           this.controller.setCollapsed(pageId, collapsed),
@@ -400,6 +429,15 @@ export class TrailWindow {
           this.controller.renamePage(pageId, title),
         'page:set-pinned': ({ pageId, pinned, origin }) =>
           this.controller.setPinned(pageId, pinned, origin),
+        'group:create': ({ name, pageId }) =>
+          this.controller.createGroup(name, pageId),
+        'group:rename': ({ groupId, name }) =>
+          this.controller.renameGroup(groupId, name),
+        'group:set-collapsed': ({ groupId, collapsed }) =>
+          this.controller.setGroupCollapsed(groupId, collapsed),
+        'group:delete': ({ groupId }) => this.controller.deleteGroup(groupId),
+        'page:set-group': ({ pageId, groupId }) =>
+          this.controller.setPageGroup(pageId, groupId),
         'app:open-settings': () => this.options.openSettings(),
         'page:duplicate': ({ pageId }) => this.controller.duplicatePage(pageId),
         'page:move-to-workspace': ({ pageId, workspaceId }) =>
@@ -451,7 +489,24 @@ export class TrailWindow {
           if (permission === 'popups' && decision === 'allow') {
             this.controller.clearBlockedPopups(origin);
           }
+          // A service worker answers without the network, past the rule that
+          // keeps scripts and images off the site's pages.
+          if (
+            (permission === 'javascript' || permission === 'images') &&
+            decision === 'block'
+          ) {
+            void session
+              .fromPartition(WEB_PARTITION)
+              .clearData({ dataTypes: ['serviceWorkers'], origins: [origin] })
+              .catch((error: unknown) =>
+                console.error('Could not clear service workers', error),
+              );
+          }
         },
+        'cookies:list': ({ host }) => this.options.cookies.list(host),
+        'cookies:delete': ({ site, only }) =>
+          this.options.cookies.delete(site, only),
+        'cookies:undo': ({ token }) => this.options.cookies.restore(token),
         'site:reset': ({ origin }) => {
           store.clearPermissions(origin);
           this.controller.applySoundPolicy(origin, false);
@@ -490,6 +545,22 @@ export class TrailWindow {
             }).popup({ window: this.window });
           }
         },
+        'page:copy-as': ({ pageId, format }) => this.copyPageAs(pageId, format),
+        'page:paste-and-go': () => this.pasteAndGo(),
+        'page:go-home': () => this.goHome(),
+        'address:show-menu': () => {
+          const { activePageId, pages } = this.controller.snapshot();
+          const pageId = activePageId;
+          Menu.buildFromTemplate(
+            addressMenuItems({
+              hasAddress: pageId !== null && Boolean(pages[pageId]?.url),
+              pasteAndGo: () => void this.pasteAndGo(),
+              copyAs: (format) => {
+                if (pageId) void this.copyPageAs(pageId, format);
+              },
+            }),
+          ).popup({ window: this.window });
+        },
         'preferences:get': () => this.options.preferences.get(),
         'preferences:update': ({ patch }) =>
           this.options.preferences.update(patch),
@@ -503,6 +574,7 @@ export class TrailWindow {
             scope,
             pages: this.controller.listPages(),
             history: query.trim() ? this.historyPool(query) : [],
+            collections: this.options.preferences.get().collections,
             workspaces: snapshot.workspaces,
             activeWorkspaceId: snapshot.activeWorkspaceId,
             activePageId: snapshot.activePageId,
@@ -519,17 +591,27 @@ export class TrailWindow {
                 snapshot.split?.rightId === active.id,
             },
             canReopen: snapshot.lastClosed !== null,
-            searchEngine: this.options.preferences.get().searchEngine,
+            search: this.options.preferences.get(),
+            hasHomepage: this.options.preferences.get().homepage !== null,
             complete,
           });
         },
         'search:suggest': async ({ query }) => {
-          const { searchEngine, searchSuggestions } =
-            this.options.preferences.get();
-          if (!searchSuggestions) return [];
-          const found = await engineSuggestions.get(query, searchEngine);
-          return searchSuggestionItems(found, query, searchEngine);
+          const preferences = this.options.preferences.get();
+          // Only the built-in engines are asked, and a shortcut's search
+          // ("yt cats") isn't for the default engine to see.
+          const engine = builtInEngine(preferences.searchEngine);
+          if (
+            !preferences.searchSuggestions ||
+            !engine ||
+            keywordSearch(query, preferences.searchShortcuts)
+          )
+            return [];
+          const found = await engineSuggestions.get(query, engine.id);
+          return searchSuggestionItems(found, query, preferences);
         },
+        'search:site-icon': ({ url }) =>
+          siteIcons.get(new URL(fillSearchUrl(url, '')).origin),
         'workspace:move': ({ workspaceId, index }) =>
           this.controller.moveWorkspace(workspaceId, index),
         'ai:act': ({ action }) => this.aiPanel.act(action),
@@ -692,6 +774,37 @@ export class TrailWindow {
   }
 
   /** Confirms something in the shell, without taking focus from the page. */
+  /** Copies a page's title and address, and says what was copied. */
+  async copyPageAs(pageId: PageId, format: CopyFormat): Promise<void> {
+    const page = this.controller.snapshot().pages[pageId];
+    if (!page?.url) return;
+    const title = page.customTitle || page.title;
+    await clipboard.writeText(formatPageLink(format, title, page.url));
+    this.notify({ kind: 'copied', what: format, subject: title || null });
+  }
+
+  /** Goes to what's on the clipboard, in the active page or a new one. */
+  async pasteAndGo(): Promise<void> {
+    const input = clipboardAddressInput(await clipboard.readText());
+    if (!input) return this.notify({ kind: 'nothing-to-paste' });
+    const { activePageId } = this.controller;
+    if (activePageId) this.controller.navigate(activePageId, input);
+    else this.controller.createPage({ input });
+    this.sendUiCommand({ type: 'close-overlay' });
+    this.controller.focusActivePage();
+  }
+
+  /** Goes to the homepage; with none set, Settings is where to choose one. */
+  goHome(): void {
+    const { homepage } = this.options.preferences.get();
+    if (!homepage) return void this.options.openSettings();
+    const { activePageId } = this.controller;
+    if (activePageId) this.controller.navigate(activePageId, homepage);
+    else this.controller.createPage({ url: homepage });
+    this.sendUiCommand({ type: 'close-overlay' });
+    this.controller.focusActivePage();
+  }
+
   notify(notice: Notice): void {
     this.send(eventChannels.notice, notice);
   }
@@ -745,7 +858,10 @@ export class TrailWindow {
       blockedCount: this.options.blocker.blockedOn(pageId),
       // A secure site has no plain HTTP address to allow.
       permissions: SITE_PERMISSIONS.filter(
-        (permission) => permission !== 'insecure' || origin.startsWith('http:'),
+        // The warning itself asks about danger; Settings lists what was chosen.
+        (permission) =>
+          permission !== 'dangerous' &&
+          (permission !== 'insecure' || origin.startsWith('http:')),
       ).map((permission) => {
         const decided =
           this.safely(() => store.getPermission(origin, permission)) ?? null;
@@ -769,6 +885,18 @@ export class TrailWindow {
     if (permission === 'insecure') {
       return this.options.preferences.get().httpsOnly ? 'block' : 'allow';
     }
+    if (permission === 'third-party-cookies') {
+      return this.options.preferences.get().blockThirdPartyCookies
+        ? 'block'
+        : 'allow';
+    }
+    if (
+      permission === 'javascript' ||
+      permission === 'images' ||
+      permission === 'autoplay'
+    ) {
+      return 'allow';
+    }
     return 'ask';
   }
 
@@ -787,6 +915,30 @@ export class TrailWindow {
       if (!byUrl.has(entry.url)) byUrl.set(entry.url, entry);
     }
     return [...byUrl.values()];
+  }
+
+  /**
+   * Groups used to be saved as plain links in the preferences. They become
+   * real pages of the active workspace, filed in groups of the same name,
+   * and the saved copies go once the session holds them.
+   */
+  private adoptSavedGroups(store: TrailStore): void {
+    const { preferences } = this.options;
+    const saved = preferences.get().collections;
+    const groups = saved.filter((item) => item.kind === 'group');
+    if (groups.length === 0) return;
+    for (const group of groups) {
+      this.controller.importGroup(group.name, group.collapsed, group.links);
+    }
+    const kept = this.safely(() => {
+      store.saveSession(this.controller.exportSession());
+      return true;
+    });
+    if (kept) {
+      preferences.update({
+        collections: saved.filter((item) => item.kind !== 'group'),
+      });
+    }
   }
 
   private safely<T>(run: () => T): T | null {

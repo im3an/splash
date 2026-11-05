@@ -16,6 +16,8 @@ import { webOrigin } from '../security/permissions';
 import type { TrailStore } from '../storage/trail-store';
 import { AUTOCONSENT } from '../../shared/page-bridge';
 import { autoconsentReply } from './autoconsent';
+import type { SiteRules } from './electron-site-rules';
+import { withoutSetCookie } from './site-rules';
 import {
   bundleScriptlets,
   combinedStatus,
@@ -94,6 +96,7 @@ export function enableContentBlocking(
   session: Session,
   store: TrailStore,
   preferences: PreferencesService,
+  rules: SiteRules,
 ): ContentBlocking {
   /** Whether the user allowed ads on the site at `pageUrl`, if they decided. */
   const allowedOn = (pageUrl: string | null): boolean | null => {
@@ -177,6 +180,16 @@ export function enableContentBlocking(
     { urls: ['<all_urls>'] },
     (details, callback) => {
       const page = pageOf(details.webContentsId);
+      // Before anything leaves for the site; the page shows the warning.
+      if (
+        page &&
+        details.resourceType === 'mainFrame' &&
+        rules.isDangerous(details.url)
+      ) {
+        page.handle.flaggedDangerous(details.url);
+        callback({ cancel: true });
+        return;
+      }
       // Electron allows one listener, so HTTPS-only mode goes first here:
       // the request comes back through this hook on its way to HTTPS.
       const secure = upgradeOf(details.url, details.resourceType, page);
@@ -212,14 +225,25 @@ export function enableContentBlocking(
         details.resourceType === 'mainFrame'
           ? details.url
           : pageOf(details.webContentsId)?.url || null;
-      const policies = blockersOn(pageUrl)
-        .map((blocker) => blocker.cspFor(details))
-        .filter((csp): csp is string => !!csp);
-      if (policies.length === 0) {
+      const site = rules.forResponse(details);
+      // The site's rules first: in one header, a directive's first copy wins.
+      const policies = [
+        ...(site.contentPolicy ? [site.contentPolicy] : []),
+        ...blockersOn(pageUrl)
+          .map((blocker) => blocker.cspFor(details))
+          .filter((csp): csp is string => !!csp),
+      ];
+      if (policies.length === 0 && !site.dropCookies) {
         callback({});
         return;
       }
-      const responseHeaders = { ...details.responseHeaders };
+      const responseHeaders = site.dropCookies
+        ? withoutSetCookie(details.responseHeaders ?? {})
+        : { ...details.responseHeaders };
+      if (policies.length === 0) {
+        callback({ responseHeaders });
+        return;
+      }
       for (const name of Object.keys(responseHeaders)) {
         if (name.toLowerCase() !== 'content-security-policy') continue;
         policies.push(...(responseHeaders[name] ?? []));
@@ -229,6 +253,8 @@ export function enableContentBlocking(
       callback({ responseHeaders });
     },
   );
+
+  rules.install();
 
   // Hiding rules and scriptlets go into the page from here; the preload only
   // reports the page's classes and ids.

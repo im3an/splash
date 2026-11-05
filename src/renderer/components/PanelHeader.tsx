@@ -21,7 +21,7 @@ export function PanelHeader({
         className="group flex h-7 min-w-0 items-center gap-1.5 rounded-control pr-2 pl-2.5 text-small font-semibold text-fg transition-colors duration-fast hover:bg-row-hover"
       >
         <span className="grid size-4 shrink-0 place-items-center text-fg-subtle transition-[color,translate] duration-fast group-hover:-translate-x-0.5 group-hover:text-fg">
-          <ChevronLeft size={15} strokeWidth={2} aria-hidden />
+          <ChevronLeft size={15} aria-hidden />
         </span>
         <h2 className="truncate">{title}</h2>
         <span className="sr-only">, back to pages</span>

@@ -5,8 +5,12 @@ import { pageLabel } from './format';
 import { noticeToast } from './notices';
 import { api } from '../splash-api';
 import { showBookmarks } from '../stores/bookmarks-view-store';
-import { openLocation, useOverlay } from '../stores/overlay-store';
-import { selectActivePage, useShell } from '../stores/shell-store';
+import { useOverlay } from '../stores/overlay-store';
+import {
+  openLocation,
+  selectActivePage,
+  useShell,
+} from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 
 /**
@@ -36,19 +40,19 @@ async function performPaletteItem(
     if (item.command === 'site-info' && active?.url) {
       return overlay.open({ kind: 'site-info' });
     }
-    if (item.command === 'show-tasks') {
-      overlay.close();
-      return shell.setSidebarPanel('tasks');
-    }
-    if (item.command === 'show-bookmarks') {
-      overlay.close();
-      return shell.setSidebarPanel('bookmarks');
-    }
     if (item.command === 'show-downloads' || item.command === 'show-history') {
       overlay.close();
       return shell.setSidebarPanel(
         item.command === 'show-downloads' ? 'downloads' : 'history',
       );
+    }
+    if (item.command === 'show-bookmarks') {
+      overlay.close();
+      return shell.setSidebarPanel('bookmarks');
+    }
+    if (item.command === 'show-tasks') {
+      overlay.close();
+      return shell.setSidebarPanel('tasks');
     }
   }
 
@@ -62,6 +66,7 @@ async function performPaletteItem(
       splash.focusPage();
       return;
     case 'history':
+    case 'bookmark':
     case 'search':
       if (from !== 'palette' && active)
         await splash.navigate(active.id, item.url);
@@ -85,17 +90,6 @@ async function performPaletteItem(
           return void openLocation();
         case 'reopen-closed':
           await splash.reopenClosed();
-          return;
-        case 'toggle-bookmarks-bar':
-          return setBookmarksBar(!shell.preferences?.bookmarksBar);
-        case 'bookmark-branch':
-          if (active && shell.snapshot)
-            await bookmarkBranch(
-              shell.snapshot,
-              active.id,
-              pageLabel(active),
-              showBookmarks,
-            );
           return;
         case 'close-page':
           if (active) await splash.closePage(active.id);
@@ -132,11 +126,36 @@ async function performPaletteItem(
               subject: pageLabel(active),
             }),
           );
+        case 'copy-markdown':
+        case 'copy-text':
+          if (active)
+            await splash.copyPageAs(
+              active.id,
+              item.command === 'copy-markdown' ? 'markdown' : 'text',
+            );
+          return;
+        case 'paste-and-go':
+          await splash.pasteAndGo();
+          return;
+        case 'go-home':
+          await splash.goHome();
+          return;
         case 'close-branch':
           if (active) await splash.closeBranch(active.id);
           return;
         case 'close-others':
           if (active) await splash.closeOtherPages(active.id);
+          return;
+        case 'toggle-bookmarks-bar':
+          return setBookmarksBar(!shell.preferences?.bookmarksBar);
+        case 'bookmark-branch':
+          if (active && shell.snapshot)
+            await bookmarkBranch(
+              shell.snapshot,
+              active.id,
+              pageLabel(active),
+              showBookmarks,
+            );
           return;
         case 'go-back':
           if (active) await splash.goBack(active.id);

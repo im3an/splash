@@ -12,10 +12,12 @@ import { useEffect, useRef } from 'react';
 import { useWorkspaceTheme } from './hooks/use-workspace-theme';
 import { useInterfacePreferences } from './hooks/use-interface-preferences';
 import { useLinkDrop } from './hooks/use-link-drop';
-import { openLocation, useOverlay, type Overlay } from './stores/overlay-store';
+import { useOverlay, type Overlay } from './stores/overlay-store';
 import {
   selectAddressInSidebar,
+  openLocation,
   selectBlank,
+  selectStartPageFocus,
   useShell,
 } from './stores/shell-store';
 
@@ -30,6 +32,11 @@ export function App() {
   const blankPage = useShell((state) =>
     selectBlank(state) ? (state.snapshot?.activePageId ?? 'none') : null,
   );
+  // With a start page, typing happens in the address field above it.
+  const emptyPage = useShell(selectStartPageFocus);
+  useEffect(() => {
+    if (emptyPage) useShell.getState().focusAddressBar();
+  }, [emptyPage]);
   const prompted = useRef<Overlay | null>(null);
   useEffect(() => {
     if (blankPage) {

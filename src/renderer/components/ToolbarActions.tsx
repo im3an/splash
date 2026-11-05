@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Puzzle, Settings2, Share, Sparkles, Star } from 'lucide-react';
+import {
+  Check,
+  Puzzle,
+  Settings2,
+  Share,
+  Sparkles,
+  Star,
+  House,
+} from 'lucide-react';
 import {
   DEFAULT_PREFERENCES,
   TOOLBAR_ACTIONS,
@@ -25,6 +33,7 @@ export const toolbarLabels: Record<ToolbarAction, string> = {
   extensions: 'Extensions',
   split: 'Split view',
   downloads: 'Downloads',
+  home: 'Home',
 };
 export function ToolbarActions() {
   const aiOpen = useAiPanel((state) => state.open);
@@ -142,6 +151,23 @@ export function ToolbarActions() {
         if (action === 'split') return <SplitButton key={action} compact />;
         if (action === 'downloads')
           return <DownloadsButton key={action} always />;
+        if (action === 'home')
+          return (
+            <button
+              key={action}
+              type="button"
+              className="icon-button"
+              aria-label="Go to homepage"
+              title={
+                preferences?.homepage
+                  ? 'Go to homepage (⇧⌘H)'
+                  : 'Choose a homepage in Settings'
+              }
+              onClick={() => void api().goHome()}
+            >
+              <House size={15} />
+            </button>
+          );
         return (
           <button
             key={action}
@@ -205,7 +231,7 @@ export function ToolbarActions() {
         title={aiOpen ? 'Close AI panel (⇧⌘A)' : 'Ask AI (⇧⌘A)'}
         onClick={() => useAiPanel.getState().toggle()}
       >
-        <Sparkles size={15} strokeWidth={1.75} />
+        <Sparkles size={15} />
       </button>
       <button
         className="icon-button"

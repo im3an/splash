@@ -28,11 +28,11 @@ System UI font stack (SF Pro on macOS). Caption 11px, small 12px, body 13px, lea
 
 ## Materials and effects
 
-Surfaces are flat colour. Only the command palette is translucent: it floats over the page it was opened from, and the blur keeps that page in view behind the results. The workspace frame's gradient and grain are workspace identity. The workspace editor previews its theme on the real window frame and its light or dark across the app while it's open; the grain dial's face shows the grain it sets. Swatches show a theme's colours flat. Nothing else gets glow, sheen, shine or sphere shading. Swatches show their colour flat, with a hairline outline.
+Surfaces are flat colour. Only the command palette is translucent: it floats over the page it was opened from, and the blur keeps that page in view behind the results. An unfolded saved group is a thin pane of glass over the workspace's frame, with a hairline edge; folded, it's a plain row. Bookmarks unfold as a branch of ordinary trail rows with no pane or box of their own, and a wavy line in the guide colour sets them apart from the pages below. The workspace frame's gradient and grain are workspace identity. The workspace editor previews its theme on the real window frame and its light or dark across the app while it's open; the grain dial's face shows the grain it sets. Swatches show a theme's colours flat. Nothing else gets glow, sheen, shine or sphere shading. Swatches show their colour flat, with a hairline outline.
 
 ## Shape and layout
 
-Radii: mark 3px, inner 5px, row 6px, control 7px, pill/content 10px. Window gutter 8px. Controls typically use a 28px height and icons at 14–16px. Use existing icon-button and button classes. Keep contextual menus within the sidebar because Chromium page views paint above shell overlays. Icon-only controls carry an accessible name and a native tooltip (title) naming the action and its shortcut; native tooltips draw above page views, which a shell tooltip can't.
+Radii: mark 3px, inner 5px, row 6px, control 7px, pill/content 10px. Window gutter 8px. Controls typically use a 28px height and icons at 14–16px. Icons share one chunky, round-cornered stroke set in `app.css` from the `--icon-stroke` tokens, so don't set `strokeWidth` on them; site icons use the inner radius. Use existing icon-button and button classes. Keep contextual menus within the sidebar because Chromium page views paint above shell overlays. Icon-only controls carry an accessible name and a native tooltip (title) naming the action and its shortcut; native tooltips draw above page views, which a shell tooltip can't.
 
 ## Interaction vocabulary
 

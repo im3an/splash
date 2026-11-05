@@ -9,7 +9,10 @@ import {
   Columns2,
   Copy,
   CornerDownRight,
+  Folder,
+  FolderHeart,
   FolderInput,
+  Hash,
   Layers,
   Link,
   ListMinus,
@@ -18,32 +21,29 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Plus,
   RotateCw,
   StickyNote,
   Type,
+  Ungroup,
   X,
-  FolderHeart,
 } from 'lucide-react';
 import type { BrowserSnapshot, PageId } from '../../shared/types';
 import { bookmarkBranch, branchLinks } from '../lib/bookmarks';
+import { bookmarkPage, collectionNotice } from '../lib/collections';
 import { showBookmarks } from '../stores/bookmarks-view-store';
-import {
-  bookmarkPage,
-  collectionNotice,
-  saveTrailAsGroup,
-} from '../lib/collections';
 import { useGroupRename } from './SavedGroups';
 import { pageLabel } from '../lib/format';
 import { noticeToast } from '../lib/notices';
 import { api } from '../splash-api';
-import { openLocation } from '../stores/overlay-store';
+import { openLocation } from '../stores/shell-store';
 import { usePageMenu } from '../stores/page-menu-store';
 import { useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { WorkspaceIcon } from './WorkspaceIcon';
 
-const ICON = { size: 14, strokeWidth: 1.75 } as const;
+const ICON = { size: 14 } as const;
 
 function branchSize(snapshot: BrowserSnapshot, id: PageId): number {
   const page = snapshot.pages[id];
@@ -147,33 +147,50 @@ export function pageMenuEntries(
         );
       },
     },
-    ...(hasChildren
-      ? ([
-          {
-            kind: 'action',
-            label: `Bookmark Branch (${branchWebPages} ${branchWebPages === 1 ? 'Page' : 'Pages'})`,
-            icon: <FolderHeart {...ICON} />,
-            disabled: branchWebPages === 0,
-            run: () =>
-              void bookmarkBranch(
-                snapshot,
-                pageId,
-                pageLabel(page),
-                showBookmarks,
-              ),
-          },
-        ] satisfies MenuEntry[])
-      : []),
-    {
+    hasChildren && {
       kind: 'action',
-      label: hasChildren ? 'Save Trail as Group' : 'Save as Group',
+      label: `Bookmark Branch (${branchWebPages} ${branchWebPages === 1 ? 'Page' : 'Pages'})`,
+      icon: <FolderHeart {...ICON} />,
+      disabled: branchWebPages === 0,
+      run: () =>
+        void bookmarkBranch(snapshot, pageId, pageLabel(page), showBookmarks),
+    },
+    {
+      kind: 'submenu',
+      label: 'Add to Group',
       icon: <Layers {...ICON} />,
-      disabled: !url || !/^https?:/.test(url),
-      run: () => {
-        void saveTrailAsGroup(snapshot, pageId).then((id) => {
-          if (id) useGroupRename.setState({ id });
-        });
-      },
+      entries: [
+        ...snapshot.groups.map(
+          (group): MenuEntry => ({
+            kind: 'action',
+            label: group.name,
+            icon: <Folder {...ICON} />,
+            disabled: page.groupId === group.id,
+            run: () => void splash.setPageGroup(pageId, group.id),
+          }),
+        ),
+        ...(snapshot.groups.length ? [{ kind: 'separator' } as MenuEntry] : []),
+        {
+          kind: 'action',
+          label: 'New Group…',
+          icon: <Plus {...ICON} />,
+          run: async () => {
+            const id = await splash.createGroup(undefined, pageId);
+            useGroupRename.setState({ id });
+          },
+        },
+        ...(page.groupId
+          ? [
+              { kind: 'separator' } as MenuEntry,
+              {
+                kind: 'action',
+                label: 'Remove from Group',
+                icon: <Ungroup {...ICON} />,
+                run: () => void splash.setPageGroup(pageId, null),
+              } as MenuEntry,
+            ]
+          : []),
+      ],
     },
     {
       kind: 'action',
@@ -224,6 +241,26 @@ export function pageMenuEntries(
           }),
         );
       },
+    },
+    url !== null && {
+      kind: 'submenu',
+      label: 'Copy As',
+      icon: <Copy {...ICON} />,
+      entries: [
+        {
+          kind: 'action',
+          label: 'Markdown',
+          icon: <Hash {...ICON} />,
+          shortcut: key('⌥⇧⌘C'),
+          run: () => void splash.copyPageAs(pageId, 'markdown'),
+        },
+        {
+          kind: 'action',
+          label: 'Plain Text',
+          icon: <Type {...ICON} />,
+          run: () => void splash.copyPageAs(pageId, 'text'),
+        },
+      ],
     },
     otherWorkspaces.length > 0 && {
       kind: 'submenu',

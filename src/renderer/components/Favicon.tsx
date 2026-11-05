@@ -49,12 +49,7 @@ export function SiteIcon({
   if (!src) {
     return (
       fallback ?? (
-        <Globe
-          size={14}
-          strokeWidth={1.75}
-          className="shrink-0 text-fg-subtle"
-          aria-hidden
-        />
+        <Globe size={14} className="shrink-0 text-fg-subtle" aria-hidden />
       )
     );
   }
@@ -69,7 +64,7 @@ export function SiteIcon({
       height={16}
       referrerPolicy="no-referrer"
       draggable={false}
-      className="size-4 shrink-0 rounded-mark object-contain"
+      className="size-4 shrink-0 rounded-inner object-contain"
       onError={() => setFailed((list) => [...list, src])}
     />
   );
@@ -79,17 +74,13 @@ export function SiteIcon({
 export function Favicon({ page }: { page: PageSnapshot }) {
   let content;
   if (page.isUnresponsive) {
-    content = (
-      <Hourglass size={13} strokeWidth={1.75} className="text-danger" />
-    );
+    content = <Hourglass size={13} className="text-danger" />;
   } else if (page.isLoading) {
     content = <span className="spinner" aria-hidden />;
   } else if (page.error) {
-    content = (
-      <CircleAlert size={14} strokeWidth={1.75} className="text-danger" />
-    );
+    content = <CircleAlert size={14} className="text-danger" />;
   } else if (page.url?.startsWith('view-source:')) {
-    content = <Code2 size={14} strokeWidth={1.75} className="text-fg-subtle" />;
+    content = <Code2 size={14} className="text-fg-subtle" />;
   } else if (page.url === null) {
     content = <BrandMark size={16} className="text-fg-muted" />;
   } else {

@@ -1,5 +1,6 @@
 import type {
   DownloadSummary,
+  PageGroup,
   PageId,
   SitePermission,
   SplitView,
@@ -20,6 +21,7 @@ export interface StoredWorkspace {
   appearance?: WorkspaceAppearance;
   activePageId: PageId | null;
   split?: SplitView | null;
+  groups?: PageGroup[];
   createdAt: number;
 }
 
@@ -34,6 +36,7 @@ export interface StoredPage {
   note: string | null;
   collapsed: boolean;
   pinned: boolean;
+  groupId?: string | null;
   history: PageHistory | null;
   createdAt: number;
   lastActiveAt: number;

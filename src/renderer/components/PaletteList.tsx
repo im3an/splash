@@ -3,6 +3,7 @@ import {
   Activity,
   ArrowLeft,
   ArrowRight,
+  ClipboardPaste,
   Columns2,
   Copy,
   CornerDownRight,
@@ -10,7 +11,9 @@ import {
   FileDown,
   FolderPlus,
   Globe,
+  Hash,
   History,
+  House,
   Link,
   ListMinus,
   ListX,
@@ -32,6 +35,7 @@ import {
   StickyNote,
   TextSearch,
   Trash2,
+  Type,
   Volume2,
   VolumeX,
   X,
@@ -63,6 +67,10 @@ const COMMAND_ICONS: Record<PaletteCommand, LucideIcon> = {
   reload: RotateCw,
   'duplicate-page': Copy,
   'copy-link': Link,
+  'copy-markdown': Hash,
+  'copy-text': Type,
+  'paste-and-go': ClipboardPaste,
+  'go-home': House,
   'rename-page': Pencil,
   'edit-note': StickyNote,
   'mute-page': Volume2,
@@ -94,6 +102,7 @@ const SECTION_LABELS: Record<PaletteSection, string | null> = {
   pages: 'Pages',
   workspaces: 'Workspaces',
   commands: 'Commands',
+  bookmarks: 'Bookmarks',
   history: 'History',
   search: 'Suggestions',
 };
@@ -102,7 +111,7 @@ function ItemIcon({ item }: { item: PaletteItem }) {
   // Brightens with its row when picked.
   const className =
     'shrink-0 text-fg-subtle transition-colors duration-fast group-aria-selected/option:text-fg-muted';
-  const props = { size: 15, strokeWidth: 1.75, className, 'aria-hidden': true };
+  const props = { size: 15, className, 'aria-hidden': true };
   switch (item.kind) {
     case 'page':
       return <SiteIcon url={item.faviconUrl} fallback={<Globe {...props} />} />;
@@ -130,6 +139,14 @@ function ItemIcon({ item }: { item: PaletteItem }) {
           fallback={<History {...props} />}
         />
       );
+    case 'bookmark':
+      return (
+        <SiteIcon
+          url={item.faviconUrl}
+          site={item.url}
+          fallback={<Star {...props} />}
+        />
+      );
     case 'search':
       return <Search {...props} />;
     case 'navigate':
@@ -148,6 +165,27 @@ function ItemIcon({ item }: { item: PaletteItem }) {
             : COMMAND_ICONS[item.command];
       return <Icon {...props} />;
     }
+  }
+}
+
+/**
+ * A row's second line: where it leads. Commands have none; the group
+ * names them.
+ */
+function detailOf(item: PaletteItem): string | null {
+  switch (item.kind) {
+    case 'command':
+      return null;
+    case 'page':
+      return item.workspaceName
+        ? `${item.subtitle} · in ${item.workspaceName}`
+        : item.subtitle;
+    case 'workspace':
+      return `Workspace · ${item.subtitle}`;
+    case 'search':
+      return item.subtitle || 'Search suggestion';
+    default:
+      return item.subtitle || null;
   }
 }
 
@@ -188,6 +226,7 @@ export function PaletteList({
   emptyHint,
   query = '',
   sectioned = false,
+  actionOf,
 }: {
   items: PaletteItem[];
   selected: number;
@@ -200,6 +239,8 @@ export function PaletteList({
   query?: string;
   /** Show section headers (the palette) or one plain list (suggestions). */
   sectioned?: boolean;
+  /** What Return does with a row, shown on the selected one. */
+  actionOf?(item: PaletteItem): string | null;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -221,12 +262,12 @@ export function PaletteList({
   }
 
   const row = ({ item, index }: { item: PaletteItem; index: number }) => {
-    // After the title: where the row leads. Commands show their shortcut.
-    const detail = item.kind === 'command' ? null : item.subtitle;
+    const detail = detailOf(item);
     const shortcut =
       item.kind === 'command' || item.kind === 'workspace'
         ? item.shortcut
         : null;
+    const action = index === selected ? actionOf?.(item) : null;
     return (
       <div
         key={item.id}
@@ -239,26 +280,31 @@ export function PaletteList({
           event.preventDefault();
           onRun(item);
         }}
-        className="group/option flex h-9 shrink-0 cursor-default items-center gap-2.5 rounded-row px-2.5 text-fg-muted transition-colors duration-fast ease-out aria-selected:bg-option-selected aria-selected:text-fg"
+        className={`group/option flex shrink-0 cursor-default items-center gap-3 rounded-row px-2.5 text-fg-muted transition-colors duration-fast ease-out aria-selected:bg-option-selected aria-selected:text-fg ${detail ? 'h-11' : 'h-9'}`}
       >
-        <ItemIcon item={item} />
-        <span className="min-w-0 flex-1 truncate">
-          <span className="text-fg">
+        <span className="grid size-5 shrink-0 place-items-center">
+          <ItemIcon item={item} />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-fg">
             <Highlighted text={item.title} query={query} />
           </span>
           {detail && (
-            <span className="ml-2 text-small text-fg-subtle">{detail}</span>
+            <span className="truncate text-small text-fg-subtle">{detail}</span>
           )}
         </span>
-        {item.kind === 'page' && item.workspaceName && (
-          <span className="max-w-[35%] shrink-0 truncate text-small text-fg-subtle">
-            in {item.workspaceName}
-          </span>
-        )}
         {shortcut && (
           <kbd className="shortcut group-aria-selected/option:text-fg-muted">
             {shortcut}
           </kbd>
+        )}
+        {action && (
+          <span className="palette-action flex max-w-[40%] shrink-0 items-center gap-1.5 text-caption text-fg-muted">
+            <kbd className="keycap" aria-hidden>
+              ↵
+            </kbd>
+            <span className="truncate">{action}</span>
+          </span>
         )}
       </div>
     );

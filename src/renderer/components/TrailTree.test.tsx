@@ -41,6 +41,7 @@ describe('TrailTree', () => {
       useShell.getState().receiveSnapshot({
         pages: {},
         rootIds: [],
+        groups: [],
         activePageId: null,
         split: null,
         otherWindows: [],
@@ -254,6 +255,7 @@ it('separates pinned branches from open pages and counts hidden descendants', ()
   stubApi();
   useShell.setState({
     snapshot: sampleSnapshot({ a: { isPinned: true, collapsed: true } }),
+    preferences: { trailStyle: 'branches' } as never,
   });
   render(<TrailTree />);
   expect(screen.getByText('Pinned')).toBeTruthy();
@@ -264,4 +266,47 @@ it('separates pinned branches from open pages and counts hidden descendants', ()
       .getAttribute('data-pinned-root'),
   ).toBe('true');
   expect(screen.queryByRole('treeitem', { name: 'b' })).toBeNull();
+});
+
+describe('the Minimal trail style', () => {
+  function showMinimal(style: 'branches' | 'minimal' = 'minimal') {
+    stubApi();
+    useShell.setState({
+      snapshot: sampleSnapshot({ a: { isPinned: true } }),
+      preferences: { trailStyle: style, showBranchLines: true } as never,
+    });
+    const { container } = render(<TrailTree />);
+    return container;
+  }
+  const row = (name: RegExp | string) => screen.getByRole('treeitem', { name });
+
+  afterEach(() => useShell.setState({ preferences: null }));
+
+  it('gives a page with nothing beneath it a dot, and no branch lines', () => {
+    const container = showMinimal();
+    expect(row('d').querySelector('.trail-dot')).not.toBeNull();
+    expect(row(/^a/).querySelector('.trail-dot')).toBeNull();
+    expect(row(/^a/).querySelector('.trail-branch-toggle')).not.toBeNull();
+    expect(container.querySelector('.indent-guides')).toBeNull();
+  });
+
+  it('runs rows edge to edge and indents them in even steps', () => {
+    showMinimal();
+    expect(row('b').style.marginLeft).toBe('0px');
+    expect(row('b').style.paddingLeft).toBe('22px');
+    expect(row('d').style.marginLeft).toBe('0px');
+    expect(row('d').style.paddingLeft).toBe('38px');
+  });
+
+  it('draws a pinned page like any other row', () => {
+    showMinimal();
+    expect(row(/a, pinned/).getAttribute('data-pinned-root')).toBe('false');
+  });
+
+  it('leaves the branches style as it was', () => {
+    const container = showMinimal('branches');
+    expect(container.querySelector('.trail-dot')).toBeNull();
+    expect(container.querySelector('.indent-guides')).not.toBeNull();
+    expect(row(/a, pinned/).getAttribute('data-pinned-root')).toBe('true');
+  });
 });

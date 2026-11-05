@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
-import { PanelLeft, Plus } from 'lucide-react';
+import { FolderPlus, PanelLeft, Plus } from 'lucide-react';
 import { api } from '../splash-api';
-import { openLocation } from '../stores/overlay-store';
+import { openLocation } from '../stores/shell-store';
 import {
   selectAddressInSidebar,
   selectFlatTrail,
@@ -10,14 +10,14 @@ import {
 import { SidebarResize } from './SidebarResize';
 import { AddressBar } from './AddressBar';
 import { ToolbarActions } from './ToolbarActions';
-import { SavedGroups } from './SavedGroups';
+import { SavedGroups, useGroupRename } from './SavedGroups';
 import { SidebarPanel } from './SidebarPanel';
 import { NavigationButtons } from './Toolbar';
 import { TrailFilter } from './TrailFilter';
 import { TrailTree } from './TrailTree';
 import { Toast } from './Toast';
 import { WorkspaceBar } from './WorkspaceBar';
-import { WorkspaceButton } from './WorkspaceButton';
+import { useWorkspaceSlide } from '../lib/use-workspace-slide';
 
 /**
  * Arc's layout: window controls on top (with navigation and the address
@@ -34,24 +34,8 @@ export function Sidebar() {
   // Only while open: the toolbar has the address field while this is shut.
   const addressHere = useShell(selectAddressInSidebar);
   const workspaceId = useShell((state) => state.snapshot?.activeWorkspaceId);
-  const workspaceIndex = useShell(
-    (state) =>
-      state.snapshot?.workspaces.findIndex(
-        (w) => w.id === state.snapshot?.activeWorkspaceId,
-      ) ?? -1,
-  );
   // Switching workspaces slides the trail the way the foot's order goes.
-  const previousIndex = useRef(workspaceIndex);
-  const slide = useRef('');
-  if (previousIndex.current !== workspaceIndex) {
-    slide.current =
-      previousIndex.current === -1
-        ? ''
-        : workspaceIndex > previousIndex.current
-          ? 'slide-from-right'
-          : 'slide-from-left';
-    previousIndex.current = workspaceIndex;
-  }
+  const slide = useWorkspaceSlide();
   const flat = useShell(selectFlatTrail);
   const listRef = useRef<HTMLElement>(null);
   const scrollPositions = useRef(new Map<string, number>());
@@ -66,6 +50,12 @@ export function Sidebar() {
       positions.set(workspaceId, list.scrollTop);
     };
   }, [workspaceId]);
+
+  const newGroup = async () => {
+    const id = await api().createGroup();
+    // Named in place, like any other group.
+    useGroupRename.setState({ id });
+  };
 
   const newPage = async () => {
     await api().createPage();
@@ -90,32 +80,46 @@ export function Sidebar() {
         data-flat={flat}
         style={{ width }}
       >
+        {/* Power-user row: every tool one click away, beside the window controls. */}
         <div className="drag flex h-(--toolbar-height) shrink-0 items-center gap-0.5 pl-[calc(var(--traffic-lights)-var(--gutter))]">
-          {/* Without navigation beside it, the toggle sits by the page. */}
-          {!addressHere && <span className="flex-1" />}
+          <span className="flex-1" />
           <button
             type="button"
-            className="icon-button"
+            onClick={newGroup}
+            aria-label="New group"
+            title="New group"
+            className="icon-button shrink-0"
+          >
+            <FolderPlus size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={newPage}
+            aria-label="New page"
+            title="New page (⌘T)"
+            className="icon-button shrink-0"
+          >
+            <Plus size={17} />
+          </button>
+          <button
+            type="button"
+            className="icon-button shrink-0"
             aria-label="Hide sidebar"
             title="Hide sidebar (⌘S)"
             onClick={toggleSidebar}
           >
-            <PanelLeft size={16} strokeWidth={1.75} />
+            <PanelLeft size={15} />
           </button>
-          {addressHere && (
-            <>
-              <span className="flex-1" />
-              <NavigationButtons />
-            </>
-          )}
         </div>
 
         {addressHere && (
-          <div className="mb-3 flex shrink-0 flex-col gap-1">
-            <AddressBar variant="sidebar" />
-            <div className="flex justify-end">
+          <div className="mb-2 flex shrink-0 flex-col gap-1">
+            <div className="flex items-center gap-0.5">
+              <NavigationButtons />
+              <span className="flex-1" />
               <ToolbarActions />
             </div>
+            <AddressBar variant="sidebar" />
           </div>
         )}
 
@@ -123,13 +127,6 @@ export function Sidebar() {
         <div
           className={`${panel ? 'hidden' : 'flex'} ${leftForPanel.current ? 'trail-in' : ''} min-h-0 flex-1 flex-col`}
         >
-          <div
-            key={workspaceId}
-            className={`flex shrink-0 flex-col ${slide.current}`}
-          >
-            <WorkspaceButton />
-          </div>
-
           <TrailFilter />
           {/* Padded so the active row's edge is never clipped by the scroller. */}
           <nav
@@ -137,23 +134,8 @@ export function Sidebar() {
             className="min-h-0 flex-1 scroll-py-1 overflow-x-hidden overflow-y-auto overscroll-contain pt-px pb-2"
           >
             <SavedGroups />
-            <div key={workspaceId} className={slide.current}>
-              <TrailTree
-                newPage={
-                  <button
-                    type="button"
-                    onClick={newPage}
-                    className="sidebar-new-page sidebar-row"
-                  >
-                    {/* In the favicon column, wherever that is. */}
-                    <span className="grid size-4 shrink-0 place-items-center">
-                      <Plus size={15} strokeWidth={1.75} />
-                    </span>
-                    <span className="flex-1 text-left">New page</span>
-                    <kbd className="shortcut">⌘T</kbd>
-                  </button>
-                }
-              />
+            <div key={workspaceId} className={slide}>
+              <TrailTree />
             </div>
           </nav>
         </div>

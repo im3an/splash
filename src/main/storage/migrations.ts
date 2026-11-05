@@ -84,6 +84,11 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE history ADD COLUMN favicon_url TEXT;
   `,
+  // 9 — groups of pages inside a workspace: their names, and each root page's group.
+  `
+  ALTER TABLE workspaces ADD COLUMN groups TEXT;
+  ALTER TABLE pages ADD COLUMN group_id TEXT;
+  `,
 ];
 
 export class SchemaTooNewError extends Error {}

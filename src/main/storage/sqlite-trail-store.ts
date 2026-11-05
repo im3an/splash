@@ -4,6 +4,7 @@ import { DEFAULT_APPEARANCE } from '../../shared/appearance';
 import { workspaceAppearanceSchema } from '../../shared/ipc';
 import type {
   DownloadSummary,
+  PageGroup,
   PageId,
   SitePermission,
   SplitView,
@@ -37,6 +38,7 @@ interface WorkspaceRow {
   name: string;
   appearance: string | null;
   split: string | null;
+  groups: string | null;
   active_page_id: string | null;
   created_at: number;
 }
@@ -53,6 +55,7 @@ interface PageRow {
   note: string | null;
   collapsed: number;
   pinned: number;
+  group_id: string | null;
   history: string | null;
   created_at: number;
   last_active_at: number;
@@ -107,6 +110,29 @@ function parseAppearance(value: string | null): WorkspaceAppearance {
   }
 }
 
+/** A workspace's saved groups; anything malformed is dropped. */
+function parseGroups(value: string | null): PageGroup[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item): PageGroup[] => {
+      const group = item as Partial<PageGroup> | null;
+      return typeof group?.id === 'string' && typeof group.name === 'string'
+        ? [
+            {
+              id: group.id,
+              name: group.name.slice(0, 100),
+              collapsed: group.collapsed === true,
+            },
+          ]
+        : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** A saved split view; the controller checks its pages still exist. */
 function parseSplit(value: string | null): SplitView | null {
   if (!value) return null;
@@ -135,7 +161,7 @@ export class SqliteTrailStore implements TrailStore {
   loadSession(): StoredSession | null {
     const workspaceRows = this.db
       .prepare(
-        'SELECT id, name, appearance, split, active_page_id, created_at FROM workspaces ORDER BY position',
+        'SELECT id, name, appearance, split, groups, active_page_id, created_at FROM workspaces ORDER BY position',
       )
       .all() as unknown as WorkspaceRow[];
     if (workspaceRows.length === 0) return null;
@@ -173,6 +199,7 @@ export class SqliteTrailStore implements TrailStore {
             note: row.note,
             collapsed: row.collapsed === 1,
             pinned: row.pinned === 1,
+            ...(row.group_id ? { groupId: row.group_id } : {}),
             history: parseHistory(row.history),
             createdAt: row.created_at,
             lastActiveAt: row.last_active_at,
@@ -182,6 +209,7 @@ export class SqliteTrailStore implements TrailStore {
       };
       visit(null);
       const split = parseSplit(workspace.split);
+      const groups = parseGroups(workspace.groups);
       const activeExists =
         workspace.active_page_id !== null &&
         byId.get(workspace.active_page_id)?.workspace_id === workspace.id;
@@ -192,6 +220,7 @@ export class SqliteTrailStore implements TrailStore {
         activePageId: activeExists ? workspace.active_page_id : null,
         createdAt: workspace.created_at,
         ...(split ? { split } : {}),
+        ...(groups.length ? { groups } : {}),
       });
     }
 
@@ -224,13 +253,13 @@ export class SqliteTrailStore implements TrailStore {
 
   saveSession(session: StoredSession): void {
     const insertWorkspace = this.db.prepare(
-      `INSERT INTO workspaces (id, name, appearance, split, position, active_page_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO workspaces (id, name, appearance, split, groups, position, active_page_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertPage = this.db.prepare(
       `INSERT INTO pages (id, workspace_id, parent_id, position, url, title,
-         favicon_url, custom_title, note, collapsed, pinned, history, created_at, last_active_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         favicon_url, custom_title, note, collapsed, pinned, group_id, history, created_at, last_active_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.transaction(() => {
       this.db.exec('DELETE FROM pages; DELETE FROM workspaces;');
@@ -240,6 +269,7 @@ export class SqliteTrailStore implements TrailStore {
           workspace.name,
           workspace.appearance ? JSON.stringify(workspace.appearance) : null,
           workspace.split ? JSON.stringify(workspace.split) : null,
+          workspace.groups?.length ? JSON.stringify(workspace.groups) : null,
           position,
           workspace.activePageId,
           workspace.createdAt,
@@ -262,6 +292,7 @@ export class SqliteTrailStore implements TrailStore {
           page.note,
           page.collapsed ? 1 : 0,
           page.pinned ? 1 : 0,
+          page.groupId ?? null,
           page.history ? toStoredJson(page.history) : null,
           page.createdAt,
           page.lastActiveAt,

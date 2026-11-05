@@ -38,6 +38,7 @@
   --drop-outline: rgb(255 255 255 / 0.45);
   /* Behind a site icon that has to read on any surface, dark ones too. */
   --icon-chip: var(--elevated);
+  --favicon-halo: none;
   /* The picked row in the palette and suggestions: a step past hover. */
   --option-selected: rgb(var(--ink) / 0.09);
   /* A key in a legend, such as the palette's footer. */
@@ -89,6 +90,10 @@
   --shadow-glass-panel:
     var(--shadow-panel), inset 0 1px 0 rgb(255 255 255 / 0.8),
     inset 0 0 0 1px rgb(255 255 255 / 0.35);
+  /* An unfolded saved group: a thin pane over the workspace's frame. */
+  --group-glass: rgb(255 255 255 / 0.26);
+  --shadow-group-glass:
+    inset 0 0 0 0.5px var(--hairline), inset 0 1px 0 rgb(255 255 255 / 0.4);
   /* Popovers, the palette and dialogs float over the page. */
   --shadow-panel: 0 0 0 0.5px var(--hairline), 0 14px 40px rgb(0 0 0 / 0.18);
   /* A thin outline for swatches and marks that sit on any colour. */
@@ -136,6 +141,10 @@
   --icon-sm: 14px;
   --icon-md: 16px;
   --icon-lg: 20px;
+  /* Stroke on a 24-unit grid. Small icons go heavier to look the same weight. */
+  --icon-stroke: 2.4;
+  --icon-stroke-small: 2.8;
+  --icon-stroke-large: 2.1;
   --control-height: 28px;
   --control-height-sm: 24px;
 
@@ -212,6 +221,8 @@
     --border-hover: rgb(var(--ink) / 0.2);
     --scrim: rgb(8 6 4 / 0.42);
     --icon-chip: #ece6dd;
+    /* Keeps a dark site icon legible where it has no chip behind it. */
+    --favicon-halo: drop-shadow(0 0 0.5px rgb(255 255 255 / 0.55));
     --option-selected: rgb(var(--ink) / 0.08);
     --keycap: rgb(var(--ink) / 0.08);
     --guide-path: rgb(var(--ink) / 0.28);
@@ -241,6 +252,9 @@
     --shadow-glass-panel:
       var(--shadow-panel), inset 0 1px 0 rgb(var(--ink) / 0.14),
       inset 0 0 0 1px rgb(var(--ink) / 0.06);
+    --group-glass: rgb(var(--ink) / 0.045);
+    --shadow-group-glass:
+      inset 0 0 0 0.5px var(--hairline), inset 0 1px 0 rgb(var(--ink) / 0.05);
     --shadow-panel:
       0 0 0 0.5px rgb(var(--ink) / 0.1), 0 16px 44px rgb(0 0 0 / 0.5);
     --skeleton: rgb(var(--ink) / 0.06);
@@ -259,6 +273,10 @@
   --duration-exit: 0ms;
 }
 
+/* The Minimal trail is a touch tighter; Compact below still goes further. */
+:root[data-trail='minimal'] {
+  --row-height: 30px;
+}
 :root[data-density='compact'] {
   --row-height: 28px;
 }

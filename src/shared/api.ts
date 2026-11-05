@@ -6,6 +6,9 @@ import type {
   ContentInsets,
   DefaultBrowserStatus,
   SiteSettings,
+  ThreatListStatus,
+  CookieSite,
+  CookieDeletion,
   StorageStatus,
   DownloadAction,
   DownloadSummary,
@@ -25,12 +28,17 @@ import type {
   WorkspaceMode,
 } from './types';
 import type { AiPanelAction, AiPanelPlacement, AiPanelState } from './ai';
+import type { CopyFormat } from './page-link';
 import type { PaletteScope } from './palette';
 import type { Preferences } from './preferences';
 
 export interface InvokeOutputs {
   'extensions:manage': void;
   'page:share': void;
+  'page:copy-as': void;
+  'page:paste-and-go': void;
+  'page:go-home': void;
+  'address:show-menu': void;
   'auth:challenge': {
     origin: string;
     host: string;
@@ -48,6 +56,7 @@ export interface InvokeOutputs {
   'page:go-forward': void;
   'page:reload': void;
   'page:continue-over-http': void;
+  'page:continue-to-dangerous-site': void;
   'page:stop': void;
   'page:set-collapsed': void;
   'page:create-child': PageId;
@@ -61,6 +70,11 @@ export interface InvokeOutputs {
   'page:return': void;
   'page:rename': void;
   'page:set-pinned': void;
+  'group:create': string;
+  'group:rename': void;
+  'group:set-collapsed': void;
+  'group:delete': void;
+  'page:set-group': void;
   'app:open-settings': void;
   'page:duplicate': PageId;
   'page:move-to-workspace': void;
@@ -86,6 +100,7 @@ export interface InvokeOutputs {
   'view:freeze': Record<PageId, string>;
   'palette:query': PaletteItem[];
   'search:suggest': PaletteItem[];
+  'search:site-icon': string | null;
   'tasks:list': TaskList;
   'tasks:end': void;
   'downloads:list': DownloadSummary[];
@@ -96,7 +111,11 @@ export interface InvokeOutputs {
   'history:delete': void;
   'history:restore': void;
   'settings:sites': SiteSettings[];
+  'cookies:list': CookieSite[];
+  'cookies:delete': CookieDeletion;
+  'cookies:undo': boolean;
   'settings:content-blocking': ContentBlockingStatus;
+  'settings:threat-list': ThreatListStatus;
   'settings:update-filter-lists': ContentBlockingStatus;
   'settings:clear-data': { summary: string; undoToken: string | null };
   'settings:undo-clear': boolean;
@@ -130,6 +149,14 @@ export interface SplashApi {
   ): Promise<void>;
   manageExtensions(): Promise<void>;
   sharePage(pageId: PageId): Promise<void>;
+  /** Copies the page's title and address in this format, and confirms it. */
+  copyPageAs(pageId: PageId, format: CopyFormat): Promise<void>;
+  /** Goes to whatever the clipboard holds, in the active page. */
+  pasteAndGo(): Promise<void>;
+  /** Goes to the homepage, or opens Settings if there isn't one yet. */
+  goHome(): Promise<void>;
+  /** The native right-click menu of the address field. */
+  showAddressMenu(): Promise<void>;
   platform: NodeJS.Platform;
   getSnapshot(): Promise<BrowserSnapshot>;
   createPage(input?: string): Promise<PageId>;
@@ -142,6 +169,7 @@ export interface SplashApi {
   reload(pageId: PageId): Promise<void>;
   /** The user read the warning: loads the site over HTTP and remembers it. */
   continueOverHttp(pageId: PageId): Promise<void>;
+  continueToDangerousSite(pageId: PageId): Promise<void>;
   stop(pageId: PageId): Promise<void>;
   setCollapsed(pageId: PageId, collapsed: boolean): Promise<void>;
   createChildPage(pageId: PageId, input?: string): Promise<PageId>;
@@ -167,6 +195,14 @@ export interface SplashApi {
     pinned: boolean,
     origin?: TrailPosition,
   ): Promise<void>;
+  /** Starts a group in this workspace, filing `pageId` in it if given. */
+  createGroup(name?: string, pageId?: PageId): Promise<string>;
+  renameGroup(groupId: string, name: string): Promise<void>;
+  setGroupCollapsed(groupId: string, collapsed: boolean): Promise<void>;
+  /** Dissolves a group; its pages stay, no longer filed together. */
+  deleteGroup(groupId: string): Promise<void>;
+  /** Files a page in a group, or takes it out with `null`. */
+  setPageGroup(pageId: PageId, groupId: string | null): Promise<void>;
   openSettings(): Promise<void>;
   renamePage(pageId: PageId, title: string | null): Promise<void>;
   duplicatePage(pageId: PageId): Promise<PageId>;
@@ -241,6 +277,8 @@ export interface SplashApi {
   ): Promise<PaletteItem[]>;
   /** What the search engine suggests for `query`; none when turned off. */
   suggestSearch(query: string): Promise<PaletteItem[]>;
+  /** A shortcut's site icon as an inline image; `null` if it has none. */
+  siteIcon(url: string): Promise<string | null>;
   moveWorkspace(workspaceId: WorkspaceId, index: number): Promise<void>;
   setContentInsets(insets: ContentInsets): void;
   focusPage(): void;
@@ -262,6 +300,15 @@ export interface SplashApi {
   /** Puts back an entry removed with `deleteHistoryEntry` (undo). */
   restoreHistoryEntry(entry: HistoryEntry): Promise<void>;
   listSiteSettings(): Promise<SiteSettings[]>;
+  getThreatListStatus(): Promise<ThreatListStatus>;
+  /** Every site's cookies, or only those of the site `host` belongs to. */
+  listCookies(host?: string): Promise<CookieSite[]>;
+  /** Deletes a site's cookies, or just one of them; can be undone for a minute. */
+  deleteCookies(
+    site: string,
+    only?: { name: string; domain: string; path: string },
+  ): Promise<CookieDeletion>;
+  undoDeleteCookies(token: string): Promise<boolean>;
   contentBlockingStatus(): Promise<ContentBlockingStatus>;
   updateFilterLists(): Promise<ContentBlockingStatus>;
   clearBrowsingData(

@@ -69,7 +69,3 @@ export const useOverlay = create<OverlayState>()((set, get) => ({
     }, durationMs('--duration-exit'));
   },
 }));
-
-/** The palette standing in for the address bar on a blank page. */
-export const openLocation = () =>
-  useOverlay.getState().open({ kind: 'palette', scope: 'location' });

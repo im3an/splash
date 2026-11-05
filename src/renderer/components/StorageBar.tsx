@@ -16,11 +16,7 @@ export function StorageBar() {
   return (
     <Reveal show={status.problem !== null}>
       <div role="status" className="shell-bar py-2 pr-3">
-        <DatabaseZap
-          size={15}
-          strokeWidth={1.75}
-          className="shrink-0 text-danger"
-        />
+        <DatabaseZap size={15} className="shrink-0 text-danger" />
         <p className="min-w-0 flex-1 text-small leading-copy">
           <span className="font-medium">
             Splash can’t save your trails right now

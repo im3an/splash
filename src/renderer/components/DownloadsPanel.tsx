@@ -86,9 +86,9 @@ function DownloadRow({
             size={16}
           />
         ) : failed ? (
-          <CircleAlert size={15} strokeWidth={1.75} className="text-danger" />
+          <CircleAlert size={15} className="text-danger" />
         ) : (
-          <FileDown size={15} strokeWidth={1.75} className="text-fg-subtle" />
+          <FileDown size={15} className="text-fg-subtle" />
         )}
       </span>
       <div className="min-w-0 flex-1">
@@ -108,11 +108,7 @@ function DownloadRow({
         </p>
         {download.runnable && done && (
           <p className="mt-1 flex items-start gap-1 text-small leading-copy text-fg-muted">
-            <TriangleAlert
-              size={12}
-              strokeWidth={2}
-              className="mt-0.5 shrink-0 text-danger"
-            />
+            <TriangleAlert size={12} className="mt-0.5 shrink-0 text-danger" />
             Can run programs on your Mac. Open only if you trust{' '}
             {hostOf(download.url)}.
           </p>
@@ -122,31 +118,31 @@ function DownloadRow({
         {download.state === 'progressing' && (
           <>
             <ActionButton label="Pause" onClick={() => act('pause')}>
-              <Pause size={13} strokeWidth={2} />
+              <Pause size={13} />
             </ActionButton>
             <ActionButton label="Cancel" onClick={() => act('cancel')}>
-              <X size={13} strokeWidth={2} />
+              <X size={13} />
             </ActionButton>
           </>
         )}
         {download.state === 'paused' && (
           <ActionButton label="Resume" onClick={() => act('resume')}>
-            <Play size={13} strokeWidth={2} />
+            <Play size={13} />
           </ActionButton>
         )}
         {(failed || download.state === 'cancelled') && (
           <ActionButton label="Retry" onClick={() => act('retry')}>
-            <RotateCw size={13} strokeWidth={2} />
+            <RotateCw size={13} />
           </ActionButton>
         )}
         {done && (
           <ActionButton label="Show in Finder" onClick={() => act('show')}>
-            <Search size={13} strokeWidth={2} />
+            <Search size={13} />
           </ActionButton>
         )}
         {download.state !== 'progressing' && (
           <ActionButton label="Remove from list" onClick={() => act('remove')}>
-            <X size={13} strokeWidth={2} />
+            <X size={13} />
           </ActionButton>
         )}
       </div>
@@ -186,7 +182,7 @@ export function DownloadsPanel() {
           title="Open Downloads folder"
           className="icon-button size-7 shrink-0"
         >
-          <FolderOpen size={14} strokeWidth={1.75} />
+          <FolderOpen size={14} />
         </button>
       </PanelHeader>
       {downloads.length === 0 ? (

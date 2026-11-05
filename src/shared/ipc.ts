@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { AI_PROVIDER_IDS } from './ai';
 import { ACCENTS, FRAMES, SYMBOLS, THEMES } from './appearance';
-import { SEARCH_ENGINES, TOOLBAR_ACTIONS } from './preferences';
+import { TOOLBAR_ACTIONS } from './preferences';
+import { isSearchKeyword, isSearchTemplate } from './search';
 
 /**
  * The single contract between the shell UI and the main process.
@@ -27,7 +28,7 @@ export const preferencesSchema = z.strictObject({
   sidebarWidth: z.number().int().min(220).max(420),
   toolbarActions: z
     .array(z.enum(TOOLBAR_ACTIONS))
-    .max(5)
+    .max(TOOLBAR_ACTIONS.length)
     .refine((items) => new Set(items).size === items.length),
   collections: z
     .array(
@@ -73,26 +74,53 @@ export const preferencesSchema = z.strictObject({
         );
       });
     }, 'Collections must have unique IDs and valid folder ancestry'),
-  searchEngine: z.enum(
-    SEARCH_ENGINES.map((engine) => engine.id) as [
-      (typeof SEARCH_ENGINES)[number]['id'],
-      ...(typeof SEARCH_ENGINES)[number]['id'][],
-    ],
-  ),
+  searchEngine: z.string().min(1).max(64),
+  searchShortcuts: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1).max(64),
+        name: z.string().trim().min(1).max(60),
+        keyword: z.string().refine(isSearchKeyword),
+        url: z.string().max(2048).refine(isSearchTemplate),
+      }),
+    )
+    .max(100)
+    .refine(
+      (items) =>
+        new Set(items.map((item) => item.id)).size === items.length &&
+        new Set(items.map((item) => item.keyword)).size === items.length,
+      'Search shortcuts must have unique IDs and keywords',
+    ),
   searchSuggestions: z.boolean(),
   theme: z.enum(['system', 'light', 'dark']),
   density: z.enum(['comfortable', 'compact']),
   showSiteNames: z.boolean(),
   bookmarksBar: z.boolean(),
   showBranchLines: z.boolean(),
+  trailStyle: z.enum(['branches', 'minimal']),
   reduceMotion: z.boolean(),
   addressBar: z.enum(['toolbar', 'sidebar']),
   downloads: z.enum(['folder', 'ask']),
   awakePages: z.number().int().min(2).max(100),
+  newPage: z.enum(['search', 'start', 'homepage']),
+  homepage: z
+    .url()
+    .max(8192)
+    .refine((value) => ['https:', 'http:'].includes(new URL(value).protocol))
+    .nullable(),
   startup: z.enum(['restore', 'new-page']),
   httpsOnly: z.boolean(),
   blockAds: z.boolean(),
   hideCookieNotices: z.boolean(),
+  warnDangerousSites: z.boolean(),
+  privacySignal: z.boolean(),
+  blockThirdPartyCookies: z.boolean(),
+  clearOnQuit: z.strictObject({
+    history: z.boolean(),
+    cookies: z.boolean(),
+    cache: z.boolean(),
+    downloads: z.boolean(),
+  }),
   aiProvider: z.enum(AI_PROVIDER_IDS),
   aiPanelWidth: z.number().int().min(320).max(720),
   defaultZoom: zoomPercent,
@@ -114,6 +142,11 @@ const sitePermission = z.enum([
   'ads',
   'apps',
   'insecure',
+  'javascript',
+  'images',
+  'autoplay',
+  'third-party-cookies',
+  'dangerous',
 ]);
 /** A bare web origin such as `https://example.com`. */
 const siteOrigin = z
@@ -188,6 +221,7 @@ export const invokeContract = {
   'page:go-forward': z.strictObject({ pageId }),
   'page:reload': z.strictObject({ pageId }),
   'page:continue-over-http': z.strictObject({ pageId }),
+  'page:continue-to-dangerous-site': z.strictObject({ pageId }),
   'page:stop': z.strictObject({ pageId }),
   'page:set-collapsed': z.strictObject({ pageId, collapsed: z.boolean() }),
   'page:create-child': z.strictObject({
@@ -225,6 +259,20 @@ export const invokeContract = {
       })
       .optional(),
   }),
+  'group:create': z.strictObject({
+    name: z.string().trim().min(1).max(100).optional(),
+    pageId: pageId.optional(),
+  }),
+  'group:rename': z.strictObject({
+    groupId: z.uuid(),
+    name: z.string().trim().min(1).max(100),
+  }),
+  'group:set-collapsed': z.strictObject({
+    groupId: z.uuid(),
+    collapsed: z.boolean(),
+  }),
+  'group:delete': z.strictObject({ groupId: z.uuid() }),
+  'page:set-group': z.strictObject({ pageId, groupId: z.uuid().nullable() }),
   'page:duplicate': z.strictObject({ pageId }),
   'page:move-to-workspace': z.strictObject({ pageId, workspaceId }),
   'page:move-to-window': z.strictObject({
@@ -319,7 +367,20 @@ export const invokeContract = {
     }),
   }),
   'settings:sites': z.undefined(),
+  'cookies:list': z.strictObject({ host: z.string().max(255).optional() }),
+  'cookies:delete': z.strictObject({
+    site: z.string().min(1).max(255),
+    only: z
+      .strictObject({
+        name: z.string().max(4096),
+        domain: z.string().max(255),
+        path: z.string().max(4096),
+      })
+      .optional(),
+  }),
+  'cookies:undo': z.strictObject({ token: z.uuid() }),
   'settings:content-blocking': z.undefined(),
+  'settings:threat-list': z.undefined(),
   'settings:update-filter-lists': z.undefined(),
   'settings:clear-data': z.strictObject({
     range: z.enum(['hour', 'day', 'week', 'all']),
@@ -340,6 +401,13 @@ export const invokeContract = {
   'settings:delete-workspace': z.strictObject({ workspaceId }),
   'extensions:manage': z.undefined(),
   'page:share': z.strictObject({ pageId }),
+  'page:copy-as': z.strictObject({
+    pageId,
+    format: z.enum(['markdown', 'text']),
+  }),
+  'page:paste-and-go': z.undefined(),
+  'page:go-home': z.undefined(),
+  'address:show-menu': z.undefined(),
   'preferences:get': z.undefined(),
   'preferences:update': z.strictObject({ patch: preferencesSchema.partial() }),
   'app:open-settings': z.undefined(),
@@ -351,6 +419,9 @@ export const invokeContract = {
     complete: z.boolean().optional(),
   }),
   'search:suggest': z.strictObject({ query: z.string().max(8192) }),
+  'search:site-icon': z.strictObject({
+    url: z.string().max(2048).refine(isSearchTemplate),
+  }),
   'ai:act': z.strictObject({
     action: z.enum(['back', 'reload', 'home', 'open-as-page']),
   }),

@@ -20,11 +20,7 @@ export function UnresponsiveBar() {
         aria-label="Page not responding"
         className="shell-bar"
       >
-        <Hourglass
-          size={15}
-          strokeWidth={1.75}
-          className="shrink-0 text-danger"
-        />
+        <Hourglass size={15} className="shrink-0 text-danger" />
         <p className="min-w-0 flex-1 truncate">
           <span className="font-medium">{name}</span>
           <span className="text-fg-muted">

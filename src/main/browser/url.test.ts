@@ -1,3 +1,4 @@
+import { DEFAULT_PREFERENCES } from '../../shared/preferences';
 import {
   allowExtensionPages,
   allowLocalFile,
@@ -10,6 +11,7 @@ import {
   mayOpenFromPage,
   resolveAddressInput,
   searchUrl,
+  clipboardAddressInput,
 } from './url';
 
 describe('resolveAddressInput', () => {
@@ -97,13 +99,106 @@ describe('mayOpenFromPage', () => {
   });
 });
 
+const engine = (searchEngine: string) => ({
+  searchEngine,
+  searchShortcuts: DEFAULT_PREFERENCES.searchShortcuts,
+});
+
+describe('clipboardAddressInput', () => {
+  it('trims what was copied', () => {
+    expect(clipboardAddressInput('  https://example.com/\n')).toBe(
+      'https://example.com/',
+    );
+  });
+
+  it('joins an address wrapped over several lines', () => {
+    expect(clipboardAddressInput('https://example.com/a\n  /b\r\n/c')).toBe(
+      'https://example.com/a/b/c',
+    );
+  });
+
+  it('makes one search of several lines of words', () => {
+    expect(clipboardAddressInput('trail maps\nof the alps')).toBe(
+      'trail maps of the alps',
+    );
+  });
+
+  it('never gets past the address rules', () => {
+    expect(
+      resolveAddressInput(clipboardAddressInput('javascript:alert(1)')),
+    ).toBe(searchUrl('javascript:alert(1)'));
+  });
+});
+
 describe('search engines', () => {
   it('searches with the chosen engine', () => {
-    expect(resolveAddressInput('trail maps', 'google')).toBe(
+    expect(resolveAddressInput('trail maps', engine('google'))).toBe(
       'https://www.google.com/search?q=trail%20maps',
     );
-    expect(searchUrl('a&b', 'brave')).toBe(
+    expect(searchUrl('a&b', engine('brave'))).toBe(
       'https://search.brave.com/search?q=a%26b',
+    );
+  });
+
+  it('searches with a keyword’s shortcut', () => {
+    expect(resolveAddressInput('yt cats & dogs')).toBe(
+      'https://www.youtube.com/results?search_query=cats%20%26%20dogs',
+    );
+    expect(resolveAddressInput('G trail maps', engine('bing'))).toBe(
+      'https://www.google.com/search?q=trail%20maps',
+    );
+  });
+
+  it('takes !yt and /yt as well as yt', () => {
+    const expected = 'https://www.youtube.com/results?search_query=cats';
+    expect(resolveAddressInput('!yt cats')).toBe(expected);
+    expect(resolveAddressInput('/YT cats')).toBe(expected);
+  });
+
+  it('goes to the site for !yt with no words', () => {
+    expect(resolveAddressInput('!yt')).toBe('https://www.youtube.com');
+    expect(resolveAddressInput('/gh')).toBe('https://github.com');
+  });
+
+  it('searches for an unknown command rather than guessing', () => {
+    expect(resolveAddressInput('!nope')).toBe(searchUrl('!nope'));
+  });
+
+  it('searches for a keyword on its own, and for unknown ones', () => {
+    expect(resolveAddressInput('yt')).toBe(searchUrl('yt'));
+    expect(resolveAddressInput('xx cats')).toBe(searchUrl('xx cats'));
+  });
+
+  it('never lets a keyword reach an address of its own', () => {
+    const settings = {
+      searchEngine: 'duckduckgo',
+      searchShortcuts: [
+        { id: 'a', name: 'A', keyword: 'a', url: 'https://a.example/%s' },
+      ],
+    };
+    expect(resolveAddressInput('a b/../../c', settings)).toBe(
+      'https://a.example/b%2F..%2F..%2Fc',
+    );
+  });
+
+  it('goes to addresses when no keyword is in the way', () => {
+    expect(resolveAddressInput('g.co')).toBe('https://g.co/');
+  });
+
+  it('searches with a custom default engine', () => {
+    const settings = {
+      searchEngine: 'kagi',
+      searchShortcuts: [
+        {
+          id: 'kagi',
+          name: 'Kagi',
+          keyword: 'k',
+          url: 'https://kagi.com/search?q=%s',
+        },
+      ],
+    };
+    expect(resolveAddressInput('trail maps', settings)).toBe(
+      'https://kagi.com/search?q=trail%20maps',
     );
   });
 });

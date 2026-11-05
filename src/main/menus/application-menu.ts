@@ -208,6 +208,17 @@ export function installApplicationMenu(actions: MenuActions): void {
             });
           }),
         },
+        {
+          label: 'Copy as Markdown',
+          accelerator: 'Alt+Shift+CmdOrCtrl+C',
+          enabled: Boolean(activePage?.url),
+          click: withActivePage((w, id) => void w.copyPageAs(id, 'markdown')),
+        },
+        {
+          label: 'Copy as Plain Text',
+          enabled: Boolean(activePage?.url),
+          click: withActivePage((w, id) => void w.copyPageAs(id, 'text')),
+        },
         { type: 'separator' },
         {
           label: 'Reopen Closed',
@@ -291,6 +302,14 @@ export function installApplicationMenu(actions: MenuActions): void {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'pasteAndMatchStyle' },
+        {
+          label: 'Paste and Go',
+          accelerator: 'Alt+CmdOrCtrl+V',
+          click: () => {
+            const window = actions.currentWindow() ?? actions.openWindow();
+            void window.pasteAndGo();
+          },
+        },
         { role: 'selectAll' },
         { type: 'separator' },
         {
@@ -508,6 +527,14 @@ export function installApplicationMenu(actions: MenuActions): void {
           accelerator: 'CmdOrCtrl+]',
           enabled: activePage?.canGoForward ?? false,
           click: withActivePage((w, id) => w.controller.goForward(id)),
+        },
+        {
+          label: 'Home',
+          accelerator: 'Shift+CmdOrCtrl+H',
+          click: () => {
+            const window = actions.currentWindow() ?? actions.openWindow();
+            window.goHome();
+          },
         },
         { type: 'separator' },
         {

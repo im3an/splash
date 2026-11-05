@@ -1,4 +1,5 @@
 import type {
+  ThreatListStatus,
   ContentBlockingStatus,
   PageError,
   PageSnapshot,
@@ -263,6 +264,13 @@ export function describeError(error: PageError): {
         'Splash tried HTTPS and it didn’t work, so nothing was sent unencrypted. Over HTTP, anyone on your network could read or change what you send and see.',
     };
   }
+  if (error.kind === 'dangerous-site') {
+    return {
+      title: `${hostOf(error.url)} was reported as dangerous`,
+      detail:
+        'It’s on public lists of phishing and malware sites, so Splash didn’t open it. Sites like this try to steal passwords and card details, or install harmful software.',
+    };
+  }
   return loadFailure(error.code, error.url ? hostOf(error.url) : 'The site');
 }
 
@@ -278,12 +286,28 @@ const PERMISSION_NAMES: Record<SitePermission, string> = {
   ads: 'ads and trackers',
   apps: 'other apps',
   insecure: 'unencrypted HTTP',
+  javascript: 'JavaScript',
+  images: 'images',
+  autoplay: 'autoplay',
+  'third-party-cookies': 'third-party cookies',
+  dangerous: 'a site reported as dangerous',
 };
 
+const DECIDED_BY_SPLASH: ReadonlySet<SitePermission> = new Set<SitePermission>([
+  'sound',
+  'ads',
+  'insecure',
+  'javascript',
+  'images',
+  'autoplay',
+  'third-party-cookies',
+  'dangerous',
+]);
+
 /**
- * The choices a site permission offers. Sound and ads are decided by Splash,
- * so no site asks about them; a popup never asks either, and its middle
- * choice lets through only what the user clicked for.
+ * The choices a site permission offers. Sound, ads and what a page may load
+ * are decided by Splash, so no site asks about them; a popup never asks
+ * either, and its middle choice lets through only what the user clicked for.
  */
 export function siteDecisionOptions(
   permission: SitePermission,
@@ -291,9 +315,7 @@ export function siteDecisionOptions(
   const middle =
     permission === 'popups'
       ? [{ value: 'ask' as const, label: 'On click' }]
-      : permission === 'sound' ||
-          permission === 'ads' ||
-          permission === 'insecure'
+      : DECIDED_BY_SPLASH.has(permission)
         ? []
         : [{ value: 'ask' as const, label: 'Ask' }];
   return [
@@ -301,6 +323,16 @@ export function siteDecisionOptions(
     ...middle,
     { value: 'block', label: 'Block' },
   ];
+}
+
+/** When a cookie ends, as the cookie viewer says it. */
+export function formatCookieExpiry(expires: number | null): string {
+  if (expires === null) return 'Until you quit';
+  return `Until ${new Date(expires).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })}`;
 }
 
 /** "camera and microphone", "camera, microphone and location". */
@@ -328,6 +360,27 @@ export function formatBytes(bytes: number): string {
 const DAY = 24 * 60 * 60 * 1000;
 
 /** "Updated today", or why ad blocking isn't working yet. */
+export function threatListSummary(
+  status: ThreatListStatus,
+  now: number,
+): string {
+  if (status.state === 'off') return '';
+  if (status.state === 'loading') return 'Downloading the lists…';
+  if (status.state === 'failed' || status.updatedAt === null) {
+    return 'Couldn’t download the lists, so no site is checked yet. Splash keeps trying.';
+  }
+  const hours = Math.floor((now - status.updatedAt) / (60 * 60 * 1000));
+  const updated =
+    hours <= 0
+      ? 'Updated just now.'
+      : hours < 24
+        ? `Updated ${hours === 1 ? 'an hour' : `${hours} hours`} ago.`
+        : `Updated ${Math.floor(hours / 24)} days ago.`;
+  return status.updateFailed
+    ? `${updated} Couldn’t download newer lists; these stay in use.`
+    : updated;
+}
+
 export function filterListsSummary(
   status: ContentBlockingStatus,
   now: number,

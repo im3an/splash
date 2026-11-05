@@ -81,11 +81,15 @@ export function Button({
   onClick,
   tone = 'plain',
   disabled,
+  type = 'button',
+  'aria-label': ariaLabel,
 }: {
   children: ReactNode;
-  onClick(): void;
+  onClick?(): void;
   tone?: 'plain' | 'primary' | 'danger';
   disabled?: boolean;
+  type?: 'button' | 'submit';
+  'aria-label'?: string;
 }) {
   const tones = {
     plain: 'button-raised',
@@ -94,9 +98,10 @@ export function Button({
   };
   return (
     <button
-      type="button"
+      type={type}
       onClick={onClick}
       disabled={disabled}
+      aria-label={ariaLabel}
       className={`button text-small font-medium ${tones[tone]}`}
     >
       {children}

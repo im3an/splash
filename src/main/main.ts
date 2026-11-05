@@ -23,8 +23,11 @@ import {
   OPENABLE_FILE_FILTER,
 } from './browser/url';
 import { BrowsingDataCleaner } from './privacy/browsing-data';
+import { CookieViewer, type CookieJar } from './privacy/cookies';
+import { QuitClear } from './privacy/quit-clear';
 import type { ContentBlocking } from './privacy/content-blocker';
 import { enableContentBlocking } from './privacy/electron-content-blocker';
+import { createSiteRules } from './privacy/electron-site-rules';
 import { SettingsWindow } from './windows/settings-window';
 import { registerIpc } from './ipc/register-ipc';
 import { installApplicationMenu } from './menus/application-menu';
@@ -34,6 +37,9 @@ import {
   hardenAllWebContents,
   WEB_PARTITION,
 } from './security/web-security';
+import { chooseClientCertificate } from './security/client-certificates';
+import { createThreatList } from './security/electron-threat-list';
+import type { ThreatList } from './security/threat-list';
 import { SchemaTooNewError } from './storage/migrations';
 import { openTrailStore, SqliteTrailStore } from './storage/sqlite-trail-store';
 import type { TrailStore } from './storage/trail-store';
@@ -62,6 +68,10 @@ let store: TrailStore;
 let preferences: PreferencesService;
 let downloads: DownloadManager;
 let cleaner: BrowsingDataCleaner;
+let cookies: CookieViewer;
+let threats: ThreatList;
+let quitClear: QuitClear | null = null;
+let quitClearDone = false;
 let blocker: ContentBlocking;
 let extensions: ExtensionHost | null = null;
 let settings: SettingsWindow | null = null;
@@ -83,6 +93,8 @@ function openSettings(): void {
     downloads,
     cleaner,
     blocker,
+    cookies,
+    threats,
     browserWindow: () => currentWindow(),
   });
   settings.window.on('closed', () => {
@@ -179,6 +191,19 @@ function openStartupStore(): StartupStore {
   }
 }
 
+/** Recently closed pages in the saved session, with no window to ask. */
+function forgetSavedClosedPages(): void {
+  const saved = store.loadSession();
+  if (!saved) return;
+  store.saveSession({ ...saved, closed: [] });
+  forgetLocalFiles(
+    saved.pages.flatMap((page) => [
+      ...(page.url ? [page.url] : []),
+      ...(page.history?.entries.map((entry) => entry.url) ?? []),
+    ]),
+  );
+}
+
 function refreshMenu(): void {
   installApplicationMenu({
     currentWindow,
@@ -252,6 +277,7 @@ function openWindow(show?: { pageId: string } | { url: string }): TrailWindow {
     preferences,
     downloads,
     blocker,
+    cookies,
     extensions,
     onWorkspacesChanged: refreshMenu,
     openSettings,
@@ -357,6 +383,35 @@ if (!app.requestSingleInstanceLock()) {
     else pendingFiles.push(file);
   });
 
+  // Electron would otherwise send the first certificate that fits, unasked.
+  app.on(
+    'select-client-certificate',
+    (event, contents, url, certificates, callback) => {
+      event.preventDefault();
+      // Only a page the user is looking at can ask them.
+      if (!contents || contents.getType() === 'backgroundPage') {
+        callback();
+        return;
+      }
+      void chooseClientCertificate(url, certificates, async (prompt) => {
+        const options = {
+          type: 'question' as const,
+          message: prompt.message,
+          detail: prompt.detail,
+          buttons: prompt.buttons,
+          cancelId: prompt.cancelId,
+          defaultId: prompt.cancelId,
+          noLink: true,
+        };
+        const parent = currentWindow()?.window;
+        const { response } = parent
+          ? await dialog.showMessageBox(parent, options)
+          : await dialog.showMessageBox(options);
+        return response;
+      }).then((certificate) => callback(certificate));
+    },
+  );
+
   registerIpc((sender) => {
     const auth = authenticationTarget(sender);
     if (auth) return auth;
@@ -405,10 +460,18 @@ if (!app.requestSingleInstanceLock()) {
     configureWebSession(session.fromPartition(WEB_PARTITION), store);
     preferences = new PreferencesService(store);
     nativeTheme.themeSource = preferences.get().theme;
+    threats = createThreatList(preferences);
+    const siteRules = createSiteRules(
+      session.fromPartition(WEB_PARTITION),
+      store,
+      preferences,
+      threats,
+    );
     blocker = enableContentBlocking(
       session.fromPartition(WEB_PARTITION),
       store,
       preferences,
+      siteRules,
     );
     downloads = createDownloadManager(
       session.fromPartition(WEB_PARTITION),
@@ -430,22 +493,37 @@ if (!app.requestSingleInstanceLock()) {
     const webSession = session.fromPartition(WEB_PARTITION);
     cleaner = new BrowsingDataCleaner({
       store,
-      clearSiteData: () =>
-        webSession.clearStorageData({
-          storages: [
+      clearSiteData: async () => {
+        // Extensions keep their working data in the same session; uBlock
+        // Origin would have to rebuild its filter lists without it.
+        await webSession.clearData({
+          dataTypes: [
+            'backgroundFetch',
             'cookies',
-            'filesystem',
-            'indexdb',
-            'localstorage',
-            'shadercache',
-            'serviceworkers',
-            'cachestorage',
+            'fileSystems',
+            'indexedDB',
+            'localStorage',
+            'serviceWorkers',
+            'webSQL',
           ],
-        }),
+          excludeOrigins: webSession.extensions
+            .getAllExtensions()
+            .map((extension) => `chrome-extension://${extension.id}`),
+        });
+        await webSession.clearStorageData({
+          storages: ['shadercache', 'cachestorage'],
+        });
+        await webSession.cookies.flushStore();
+      },
       clearCache: () => webSession.clearCache(),
       clearDownloadList: () => downloads.clearFinished(),
       forgetClosedPages: () => {
-        if (windows.size === 0) trails.lead?.forgetClosed();
+        // On launch or quit no window is open, and only the saved copy exists.
+        if (windows.size === 0) {
+          trails.lead?.forgetClosed();
+          forgetSavedClosedPages();
+          return;
+        }
         for (const trailWindow of windows)
           trailWindow.controller.forgetClosed();
         // A file that's no longer on any page leaves no trace of its path.
@@ -463,6 +541,18 @@ if (!app.requestSingleInstanceLock()) {
       now: Date.now,
       createToken: randomUUID,
     });
+    cookies = new CookieViewer({
+      jar: webSession.cookies as CookieJar,
+      now: Date.now,
+      createToken: randomUUID,
+    });
+    quitClear = new QuitClear({
+      store,
+      chosen: () => preferences.get().clearOnQuit,
+      clear: (request) => cleaner.clear(request),
+    });
+    // Whatever a crash left behind goes before any page can see it.
+    await quitClear.atLaunch();
     preferences.onChange((changed) => {
       for (const trailWindow of windows) trailWindow.applyPreferences(changed);
       settings?.send(eventChannels.preferences, changed);
@@ -534,12 +624,23 @@ if (!app.requestSingleInstanceLock()) {
       });
   });
 
-  app.on('will-quit', () => {
-    persister?.dispose();
-    store?.close();
+  // By now the pages are gone, so nothing can write its cookies back.
+  app.on('will-quit', (event) => {
+    if (!quitClear || quitClearDone) {
+      persister?.dispose();
+      store?.close();
+      return;
+    }
+    event.preventDefault();
+    quitClearDone = true;
+    // Electron ignores a quit while this event is still being handled, which
+    // is the case when there was nothing to clear.
+    void quitClear.atQuit().finally(() => setImmediate(() => app.quit()));
   });
 
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
+    // Chromium can drop an approved quit while Settings closes alongside the
+    // browser window, which would leave Splash running with no windows.
+    if (process.platform !== 'darwin' || quitApproved) app.quit();
   });
 }

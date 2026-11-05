@@ -2,11 +2,9 @@ import { useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';
-import { WorkspaceIcon } from './WorkspaceIcon';
 
 /**
- * The current workspace's name as the heading over its trail, like an Arc
- * space; opens the workspace menu, renames in place.
+ * The current workspace's name, centred in the sidebar's foot; opens the workspace menu, renames in place.
  */
 export function WorkspaceButton() {
   const workspace = useShell((state) =>
@@ -18,7 +16,7 @@ export function WorkspaceButton() {
   const setRenaming = useShell((state) => state.setRenamingWorkspace);
   const settled = useRef(false);
 
-  if (!workspace) return <span className="h-7 shrink-0" />;
+  if (!workspace) return <span className="h-6 shrink-0" />;
 
   if (renaming) {
     settled.current = false;
@@ -47,7 +45,7 @@ export function WorkspaceButton() {
           }
         }}
         onBlur={(event) => commit(event.currentTarget.value)}
-        className="editing-field mb-0.5 h-7 shrink-0 rounded-control pr-2.5 pl-(--lead) text-small font-semibold text-fg select-text"
+        className="editing-field h-6 w-40 max-w-full shrink-0 rounded-control px-2 text-center text-small font-semibold text-fg select-text"
       />
     );
   }
@@ -58,20 +56,14 @@ export function WorkspaceButton() {
       onClick={() => void api().showWorkspaceMenu()}
       onDoubleClick={() => setRenaming(true)}
       title="Workspaces (⌃1–9 to switch)"
-      className="group mb-0.5 flex h-7 max-w-full shrink-0 items-center gap-2 self-start rounded-control pr-1.5 pl-(--lead) text-small font-semibold text-fg-muted transition-colors duration-fast hover:bg-row-hover hover:text-fg"
+      className="group relative flex h-6 max-w-full shrink-0 items-center justify-center rounded-control px-5 text-small font-semibold text-fg-muted transition-colors duration-fast hover:bg-row-hover hover:text-fg"
     >
-      <span className="grid size-4 shrink-0 place-items-center text-accent">
-        <WorkspaceIcon
-          icon={workspace.appearance.icon}
-          name={workspace.name}
-          size={13}
-        />
+      <span className="min-w-0">
+        <span className="block truncate">{workspace.name}</span>
       </span>
-      <span className="truncate">{workspace.name}</span>
       <ChevronDown
         size={12}
-        strokeWidth={2}
-        className="shrink-0 text-fg-subtle opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-visible:opacity-100"
+        className="absolute top-1/2 right-1.5 -translate-y-1/2 text-fg-subtle opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-visible:opacity-100"
       />
     </button>
   );
