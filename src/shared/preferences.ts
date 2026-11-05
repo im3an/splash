@@ -75,6 +75,8 @@ export interface Preferences {
   awakePages: number;
   /** On launch, show the pages as they were, or an empty page over them. */
   startup: 'restore' | 'new-page';
+  /** Try HTTPS for every public site, and ask before using plain HTTP. */
+  httpsOnly: boolean;
   /** Block ads and trackers, unless a site is allowed. */
   blockAds: boolean;
   /** Reject cookie banners and hide notices, never agreeing; sites can be allowed. */
@@ -101,6 +103,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   downloads: 'folder',
   awakePages: 12,
   startup: 'restore',
+  httpsOnly: true,
   blockAds: true,
   hideCookieNotices: true,
   aiProvider: 'claude',

@@ -301,7 +301,7 @@ function PageFailed({ page }: { page: PageSnapshot }) {
           <span className="block truncate" title={error.url}>
             {error.url}
           </span>
-          {error.kind === 'load-failed' && (
+          {error.kind !== 'crashed' && (
             <span className="block wrap-anywhere">{error.description}</span>
           )}
         </p>
@@ -314,6 +314,15 @@ function PageFailed({ page }: { page: PageSnapshot }) {
             className="button button-lg"
           >
             Go back
+          </button>
+        )}
+        {error.kind === 'no-secure-connection' && (
+          <button
+            type="button"
+            onClick={() => void api().continueOverHttp(page.id)}
+            className="button button-lg"
+          >
+            Continue with HTTP
           </button>
         )}
         <button

@@ -35,9 +35,19 @@ each cleared against [product-quality.md](product-quality.md) before the next.
       (tested). Failed secure connections (ERR*SSL*\*) now get their own message.
   - [ ] Decide: a deliberate "Proceed anyway". Today there is no bypass, which is
         the safest choice but blocks self-signed sites, including local dev ones.
-- [ ] HTTPS-only mode (upgrade, warn before plain HTTP). Plain HTTP already shows
-      "Not secure", and typed addresses already default to HTTPS. Note: a redirect
-      or link to HTTP isn't upgraded.
+- [x] HTTPS-only mode, on by default, in Settings › Privacy. A page's plain HTTP
+      address goes to HTTPS before anything is sent, including links, redirects
+      and restored pages. If HTTPS fails, a warning offers "Continue with HTTP",
+      remembered per site and revocable in site settings. Local names and bare
+      IP addresses aren't changed. Tested in the app against local fake sites
+      (no HTTPS, bad certificate, HTTPS redirecting back to HTTP) and example.com.
+  - [ ] Try it on real HTTP-only sites (neverssl.com timed out from the test machine)
+  - [ ] A site that silently drops HTTPS waits for Chromium's timeout before the
+        warning. Measure it, and decide whether Splash should give up sooner
+  - [ ] An HTTPS address that answers with its own error (404, 500) isn't treated
+        as a failure, so HTTP isn't offered there
+  - [ ] Real popup windows from `window.open` aren't upgraded yet
+  - [ ] A site that redirects `http://a` to `http://www.a` asks twice
 
 ## Phase B. Basic browser things still missing
 
@@ -103,7 +113,8 @@ Media and macOS
       reduced motion walkthroughs in the packaged app
 - [ ] 100+ pages and 10k+ history entries: speed and memory
 - [ ] Upgrade Electron to 45.0.1+, move network blocking to uBlock Origin,
-      retire the built-in hooks, retest YouTube
+      retire the built-in hooks, retest YouTube. HTTPS-only mode runs in the same
+      `onBeforeRequest` hook, so that hook has to stay for it
 
 ## Phase D. Shipping
 

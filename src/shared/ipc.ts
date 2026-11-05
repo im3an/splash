@@ -82,6 +82,7 @@ export const preferencesSchema = z.strictObject({
   downloads: z.enum(['folder', 'ask']),
   awakePages: z.number().int().min(2).max(100),
   startup: z.enum(['restore', 'new-page']),
+  httpsOnly: z.boolean(),
   blockAds: z.boolean(),
   hideCookieNotices: z.boolean(),
   aiProvider: z.enum(AI_PROVIDER_IDS),
@@ -97,6 +98,7 @@ const sitePermission = z.enum([
   'sound',
   'ads',
   'apps',
+  'insecure',
 ]);
 /** A bare web origin such as `https://example.com`. */
 const siteOrigin = z
@@ -170,6 +172,7 @@ export const invokeContract = {
   'page:go-back': z.strictObject({ pageId }),
   'page:go-forward': z.strictObject({ pageId }),
   'page:reload': z.strictObject({ pageId }),
+  'page:continue-over-http': z.strictObject({ pageId }),
   'page:stop': z.strictObject({ pageId }),
   'page:set-collapsed': z.strictObject({ pageId, collapsed: z.boolean() }),
   'page:create-child': z.strictObject({

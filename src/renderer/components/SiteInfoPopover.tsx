@@ -13,7 +13,7 @@ import { PanelState } from './PanelState';
 import { SegmentedControl } from './SegmentedControl';
 
 /** Decided by Splash itself, so a site never asks for them. */
-const NEVER_ASKED = new Set<SitePermission>(['sound', 'ads']);
+const NEVER_ASKED = new Set<SitePermission>(['sound', 'ads', 'insecure']);
 
 const DECISIONS: { value: PermissionDecision; label: string }[] = [
   { value: 'allow', label: 'Allow' },

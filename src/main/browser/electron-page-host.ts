@@ -38,6 +38,7 @@ import {
 } from './url';
 import { requestPageClose } from './close-page';
 import { stepZoom } from './zoom';
+import { SecureAttempt } from '../security/https-only';
 import { CONTENT_RADIUS } from '../../shared/geometry';
 
 /** Chromium's ERR_ABORTED: a load was superseded by another navigation. */
@@ -51,6 +52,10 @@ export interface PageHostEnvironment {
   preload: string;
   /** Whether the user turned sound off for a site. */
   isSoundBlocked(origin: string): boolean;
+  /** The HTTPS-only setting. */
+  httpsOnly(): boolean;
+  /** Whether the user already chose to use this plain HTTP address's site. */
+  plainHttpAllowed(url: string): boolean;
   /** A page's contents were created; extensions can now see it. */
   onContentsCreated?(contents: WebContents): void;
   /** A page's link wants another app (mailto:, tel:): ask, then open it. */
@@ -75,6 +80,8 @@ export interface PageHandle {
   ): Promise<boolean>;
   blocked(permissions: SitePermission[]): void;
   notify(notice: Notice): void;
+  /** Its main-frame request for `plain` is going to `secure` instead. */
+  upgraded(plain: string, secure: string): void;
 }
 
 const pageHandles = new Map<number, PageHandle>();
@@ -116,6 +123,9 @@ class ElectronPageHost implements PageHost {
   private readonly window: BaseWindow;
   private readonly environment: PageHostEnvironment;
   private readonly links = new LinkActivations();
+  private readonly secureAttempt = new SecureAttempt();
+  /** The HTTPS address showing the warning, and the HTTP one it stands for. */
+  private failedUpgrade: { secure: string; plain: string } | null = null;
   private attached = false;
   private closing = false;
   private hasFormEdits = false;
@@ -157,6 +167,7 @@ class ElectronPageHost implements PageHost {
         this.events.onPermissionRequest(origin, permissions, opens),
       blocked: (permissions) => this.events.onPermissionBlocked(permissions),
       notify: (notice) => this.events.onNotice(notice),
+      upgraded: (plain, secure) => this.secureAttempt.begin(plain, secure),
     });
     this.view.webContents.once('destroyed', () => pageHandles.delete(id));
     environment.onContentsCreated?.(this.view.webContents);
@@ -168,6 +179,9 @@ class ElectronPageHost implements PageHost {
 
   load(url: string, options: LoadOptions = {}): void {
     this.sourceUrl = url.startsWith('view-source:') ? url : null;
+    if (options.plainAddress && this.environment.httpsOnly()) {
+      this.secureAttempt.begin(options.plainAddress, url);
+    }
     const httpReferrer = options.referrer
       ? {
           url: options.referrer,
@@ -237,6 +251,10 @@ class ElectronPageHost implements PageHost {
     const index = Math.min(history.getActiveIndex(), entries.length - 1);
     if (this.sourceUrl && entries[index])
       entries[index] = { ...entries[index]!, url: this.sourceUrl };
+    // Waking from here must try the upgrade again and warn again, not show
+    // an ordinary failure of an HTTPS address the user never asked for.
+    if (this.failedUpgrade && entries[index]?.url === this.failedUpgrade.secure)
+      entries[index] = { ...entries[index]!, url: this.failedUpgrade.plain };
     return { entries, index: Math.max(0, index) };
   }
 
@@ -493,13 +511,17 @@ class ElectronPageHost implements PageHost {
     contents.on('focus', () => this.events.onFocus());
 
     contents.on('did-start-navigation', (details) => {
-      if (details.isMainFrame && !details.isSameDocument) emit({ error: null });
+      if (!details.isMainFrame || details.isSameDocument) return;
+      this.secureAttempt.navigationStarted(details.url);
+      this.failedUpgrade = null;
+      emit({ error: null });
     });
     contents.on('did-start-loading', () => emit({ isLoading: true }));
     contents.on('did-stop-loading', () =>
       emit({ isLoading: false, ...this.navigationState() }),
     );
     contents.on('did-navigate', (_event, committed) => {
+      this.secureAttempt.committed();
       this.hasFormEdits = false;
       emit({ hasFormEdits: false });
       const url = this.sourceUrl ?? committed;
@@ -554,9 +576,18 @@ class ElectronPageHost implements PageHost {
       'did-fail-load',
       (_event, code, description, url, isMainFrame) => {
         if (!isMainFrame || code === ERR_ABORTED) return;
+        const plain = this.secureAttempt.failed(code);
+        // Typed without a scheme, on a site the user already chose HTTP for.
+        if (plain && this.environment.plainHttpAllowed(plain)) {
+          this.load(plain);
+          return;
+        }
+        this.failedUpgrade = plain ? { secure: url, plain } : null;
         emit({
           isLoading: false,
-          error: { kind: 'load-failed', code, description, url },
+          error: plain
+            ? { kind: 'no-secure-connection', code, description, url: plain }
+            : { kind: 'load-failed', code, description, url },
         });
       },
     );

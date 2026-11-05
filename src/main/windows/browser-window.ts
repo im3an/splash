@@ -192,6 +192,11 @@ export class TrailWindow {
         preload: path.join(__dirname, 'page-preload.cjs'),
         isSoundBlocked: (origin) =>
           this.safely(() => store.getPermission(origin, 'sound')) === false,
+        httpsOnly: () => options.preferences.get().httpsOnly,
+        plainHttpAllowed: (address) =>
+          this.safely(() =>
+            store.getPermission(new URL(address).origin, 'insecure'),
+          ) === true,
         onContentsCreated: (contents) =>
           options.extensions?.addPage(contents, this.window),
         extensionMenuItems: (contents, params) =>
@@ -249,6 +254,11 @@ export class TrailWindow {
         }
       },
       maxLiveViews: options.preferences.get().awakePages,
+      allowPlainHttp: (address) => {
+        this.safely(() =>
+          store.setPermission(new URL(address).origin, 'insecure', true),
+        );
+      },
       searchEngine: () => options.preferences.get().searchEngine,
       onVisit: (visited) =>
         this.safely(() => store.recordVisit(visited, Date.now())),
@@ -308,6 +318,8 @@ export class TrailWindow {
         'page:go-back': ({ pageId }) => this.controller.goBack(pageId),
         'page:go-forward': ({ pageId }) => this.controller.goForward(pageId),
         'page:reload': ({ pageId }) => this.controller.reload(pageId),
+        'page:continue-over-http': ({ pageId }) =>
+          this.controller.continueOverHttp(pageId),
         'page:stop': ({ pageId }) => this.controller.stop(pageId),
         'page:set-collapsed': ({ pageId, collapsed }) =>
           this.controller.setCollapsed(pageId, collapsed),
@@ -645,7 +657,10 @@ export class TrailWindow {
       host: new URL(origin).host,
       security: origin.startsWith('https:') ? 'secure' : 'insecure',
       blockedCount: this.options.blocker.blockedOn(pageId),
-      permissions: SITE_PERMISSIONS.map((permission) => {
+      // A secure site has no plain HTTP address to allow.
+      permissions: SITE_PERMISSIONS.filter(
+        (permission) => permission !== 'insecure' || origin.startsWith('http:'),
+      ).map((permission) => {
         const decided =
           this.safely(() => store.getPermission(origin, permission)) ?? null;
         return {
@@ -664,6 +679,9 @@ export class TrailWindow {
     if (permission === 'sound') return 'allow';
     if (permission === 'ads') {
       return this.options.preferences.get().blockAds ? 'block' : 'allow';
+    }
+    if (permission === 'insecure') {
+      return this.options.preferences.get().httpsOnly ? 'block' : 'allow';
     }
     return 'ask';
   }

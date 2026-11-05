@@ -18,6 +18,7 @@ export const SITE_PERMISSIONS: readonly SitePermission[] = [
   'midi',
   'clipboard',
   'apps',
+  'insecure',
 ];
 
 export const PERMISSION_LABELS: Record<SitePermission, string> = {
@@ -30,6 +31,7 @@ export const PERMISSION_LABELS: Record<SitePermission, string> = {
   midi: 'MIDI devices',
   clipboard: 'Clipboard',
   apps: 'Open apps',
+  insecure: 'Unencrypted HTTP',
 };
 
 /**

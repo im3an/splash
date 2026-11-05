@@ -119,6 +119,7 @@ Found in the 25 October feature check. Unsaved-form protection is a release bloc
   it at once. Reopen Closed brings the address back, not what was typed.
 - **Save Page As and View Source — implemented.** ⇧⌘S saves a single-file web archive, with retry and completion feedback. ⌥⌘U opens web source as a child page. Both were exercised in the packaged app.
 - **Open File — implemented.** ⌘O, or a file handed over by macOS, opens web pages, PDFs, images, text, audio and video as new pages. Only files the user chose can load, kept in a saved list so they return after a restart; Clear History forgets those no longer on a page. Not yet exercised in a packaged build.
+- **HTTPS-only mode — implemented.** On by default. Public sites go to HTTPS before anything is sent; if that fails, a warning offers Continue with HTTP, remembered per site and revocable in site settings. Exercised in the dev app against local fake sites and example.com, not yet in a packaged build or on real HTTP-only sites.
 - **Picture in picture from the context menu** and video controls such as
   Loop.
 - Not yet checked by hand: a mouse's back and forward buttons and the

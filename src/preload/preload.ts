@@ -48,6 +48,7 @@ const api: SplashApi = {
   goBack: (pageId) => invoke('page:go-back', { pageId }),
   goForward: (pageId) => invoke('page:go-forward', { pageId }),
   reload: (pageId) => invoke('page:reload', { pageId }),
+  continueOverHttp: (pageId) => invoke('page:continue-over-http', { pageId }),
   stop: (pageId) => invoke('page:stop', { pageId }),
   setCollapsed: (pageId, collapsed) =>
     invoke('page:set-collapsed', { pageId, collapsed }),

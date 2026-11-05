@@ -243,6 +243,13 @@ export function describeError(error: PageError): {
         'Its process ended unexpectedly. Reloading usually brings it back.',
     };
   }
+  if (error.kind === 'no-secure-connection') {
+    return {
+      title: `Couldn’t connect securely to ${hostOf(error.url)}`,
+      detail:
+        'Splash tried HTTPS and it didn’t work, so nothing was sent unencrypted. Over HTTP, anyone on your network could read or change what you send and see.',
+    };
+  }
   return loadFailure(error.code, error.url ? hostOf(error.url) : 'The site');
 }
 
@@ -256,6 +263,7 @@ const PERMISSION_NAMES: Record<SitePermission, string> = {
   sound: 'sound',
   ads: 'ads and trackers',
   apps: 'other apps',
+  insecure: 'unencrypted HTTP',
 };
 
 /** "camera and microphone", "camera, microphone and location". */

@@ -11,6 +11,7 @@ import {
 import type { Fetch } from '@ghostery/adblocker';
 import { pageHandleFor } from '../browser/electron-page-host';
 import type { PreferencesService } from '../preferences';
+import { httpsUpgradeFor } from '../security/https-only';
 import { webOrigin } from '../security/permissions';
 import type { TrailStore } from '../storage/trail-store';
 import { AUTOCONSENT } from '../../shared/page-bridge';
@@ -138,8 +139,33 @@ export function enableContentBlocking(
         : webContents.fromId(webContentsId);
     const handle = pageHandleFor(contents);
     return handle && contents
-      ? { pageId: handle.pageId, url: contents.getURL() }
+      ? { handle, pageId: handle.pageId, url: contents.getURL() }
       : null;
+  };
+
+  /** Where HTTPS-only mode sends a page's request instead, if anywhere. */
+  const upgradeOf = (
+    url: string,
+    resourceType: string,
+    page: ReturnType<typeof pageOf>,
+  ): string | null => {
+    // Only a page's own address. Chromium already refuses or upgrades the
+    // insecure parts of a secure page, and a window's shell is never upgraded.
+    if (!page || resourceType !== 'mainFrame') return null;
+    const secure = httpsUpgradeFor(
+      url,
+      preferences.get().httpsOnly,
+      (origin) => {
+        try {
+          return store.getPermission(origin, 'insecure');
+        } catch (error) {
+          console.error('Storage error', error);
+          return null;
+        }
+      },
+    );
+    if (secure) page.handle.upgraded(url, secure);
+    return secure;
   };
 
   // These two hooks must stay registered while Splash runs Electron 45.0.0.
@@ -151,6 +177,13 @@ export function enableContentBlocking(
     { urls: ['<all_urls>'] },
     (details, callback) => {
       const page = pageOf(details.webContentsId);
+      // Electron allows one listener, so HTTPS-only mode goes first here:
+      // the request comes back through this hook on its way to HTTPS.
+      const secure = upgradeOf(details.url, details.resourceType, page);
+      if (secure) {
+        callback({ redirectURL: secure });
+        return;
+      }
       const pageUrl = page?.url || details.referrer || null;
       // Every blocker sees a page start loading, to restart its count.
       const applying =

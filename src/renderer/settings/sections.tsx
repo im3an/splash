@@ -349,7 +349,7 @@ const RANGES: { value: ClearRange; label: string }[] = [
 ];
 
 /** Decided by Splash itself, so a site never asks for them. */
-const NEVER_ASKED = new Set<SitePermission>(['sound', 'ads']);
+const NEVER_ASKED = new Set<SitePermission>(['sound', 'ads', 'insecure']);
 
 function ContentBlockingSettings() {
   const [preferences, update] = usePreferences();
@@ -414,6 +414,25 @@ function ContentBlockingSettings() {
         >
           Update now
         </Button>
+      </Row>
+    </Section>
+  );
+}
+
+function SecureConnectionSettings() {
+  const [preferences, update] = usePreferences();
+  if (!preferences) return null;
+  return (
+    <Section title="Connections">
+      <Row
+        label="HTTPS-only mode"
+        help="Sends every site to HTTPS first. If a site doesn’t accept it, Splash asks before using HTTP. Addresses on your own network aren’t changed."
+      >
+        <Toggle
+          label="HTTPS-only mode"
+          checked={preferences.httpsOnly}
+          onChange={(httpsOnly) => update({ httpsOnly })}
+        />
       </Row>
     </Section>
   );
@@ -487,6 +506,7 @@ export function PrivacySettings() {
 
   return (
     <>
+      <SecureConnectionSettings />
       <ContentBlockingSettings />
       <Section
         title="Clear browsing data"

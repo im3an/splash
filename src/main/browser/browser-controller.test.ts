@@ -11,6 +11,7 @@ import type {
 class FakeHost implements PageHost {
   loaded: string[] = [];
   referrers: (string | undefined)[] = [];
+  plainAddresses: (string | undefined)[] = [];
   bounds: Rectangle | null = null;
   visible = false;
   destroyed = false;
@@ -24,6 +25,7 @@ class FakeHost implements PageHost {
   load(url: string, options?: LoadOptions) {
     this.loaded.push(url);
     this.referrers.push(options?.referrer);
+    this.plainAddresses.push(options?.plainAddress);
     this.history = { entries: [{ url, title: '' }], index: 0 };
   }
   captureHistory() {
@@ -92,7 +94,13 @@ class FakeHost implements PageHost {
 
 const BOUNDS = { x: 260, y: 48, width: 900, height: 700 };
 
-function setup(options: { maxLiveViews?: number; idPrefix?: string } = {}) {
+function setup(
+  options: {
+    maxLiveViews?: number;
+    idPrefix?: string;
+    allowPlainHttp?: (url: string) => void;
+  } = {},
+) {
   const { idPrefix = 'page', ...controllerOptions } = options;
   const hosts: FakeHost[] = [];
   const snapshots: BrowserSnapshot[] = [];
@@ -192,6 +200,61 @@ describe('BrowserController', () => {
     expect(hosts[0]?.calls).not.toContain('reload');
     expect(latest().pages[id]?.error).toBeNull();
     expect(hosts[0]?.visible).toBe(true);
+  });
+
+  describe('HTTPS-only mode', () => {
+    const failure = (kind: 'no-secure-connection' | 'load-failed') => ({
+      error: {
+        kind,
+        code: -102,
+        description: 'ERR_CONNECTION_REFUSED',
+        url: 'http://a.com/',
+      },
+    });
+
+    it('tells the page a typed host may fall back, but not a typed https://', () => {
+      const { controller, hosts } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      controller.navigate(id, 'https://b.com/');
+      controller.navigate(id, 'c.com');
+      expect(hosts[0]!.plainAddresses).toEqual([
+        'http://a.com/',
+        undefined,
+        'http://c.com/',
+      ]);
+    });
+
+    it('does not treat a link as typed', () => {
+      const { controller, hosts } = setup();
+      controller.createPage({ url: 'https://a.com/' });
+      expect(hosts[0]!.plainAddresses).toEqual([undefined]);
+    });
+
+    it('continues over HTTP only from the warning, and remembers the site', () => {
+      const allowPlainHttp = vi.fn();
+      const { controller, hosts, latest } = setup({ allowPlainHttp });
+      const id = controller.createPage({ url: 'http://a.com/' });
+
+      controller.continueOverHttp(id);
+      expect(allowPlainHttp).not.toHaveBeenCalled();
+      hosts[0]!.events.onStateChange(failure('load-failed'));
+      controller.continueOverHttp(id);
+      expect(allowPlainHttp).not.toHaveBeenCalled();
+
+      hosts[0]!.events.onStateChange(failure('no-secure-connection'));
+      controller.continueOverHttp(id);
+      expect(allowPlainHttp).toHaveBeenCalledWith('http://a.com/');
+      expect(hosts[0]!.loaded.at(-1)).toBe('http://a.com/');
+      expect(latest().pages[id]!.error).toBeNull();
+    });
+
+    it('tries the plain address again, so the upgrade runs again', () => {
+      const { controller, hosts } = setup();
+      const id = controller.createPage({ url: 'http://a.com/' });
+      hosts[0]!.events.onStateChange(failure('no-secure-connection'));
+      controller.reload(id);
+      expect(hosts[0]!.loaded).toEqual(['http://a.com/', 'http://a.com/']);
+    });
   });
 
   it('closes a page, destroys its view and activates its successor', () => {

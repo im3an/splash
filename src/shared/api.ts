@@ -46,6 +46,7 @@ export interface InvokeOutputs {
   'page:go-back': void;
   'page:go-forward': void;
   'page:reload': void;
+  'page:continue-over-http': void;
   'page:stop': void;
   'page:set-collapsed': void;
   'page:create-child': PageId;
@@ -134,6 +135,8 @@ export interface SplashApi {
   goBack(pageId: PageId): Promise<void>;
   goForward(pageId: PageId): Promise<void>;
   reload(pageId: PageId): Promise<void>;
+  /** The user read the warning: loads the site over HTTP and remembers it. */
+  continueOverHttp(pageId: PageId): Promise<void>;
   stop(pageId: PageId): Promise<void>;
   setCollapsed(pageId: PageId, collapsed: boolean): Promise<void>;
   createChildPage(pageId: PageId, input?: string): Promise<PageId>;

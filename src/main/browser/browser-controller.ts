@@ -33,6 +33,7 @@ import type {
 } from './page-host';
 import { splitBounds } from './layout';
 import { TrailTree } from './trail-tree';
+import { typedPlainAddress } from '../security/https-only';
 import { isPageUrl, resolveAddressInput } from './url';
 import { stepZoom } from './zoom';
 import type { SearchEngineId } from '../../shared/preferences';
@@ -107,6 +108,8 @@ export interface BrowserControllerOptions {
   maxLiveViews?: number;
   /** The engine typed searches go to. */
   searchEngine?: () => SearchEngineId;
+  /** The user chose to use this site's plain HTTP address from now on. */
+  allowPlainHttp?(url: string): void;
   /** Something happened that the shell should confirm (a move, a copy). */
   onNotice?(notice: Notice): void;
 }
@@ -224,7 +227,15 @@ export class BrowserController {
         : options.input !== undefined
           ? this.resolve(options.input)
           : null;
-    if (url !== null) this.load(id, url, options.referrer);
+    if (url !== null) {
+      this.load(id, url, {
+        referrer: options.referrer,
+        plainAddress:
+          options.url === undefined && options.input !== undefined
+            ? typedPlainAddress(options.input, url)
+            : null,
+      });
+    }
 
     // Pages opened from either side of a split view open on its right, so
     // the left keeps its place while you follow links.
@@ -618,7 +629,19 @@ export class BrowserController {
 
   navigate(id: PageId, input: string): void {
     this.require(id);
-    this.load(id, this.resolve(input));
+    const url = this.resolve(input);
+    this.load(id, url, { plainAddress: typedPlainAddress(input, url) });
+  }
+
+  /**
+   * HTTPS failed and the user read why: use the site's plain address, now and
+   * next time. Only the shell can ask, and only from that warning.
+   */
+  continueOverHttp(id: PageId): void {
+    const { error } = this.require(id).state;
+    if (error?.kind !== 'no-secure-connection') return;
+    this.options.allowPlainHttp?.(error.url);
+    this.load(id, error.url);
   }
 
   /** Changes how many pages stay awake, putting extra ones to sleep now. */
@@ -1521,13 +1544,28 @@ export class BrowserController {
     }
   }
 
-  private load(id: PageId, url: string, referrer?: string): void {
+  private load(
+    id: PageId,
+    url: string,
+    {
+      referrer,
+      plainAddress,
+    }: { referrer?: string; plainAddress?: string | null } = {},
+  ): void {
     if (!isPageUrl(url)) throw new Error(`Refusing to load ${url}`);
     const page = this.require(id);
     page.host ??= this.spawnHost(id);
     page.history = null;
     page.state = { ...page.state, url, error: null, isLoading: true };
-    page.host.load(url, referrer === undefined ? undefined : { referrer });
+    page.host.load(
+      url,
+      referrer === undefined && !plainAddress
+        ? undefined
+        : {
+            ...(referrer === undefined ? {} : { referrer }),
+            ...(plainAddress ? { plainAddress } : {}),
+          },
+    );
     this.syncVisibleHost();
     this.changed();
   }

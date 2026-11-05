@@ -47,6 +47,8 @@ export interface PageHistory {
 export interface LoadOptions {
   /** The page that led here, sent as the HTTP referrer. */
   referrer?: string;
+  /** Typed with no scheme, so HTTP can be offered if this HTTPS load fails. */
+  plainAddress?: string;
 }
 
 export interface PageHostEvents {

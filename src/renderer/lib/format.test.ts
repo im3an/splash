@@ -172,6 +172,17 @@ describe('local files', () => {
     ).toBe('My Report.pdf');
   });
 
+  it('name the site and the risk when HTTPS fails where HTTP might work', () => {
+    const { title, detail } = describeError({
+      kind: 'no-secure-connection',
+      code: -102,
+      description: 'ERR_CONNECTION_REFUSED',
+      url: 'http://neverssl.com/',
+    });
+    expect(title).toBe('Couldn’t connect securely to neverssl.com');
+    expect(detail).toContain('anyone on your network');
+  });
+
   it('say so when the file has gone', () => {
     expect(
       describeError({

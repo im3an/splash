@@ -1,7 +1,11 @@
 export type PageId = string;
 export type WorkspaceId = string;
 
-export type PageErrorKind = 'load-failed' | 'crashed';
+export type PageErrorKind =
+  | 'load-failed'
+  | 'crashed'
+  /** HTTPS failed where HTTP might work; `url` is the plain HTTP address. */
+  | 'no-secure-connection';
 
 export interface PageError {
   kind: PageErrorKind;
@@ -62,7 +66,9 @@ export type SitePermission =
   /** Allowed means ads and trackers aren't blocked on the site. */
   | 'ads'
   /** Links that open an app on the Mac: mailto:, tel:, zoommtg: … */
-  | 'apps';
+  | 'apps'
+  /** Allowed means HTTPS-only mode leaves the site's plain HTTP address alone. */
+  | 'insecure';
 
 export type PermissionDecision = 'allow' | 'block' | 'ask';
 
