@@ -43,6 +43,7 @@ describe('TrailTree', () => {
         rootIds: [],
         activePageId: null,
         split: null,
+        otherWindows: [],
         lastClosed: null,
         workspaces: [],
         activeWorkspaceId: 'w1',

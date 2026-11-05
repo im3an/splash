@@ -227,6 +227,11 @@ export const invokeContract = {
   }),
   'page:duplicate': z.strictObject({ pageId }),
   'page:move-to-workspace': z.strictObject({ pageId, workspaceId }),
+  'page:move-to-window': z.strictObject({
+    pageId,
+    /** `null` opens a new window for it. */
+    windowId: z.string().min(1).max(64).nullable(),
+  }),
   'page:open-split': z.strictObject({
     pageId,
     otherId: pageId,

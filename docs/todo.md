@@ -25,10 +25,11 @@ each cleared against [product-quality.md](product-quality.md) before the next.
   - [ ] List Splash in Finder's "Open With" (document types in Info.plist)
   - [ ] Palette entry, and dropping a file on the window
   - [ ] A local page's `target=_blank` link to a file does nothing, silently
-- [ ] New Window in the File menu. **Not a small item:** each window restores
-      the whole session and saves it back on its own, so two windows would
-      overwrite each other's trails (read in the code, not reproduced). Needs
-      shared trails first (see Phase F).
+- [x] New Window in the File menu (⌘N), on shared trails (see Phase F). Tested
+      in the real app with several windows, including quit and restart.
+  - [ ] Reopen the windows you had open: a restart brings back one, with every
+        page still in the trail
+  - [ ] Dock click after closing every window (unit test only)
 - [ ] Picture in picture: context menu on video, site permission
 - [x] Certificate-error page. It already existed; this list was wrong to say it
       was missing. A self-signed certificate is refused and nothing is requested
@@ -83,8 +84,9 @@ Pages and windows
       correctly whatever the default said, so the setting had no effect and was
       removed. A page declaring the wrong charset can't be overridden: Electron
       has no API for it.
-- [ ] Merge / move a page between windows. Needs shared trails first (see New
-      Window above and Phase F).
+- [x] Move a page between windows: Move to New Window and Move to Window in the
+      page menu. Merging needs nothing: every window shows the same trails, so
+      closing one loses no pages. Tested through the API, not by clicking the menu.
 - [x] Task manager: memory and CPU per process across all windows, End for a page
       (⌘K "task manager", or View › Task Manager)
   - [ ] End a truly hung page by hand (only tested on a responsive one)
@@ -169,8 +171,10 @@ still apply: no separate tab groups, no horizontal tab bar, say "page".
 
 Trails and projects (Horse parity)
 
-- [ ] Shared live trails across windows: every window sees the same trails,
-      each with its own page open and its own expand/collapse state
+- [x] Shared live trails across windows: every window sees the same trails,
+      each with its own page, split view and expand/collapse state. A page shows
+      in one window at a time: opening it in a second moves it there, and the
+      first says so and offers Show here until the page comes back.
 - [ ] Name a top-level trail and give it an emoji
 - [ ] Several trails per workspace, with a clear "trailhead" (a top-level
       page) in the UI

@@ -32,6 +32,7 @@ import {
 } from '@dnd-kit/sortable';
 import { useShallow } from 'zustand/react/shallow';
 import {
+  AppWindow,
   ChevronRight,
   CircleAlert,
   Columns2,
@@ -630,7 +631,9 @@ const TrailRow = memo(function TrailRow({
   const label = pageLabel(page);
   const parts = pageParts(page);
   // One quiet marker at the row's end; close takes its place on hover.
-  const marker = inSplit ? (
+  const marker = page.shownElsewhere ? (
+    <AppWindow size={11} aria-label="Showing in another window" />
+  ) : inSplit ? (
     <Columns2 size={11} strokeWidth={2} aria-label="In split view" />
   ) : page.note ? (
     <StickyNote size={11} strokeWidth={2} aria-label="Has a note" />

@@ -98,6 +98,8 @@ export interface PageHost {
   print(): void;
   show(bounds: Rectangle): void;
   hide(): void;
+  /** Its view belongs in another window now; `site` says which. */
+  moveTo(site: unknown): void;
   focus(): void;
   toggleDevTools(): void;
   /** `null` until something has been loaded. */

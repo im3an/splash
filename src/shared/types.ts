@@ -57,6 +57,8 @@ export interface PageSnapshot {
   error: PageError | null;
   /** The page's view was freed to save memory; it reloads when activated. */
   isDiscarded: boolean;
+  /** Another window is showing it, so this one can't. */
+  shownElsewhere: boolean;
   /** A name the user gave the page, shown instead of its title. */
   customTitle: string | null;
   note: string | null;
@@ -366,6 +368,11 @@ export interface SplitView {
   rightId: PageId;
 }
 
+export interface OtherWindow {
+  id: string;
+  title: string;
+}
+
 /** The window's state as the shell renders it: the active workspace's trail. */
 export interface BrowserSnapshot {
   pages: Record<PageId, PageSnapshot>;
@@ -373,6 +380,8 @@ export interface BrowserSnapshot {
   activePageId: PageId | null;
   /** The workspace's split view; on screen while either of its pages is active. */
   split: SplitView | null;
+  /** The other windows, each with what it's showing. */
+  otherWindows: OtherWindow[];
   lastClosed: ClosedSummary | null;
   workspaces: WorkspaceSummary[];
   activeWorkspaceId: WorkspaceId;

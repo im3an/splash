@@ -71,6 +71,8 @@ const api: SplashApi = {
   duplicatePage: (pageId) => invoke('page:duplicate', { pageId }),
   movePageToWorkspace: (pageId, workspaceId) =>
     invoke('page:move-to-workspace', { pageId, workspaceId }),
+  movePageToWindow: (pageId, windowId) =>
+    invoke('page:move-to-window', { pageId, windowId }),
   setNote: (pageId, note) => invoke('page:set-note', { pageId, note }),
   openSplit: (pageId, otherId, side) =>
     invoke('page:open-split', { pageId, otherId, side }),

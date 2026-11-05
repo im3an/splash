@@ -18,6 +18,7 @@ import type {
   BrowserSnapshot,
   ContentInsets,
   Notice,
+  PageId,
   PermissionDecision,
   StorageStatus,
   SiteInfo,
@@ -27,7 +28,10 @@ import type {
   WorkspaceAppearance,
   WorkspaceMode,
 } from '../../shared/types';
-import { BrowserController } from '../browser/browser-controller';
+import {
+  BrowserController,
+  type SharedTrails,
+} from '../browser/browser-controller';
 import { buildPaletteItems, searchSuggestionItems } from '../browser/palette';
 import { SearchSuggestions } from '../browser/search-suggestions';
 import {
@@ -51,7 +55,6 @@ import {
   webOrigin,
 } from '../security/permissions';
 import { WEB_PARTITION } from '../security/web-security';
-import { SessionPersister } from '../storage/session-persister';
 import { AiPanel } from '../ai/ai-panel';
 import type { HistoryMatch, TrailStore } from '../storage/trail-store';
 import type { PreferencesService } from '../preferences';
@@ -69,6 +72,14 @@ const engineSuggestions = new SearchSuggestions((url, init) =>
   net.fetch(url, { ...init, credentials: 'omit' }),
 );
 
+export interface SessionSaves {
+  schedule(): void;
+  /** Writes pending changes now; false if that failed. */
+  flush(): boolean;
+  /** Why the last save failed, until one succeeds again. */
+  problem(): string | null;
+}
+
 export interface TrailWindowOptions {
   store: TrailStore;
   preferences: PreferencesService;
@@ -82,6 +93,16 @@ export interface TrailWindowOptions {
   openSettings(): void;
   /** What's running in every window, for the task manager. */
   listTasks(): TaskList;
+  /** The trails every window shows. */
+  trails: SharedTrails;
+  /** Saves the trails; there's one of these for all windows. */
+  saves: SessionSaves;
+  /** Where to open; on top of the last window's place by default. */
+  bounds?: Rectangle;
+  /** What this window opens with; otherwise what `startWindow` picks. */
+  show?: { pageId: PageId } | { url: string };
+  /** Opens another window to show this page. */
+  openPageInNewWindow(pageId: PageId): void;
   /** Every snapshot sent to this window, for other windows that mirror it. */
   onSnapshot?(snapshot: BrowserSnapshot): void;
   /** Extensions see this window's pages as their tabs. */
@@ -131,10 +152,6 @@ function chromeBackground(appearance: WorkspaceAppearance): string {
   return frameColor(appearance, nativeTheme.shouldUseDarkColors);
 }
 
-/**
- * One browser window: the shell UI in the window's own WebContents, and the
- * page views managed by its `BrowserController` layered above it.
- */
 function appliedZoomKey({ defaultZoom, siteZoom }: Preferences): string {
   return JSON.stringify([defaultZoom, siteZoom]);
 }
@@ -143,6 +160,10 @@ function appliedViewKey(preferences: Preferences): string {
   return JSON.stringify(pageWebPreferences(preferences));
 }
 
+/**
+ * One browser window: the shell UI in the window's own WebContents, and the
+ * page views managed by its `BrowserController` layered above it.
+ */
 export class TrailWindow {
   readonly window: BrowserWindow;
   readonly controller: BrowserController;
@@ -156,7 +177,6 @@ export class TrailWindow {
   private insets: ContentInsets | null = null;
   /** The light or dark the workspace editor is showing, while it's open. */
   private previewMode: WorkspaceMode | null = null;
-  private readonly persister: SessionPersister;
   /** An assistant beside the page, signed in like any other page. */
   private readonly aiPanel: AiPanel;
   private workspaceKey = '';
@@ -167,8 +187,6 @@ export class TrailWindow {
   private appliedView: string;
   /** The contents extensions were last told are in front. */
   private extensionContentsId: number | null = null;
-  /** Why the last save failed, until one succeeds again. */
-  private saveProblem: string | null = null;
   /** Reloads "You're offline" pages when the connection returns. */
   private readonly offline = new OfflineRetry({
     isOnline: () => net.isOnline(),
@@ -180,7 +198,7 @@ export class TrailWindow {
   constructor(private readonly options: TrailWindowOptions) {
     const url = shellUrl();
     const { store } = options;
-    const bounds = savedBounds(store);
+    const bounds = options.bounds ?? savedBounds(store);
     this.appliedZoom = appliedZoomKey(options.preferences.get());
     this.appliedView = appliedViewKey(options.preferences.get());
 
@@ -204,6 +222,9 @@ export class TrailWindow {
     });
 
     this.controller = new BrowserController({
+      trails: options.trails,
+      site: this.window,
+      focusWindow: () => this.window.focus(),
       createHost: createElectronPageHostFactory({
         window: this.window,
         session: session.fromPartition(WEB_PARTITION),
@@ -229,6 +250,8 @@ export class TrailWindow {
           ) === true,
         onContentsCreated: (contents) =>
           options.extensions?.addPage(contents, this.window),
+        onContentsMoved: (contents, window) =>
+          options.extensions?.movePage(contents, window as BrowserWindow),
         extensionMenuItems: (contents, params) =>
           options.extensions?.menuItems(contents, params) ?? [],
         openExternal: (contents, url) =>
@@ -249,7 +272,7 @@ export class TrailWindow {
         this.send(eventChannels.snapshot, snapshot);
         this.selectForExtensions(snapshot.activePageId);
         this.options.onSnapshot?.(snapshot);
-        this.persister.schedule();
+        options.saves.schedule();
         this.offline.update(snapshot);
         const key = JSON.stringify([
           snapshot.activeWorkspaceId,
@@ -300,32 +323,28 @@ export class TrailWindow {
       onNotice: (notice) => this.notify(notice),
     });
 
-    this.persister = new SessionPersister({
-      store,
-      exportSession: () => this.controller.exportSession(),
-      onError: (error) => {
-        console.error('Could not save the session', error);
-        this.saveProblem =
-          error instanceof Error ? error.message : String(error);
-        this.send(eventChannels.storage, this.storageStatus());
-      },
-      onSaved: () => {
-        if (this.saveProblem === null) return;
-        this.saveProblem = null;
-        this.send(eventChannels.storage, this.storageStatus());
-      },
-    });
     this.aiPanel = new AiPanel({
       window: this.window,
       session: session.fromPartition(WEB_PARTITION),
       openPage: (link) => this.controller.createPage({ input: link }),
       onState: (state) => this.send(eventChannels.aiPanel, state),
     });
-    const stored = this.safely(() => store.loadSession());
-    if (stored) {
-      this.controller.restoreSession(stored);
-      if (options.preferences.get().startup === 'new-page')
-        this.controller.startWithNewPage();
+    const joining = options.trails.loaded;
+    if (!joining) {
+      options.trails.loaded = true;
+      const stored = this.safely(() => store.loadSession());
+      if (stored) {
+        this.controller.restoreSession(stored);
+        if (options.preferences.get().startup === 'new-page')
+          this.controller.startWithNewPage();
+      }
+    }
+    if (options.show && 'pageId' in options.show) {
+      this.controller.activatePage(options.show.pageId);
+    } else if (options.show) {
+      this.controller.createPage({ url: options.show.url });
+    } else if (joining) {
+      this.controller.startWindow();
     }
 
     this.ipc = {
@@ -385,6 +404,13 @@ export class TrailWindow {
         'page:duplicate': ({ pageId }) => this.controller.duplicatePage(pageId),
         'page:move-to-workspace': ({ pageId, workspaceId }) =>
           this.controller.movePageToWorkspace(pageId, workspaceId),
+        'page:move-to-window': ({ pageId, windowId }) => {
+          if (windowId !== null) {
+            return this.controller.moveToWindow(pageId, windowId);
+          }
+          this.controller.stepAwayFrom(pageId);
+          options.openPageInNewWindow(pageId);
+        },
         'page:set-note': ({ pageId, note }) =>
           this.controller.setNote(pageId, note),
         'page:open-split': ({ pageId, otherId, side }) =>
@@ -579,8 +605,9 @@ export class TrailWindow {
           JSON.stringify(this.window.getNormalBounds()),
         ),
       );
-      this.persister.dispose();
+      options.saves.flush();
     });
+    this.window.on('focus', () => this.controller.becomeLead());
     this.window.on('closed', () => {
       nativeTheme.off('updated', syncBackground);
       this.offline.dispose();
@@ -625,16 +652,21 @@ export class TrailWindow {
     this.closeApproved = false;
     const active = this.controller.activePageId;
     if (active && this.controller.hasPage(active))
-      this.controller.activatePage(active);
+      this.controller.activatePage(active, { steal: false });
   }
 
   /** Writes any pending session changes now; false if that failed. */
   flush(): boolean {
-    return this.persister.flush();
+    return this.options.saves.flush();
   }
 
   storageStatus(): StorageStatus {
-    return { problem: this.saveProblem };
+    return { problem: this.options.saves.problem() };
+  }
+
+  /** Tells the shell whether saving works. */
+  sendStorage(): void {
+    this.send(eventChannels.storage, this.storageStatus());
   }
 
   /** Tells the shell the downloads list changed. */
@@ -688,7 +720,10 @@ export class TrailWindow {
 
   /** Tells extensions when a different page comes to the front. */
   private selectForExtensions(pageId: string | null): void {
-    const contents = pageId ? contentsForPage(pageId) : undefined;
+    const contents =
+      pageId && this.controller.holds(pageId)
+        ? contentsForPage(pageId)
+        : undefined;
     // A page that slept and woke up has new contents, so compare those.
     if (!contents || contents.id === this.extensionContentsId) return;
     // An asleep page has no contents to show; never hand over a closing one.

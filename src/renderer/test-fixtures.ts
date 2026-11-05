@@ -28,6 +28,7 @@ export function page(
     isUnresponsive: false,
     blockedPermissions: [],
     blockedPopups: [],
+    shownElsewhere: false,
     permissionRequest: null,
     ...overrides,
   };
@@ -49,6 +50,7 @@ export function sampleSnapshot(
     rootIds: ['a', 'e'],
     activePageId: 'a',
     split: null,
+    otherWindows: [],
     lastClosed: null,
     workspaces: [
       {

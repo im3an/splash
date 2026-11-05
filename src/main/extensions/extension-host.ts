@@ -14,6 +14,14 @@ import {
 import { ElectronChromeExtensions } from 'electron-chrome-extensions';
 import { allowExtensionPages, isPageUrl } from '../browser/url';
 
+/** The parts of the library's internals `movePage` has to reach. */
+interface ExtensionContext {
+  store: {
+    addWindow(window: BrowserWindow): void;
+    tabToWindow: WeakMap<WebContents, BrowserWindow>;
+  };
+}
+
 /** Extensions Splash ships with, by folder under `extensions/`. */
 const BUNDLED = ['ublock-origin'];
 
@@ -189,6 +197,18 @@ export class ExtensionHost {
     // The library watches each tab with a dozen listeners of its own.
     contents.setMaxListeners(Math.max(contents.getMaxListeners(), 30));
     this.extensions.addTab(contents, window);
+  }
+
+  /**
+   * A page moved to another window, so a toolbar popup opens over the right
+   * one. The library has no call for this: its `removeTab` runs our close-page
+   * hook, and adding the tab again doubles its listeners.
+   */
+  movePage(contents: WebContents, window: BrowserWindow): void {
+    const { store } = (this.extensions as unknown as { ctx: ExtensionContext })
+      .ctx;
+    store.addWindow(window);
+    store.tabToWindow.set(contents, window);
   }
 
   /** Tells extensions which page is in front. */

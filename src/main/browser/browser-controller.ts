@@ -43,16 +43,22 @@ interface Workspace {
   name: string;
   appearance: WorkspaceAppearance;
   tree: TrailTree;
+  createdAt: number;
+}
+
+/** What one window has open in a workspace. */
+interface WorkspaceView {
   activePageId: PageId | null;
   /** Two pages shown side by side whenever either one is active. */
   split: SplitView | null;
-  createdAt: number;
 }
 
 interface Page {
   workspaceId: WorkspaceId;
   /** `null` while the page has no live view: never loaded, or discarded. */
   host: PageHost | null;
+  /** The window its view belongs to; a view can only be in one. */
+  holder: BrowserController | null;
   state: PageRuntimeState;
   /** Saved back/forward list of a discarded page. */
   history: PageHistory | null;
@@ -95,6 +101,12 @@ export interface PageListing {
 
 export interface BrowserControllerOptions {
   createHost: PageHostFactory;
+  /** The trails this window shares with others; by default its own. */
+  trails?: SharedTrails;
+  /** Where this window's page views go, for a host moving here. */
+  site?: unknown;
+  /** Brings this window to the front, for a page sent to it. */
+  focusWindow?(): void;
   onSnapshot(snapshot: BrowserSnapshot): void;
   /** A page committed a navigation to a new document. */
   onVisit?(url: string): void;
@@ -161,16 +173,45 @@ const EMPTY_STATE: PageRuntimeState = {
 };
 
 /**
- * Owns the trails of one window: workspaces and their page trees, each
- * page's live state, which pages have a live Chromium view, and which one is
- * on screen. Electron-specific work is delegated to `PageHost`s so this
+ * What every window shares: the workspaces and their pages, each page's live
+ * state, and what can be reopened. Each window's `BrowserController` keeps its
+ * own view of them.
+ */
+export class SharedTrails {
+  readonly workspaces = new Map<WorkspaceId, Workspace>();
+  workspaceOrder: WorkspaceId[] = [];
+  readonly pages = new Map<PageId, Page>();
+  readonly closingIds = new Set<PageId>();
+  closed: ClosedRecord[] = [];
+  closedSerial = 0;
+  maxLiveViews = DEFAULT_MAX_LIVE_VIEWS;
+  /** Whether the saved session has been read; only the first window does. */
+  loaded = false;
+  readonly viewers = new Set<BrowserController>();
+  /**
+   * The window saved as where you were: the last one focused, and the last
+   * one open once they have all closed.
+   */
+  lead: BrowserController | null = null;
+}
+
+let nextViewerId = 1;
+
+/**
+ * One window's view of the trails: which page it has open in each workspace,
+ * its split views, what it has collapsed, and which pages' Chromium views are
+ * on screen here. Electron-specific work is delegated to `PageHost`s so this
  * class can be tested in plain Node.
+ *
+ * A view can only be in one window. A page opened in a second window moves
+ * there, and the first shows that it's elsewhere until it moves back.
  */
 export class BrowserController {
-  private readonly workspaces = new Map<WorkspaceId, Workspace>();
-  private workspaceOrder: WorkspaceId[] = [];
+  private readonly trails: SharedTrails;
+  readonly viewerId = String(nextViewerId++);
   private activeWorkspaceId: WorkspaceId;
-  private readonly pages = new Map<PageId, Page>();
+  private readonly views = new Map<WorkspaceId, WorkspaceView>();
+  private readonly collapsedIds = new Set<PageId>();
   /** Pages whose views are on screen: the active one, or a split's two. */
   private visibleIds = new Set<PageId>();
   private bounds: Rectangle | null = null;
@@ -184,32 +225,92 @@ export class BrowserController {
   private focusWhenRevealed = false;
   private flushPending = false;
   private disposed = false;
-  private readonly closingIds = new Set<PageId>();
-  private closed: ClosedRecord[] = [];
-  private closedSerial = 0;
 
   private readonly schedule: (flush: () => void) => void;
   private readonly createId: () => string;
   private readonly now: () => number;
-  private maxLiveViews: number;
 
   constructor(private readonly options: BrowserControllerOptions) {
     this.schedule = options.schedule ?? queueMicrotask;
     this.createId = options.createId ?? randomUUID;
     this.now = options.now ?? Date.now;
-    this.maxLiveViews = Math.max(
-      1,
-      options.maxLiveViews ?? DEFAULT_MAX_LIVE_VIEWS,
-    );
-    this.activeWorkspaceId = this.addWorkspace(DEFAULT_WORKSPACE_NAME).id;
+    this.trails = options.trails ?? new SharedTrails();
+    if (options.maxLiveViews !== undefined) {
+      this.trails.maxLiveViews = Math.max(1, options.maxLiveViews);
+    }
+    // A new window starts from where the last one is.
+    const from = this.trails.lead;
+    if (from) {
+      this.activeWorkspaceId = from.activeWorkspaceId;
+      for (const [id, view] of from.views) this.views.set(id, { ...view });
+      for (const id of from.collapsedIds) this.collapsedIds.add(id);
+    } else {
+      this.activeWorkspaceId = this.addWorkspace(DEFAULT_WORKSPACE_NAME).id;
+    }
+    this.trails.viewers.add(this);
+    this.trails.lead = this;
+  }
+
+  private get workspaces() {
+    return this.trails.workspaces;
+  }
+  private get workspaceOrder() {
+    return this.trails.workspaceOrder;
+  }
+  private set workspaceOrder(order: WorkspaceId[]) {
+    this.trails.workspaceOrder = order;
+  }
+  private get pages() {
+    return this.trails.pages;
+  }
+  private get closingIds() {
+    return this.trails.closingIds;
+  }
+  private get closed() {
+    return this.trails.closed;
+  }
+  private set closed(records: ClosedRecord[]) {
+    this.trails.closed = records;
+  }
+  private get closedSerial() {
+    return this.trails.closedSerial;
+  }
+  private set closedSerial(serial: number) {
+    this.trails.closedSerial = serial;
+  }
+  private get maxLiveViews() {
+    return this.trails.maxLiveViews;
+  }
+  private set maxLiveViews(count: number) {
+    this.trails.maxLiveViews = count;
   }
 
   get activePageId(): PageId | null {
-    return this.workspace.activePageId;
+    return this.viewOf(this.workspace).activePageId;
   }
 
   hasPage(id: PageId): boolean {
     return this.pages.has(id);
+  }
+
+  /** Whether this page's live view belongs to this window. */
+  holds(id: PageId): boolean {
+    const page = this.pages.get(id);
+    return page?.host != null && page.holder === this;
+  }
+
+  /** The window saved as where you were. */
+  becomeLead(): void {
+    this.trails.lead = this;
+  }
+
+  /**
+   * How a window starts: one opened beside others gets an empty page of its
+   * own, and the first after all were closed goes back to where they were.
+   */
+  startWindow(): void {
+    if (this.trails.viewers.size > 1) this.startWithNewPage();
+    else this.switchWorkspace(this.activeWorkspaceId);
   }
 
   get currentWorkspaceId(): WorkspaceId {
@@ -246,11 +347,12 @@ export class BrowserController {
     // the left keeps its place while you follow links.
     const split = this.visibleSplit(workspace);
     if (activate && split && parentId !== null && inSplit(split, parentId)) {
-      workspace.split = { leftId: split.leftId, rightId: id };
+      this.viewOf(workspace).split = { leftId: split.leftId, rightId: id };
     }
 
-    if (activate || workspace.activePageId === null) this.activatePage(id);
-    else {
+    if (activate || this.viewOf(workspace).activePageId === null) {
+      this.activatePage(id);
+    } else {
       this.enforceLiveBudget();
       this.changed();
     }
@@ -271,7 +373,8 @@ export class BrowserController {
         node?.parentId === null &&
         node.childIds.length === 0 &&
         page?.state.url === null &&
-        !page.history?.entries.length
+        !page.history?.entries.length &&
+        !this.wantedByPeer(id)
       );
     });
     if (empty === undefined) return this.createPage();
@@ -279,20 +382,28 @@ export class BrowserController {
     return empty;
   }
 
-  /** Shows a page, switching to its workspace if needed. */
-  activatePage(id: PageId): void {
+  /**
+   * Shows a page, switching to its workspace if needed. The page comes here
+   * from any window showing it, unless `steal` says the user didn't ask for
+   * this page in particular: then that window keeps it.
+   */
+  activatePage(id: PageId, { steal = true }: { steal?: boolean } = {}): void {
     const page = this.require(id);
     const workspace = this.requireWorkspace(page.workspaceId);
     this.activeWorkspaceId = workspace.id;
-    workspace.activePageId = id;
+    this.viewOf(workspace).activePageId = id;
     page.lastActiveAt = this.now();
     const parentId = workspace.tree.get(id)?.parentId ?? null;
     if (parentId !== null) this.require(parentId).lastVisitedChildId = id;
-    workspace.tree.reveal(id);
+    this.reveal(workspace, id);
     this.ensureLive(id);
+    this.claim(id, steal);
     const split = this.visibleSplit(workspace);
-    if (split)
-      this.ensureLive(split.leftId === id ? split.rightId : split.leftId);
+    if (split) {
+      const partner = split.leftId === id ? split.rightId : split.leftId;
+      this.ensureLive(partner);
+      this.claim(partner, steal);
+    }
     this.syncVisibleHost();
     this.enforceLiveBudget();
     this.changed();
@@ -313,7 +424,7 @@ export class BrowserController {
     if (
       page.pinned &&
       !unpin &&
-      workspace.activePageId === id &&
+      this.viewOf(workspace).activePageId === id &&
       workspace.tree.successorOf(id) === null
     )
       return this.keepPinned(id);
@@ -325,13 +436,12 @@ export class BrowserController {
     const workspace = this.workspaceOf(id);
     const { tree } = workspace;
     this.remember(workspace, [id], [...(tree.get(id)?.childIds ?? [])]);
-    const successor =
-      workspace.activePageId === id
-        ? tree.successorOf(id)
-        : workspace.activePageId;
+    const heir = tree.successorOf(id);
+    const { activePageId } = this.viewOf(workspace);
+    const successor = activePageId === id ? heir : activePageId;
     tree.remove(id);
     this.release(id);
-    this.afterRemoval(workspace, successor);
+    this.afterRemoval(workspace, successor, heir);
   }
 
   /** Closes a page together with every page beneath it, like `closePage`. */
@@ -352,14 +462,13 @@ export class BrowserController {
     const { tree } = workspace;
     const branch = tree.branch(id);
     this.remember(workspace, branch, []);
-    const active = workspace.activePageId;
+    const active = this.viewOf(workspace).activePageId;
+    const heir = tree.branchSuccessorOf(id);
     const successor =
-      active !== null && branch.includes(active)
-        ? tree.branchSuccessorOf(id)
-        : active;
+      active !== null && branch.includes(active) ? heir : active;
     tree.removeBranch(id);
     for (const pageId of branch) this.release(pageId);
-    this.afterRemoval(workspace, successor);
+    this.afterRemoval(workspace, successor, heir);
   }
 
   /**
@@ -433,7 +542,7 @@ export class BrowserController {
           ? closed.parentId
           : null;
       tree.add(closed.id, parentId, closed.index);
-      tree.setCollapsed(closed.id, closed.collapsed);
+      if (closed.collapsed) this.collapsedIds.add(closed.id);
       this.pages.set(closed.id, {
         ...this.newPage(workspace.id),
         customTitle: closed.customTitle,
@@ -466,12 +575,13 @@ export class BrowserController {
       return root.id;
     }
     const remembered = record.workspace?.activePageId ?? null;
-    workspace.activePageId =
+    const view = this.viewOf(workspace);
+    view.activePageId =
       remembered !== null && tree.has(remembered)
         ? remembered
         : (tree.rootIds[0] ?? null);
     this.switchWorkspace(workspace.id);
-    return workspace.activePageId;
+    return view.activePageId;
   }
 
   /** What can be reopened, most recently closed first. */
@@ -508,7 +618,7 @@ export class BrowserController {
       index = position + 1;
     }
     tree.move(id, parentId, index);
-    if (parentId !== null) tree.setCollapsed(parentId, false);
+    if (parentId !== null) this.collapsedIds.delete(parentId);
     this.changed();
   }
 
@@ -584,7 +694,7 @@ export class BrowserController {
       throw new Error('A split view needs two pages of one workspace');
     }
     const left = side ? side === 'left' : workspace.tree.isWithin(otherId, id);
-    workspace.split = left
+    this.viewOf(workspace).split = left
       ? { leftId: id, rightId: otherId }
       : { leftId: otherId, rightId: id };
     this.activatePage(id);
@@ -596,7 +706,8 @@ export class BrowserController {
    */
   toggleSplit(id: PageId): void {
     const workspace = this.workspaceOf(id);
-    if (workspace.split && inSplit(workspace.split, id)) {
+    const { split } = this.viewOf(workspace);
+    if (split && inSplit(split, id)) {
       this.closeSplit(workspace.id);
       return;
     }
@@ -606,9 +717,9 @@ export class BrowserController {
 
   /** Ends a workspace's split view; its active page stays on screen. */
   closeSplit(workspaceId: WorkspaceId = this.activeWorkspaceId): void {
-    const workspace = this.requireWorkspace(workspaceId);
-    if (!workspace.split) return;
-    workspace.split = null;
+    const view = this.viewOf(this.requireWorkspace(workspaceId));
+    if (!view.split) return;
+    view.split = null;
     this.syncVisibleHost();
     this.enforceLiveBudget();
     this.changed();
@@ -634,6 +745,8 @@ export class BrowserController {
 
   navigate(id: PageId, input: string): void {
     this.require(id);
+    // Typing an address here means here, whichever window has the page.
+    if (id === this.activePageId) this.claim(id, true);
     const url = this.resolve(input);
     this.load(id, url, { plainAddress: typedPlainAddress(input, url) });
   }
@@ -732,7 +845,9 @@ export class BrowserController {
   }
 
   setCollapsed(id: PageId, collapsed: boolean): void {
-    this.workspaceOf(id).tree.setCollapsed(id, collapsed);
+    this.require(id);
+    if (collapsed) this.collapsedIds.add(id);
+    else this.collapsedIds.delete(id);
     this.changed();
   }
 
@@ -763,7 +878,7 @@ export class BrowserController {
     this.cancelPermissionRequests(page);
     page.host.destroy();
     page.host = null;
-    if (this.fullscreenId === id) this.fullscreenId = null;
+    this.forgetView(id);
     page.state = {
       ...page.state,
       isLoading: false,
@@ -771,7 +886,6 @@ export class BrowserController {
       isUnresponsive: false,
       find: null,
     };
-    this.visibleIds.delete(id);
     this.changed();
   }
 
@@ -863,7 +977,8 @@ export class BrowserController {
    */
   rebuildViews(): void {
     for (const [id, page] of this.pages) {
-      if (!page.host || page.state.error || page.host.isAudible()) continue;
+      if (!this.holds(id) || !page.host || page.state.error) continue;
+      if (page.host.isAudible()) continue;
       const onScreen = this.visibleIds.has(id) || id === this.activePageId;
       this.discard(id);
       if (onScreen) this.ensureLive(id);
@@ -906,6 +1021,7 @@ export class BrowserController {
     let asleep = 0;
     for (const [id, page] of this.pages) {
       if (page.host) {
+        if (!this.holds(id)) continue;
         live.push({
           id,
           title: nameOf(page.customTitle, page.state),
@@ -982,8 +1098,10 @@ export class BrowserController {
   switchWorkspace(id: WorkspaceId): void {
     const workspace = this.requireWorkspace(id);
     this.activeWorkspaceId = id;
-    if (workspace.activePageId !== null) {
-      this.activatePage(workspace.activePageId);
+    const view = this.viewOf(workspace);
+    view.activePageId ??= workspace.tree.rootIds[0] ?? null;
+    if (view.activePageId !== null) {
+      this.activatePage(view.activePageId, { steal: false });
     } else {
       this.syncVisibleHost();
       this.changed();
@@ -1015,19 +1133,23 @@ export class BrowserController {
       name: workspace.name,
       appearance: workspace.appearance,
       createdAt: workspace.createdAt,
-      activePageId: workspace.activePageId,
+      activePageId: this.viewOf(workspace).activePageId,
       index,
     });
     for (const pageId of pageIds) this.release(pageId);
     this.workspaces.delete(id);
     this.workspaceOrder = this.workspaceOrder.filter((other) => other !== id);
-    if (this.activeWorkspaceId === id) {
-      const next =
-        this.workspaceOrder[Math.min(index, this.workspaceOrder.length - 1)]!;
-      this.switchWorkspace(next);
-    } else {
-      this.changed();
-    }
+    const next =
+      this.workspaceOrder[Math.min(index, this.workspaceOrder.length - 1)]!;
+    // Every window leaves it first, so none is ever asked to show it.
+    const leaving = [...this.trails.viewers].filter((viewer) => {
+      viewer.views.delete(id);
+      if (viewer.activeWorkspaceId !== id) return false;
+      viewer.activeWorkspaceId = next;
+      return true;
+    });
+    for (const viewer of leaving) viewer.switchWorkspace(next);
+    if (leaving.length === 0) this.changed();
   }
 
   /** Moves a workspace to `index` in the workspace list. */
@@ -1053,7 +1175,7 @@ export class BrowserController {
       workspaceId: source.id,
       parentId: node.parentId,
       index: source.tree.indexOf(id),
-      wasActive: source.activePageId === id,
+      wasActive: this.viewOf(source).activePageId === id,
     };
     const page = this.require(id);
     const pageCount = this.transferBranch(id, target, null);
@@ -1083,7 +1205,7 @@ export class BrowserController {
     }
     if (!origin.wasActive) return;
     if (target.id === this.activeWorkspaceId) this.activatePage(id);
-    else target.activePageId = id;
+    else this.viewOf(target).activePageId = id;
   }
 
   /** Moves a branch into another workspace; returns how many pages moved. */
@@ -1097,18 +1219,20 @@ export class BrowserController {
     const branch = source.tree.branch(id);
     const structure = branch.map((pageId) => {
       const node = source.tree.get(pageId)!;
-      return { pageId, parentId: node.parentId, collapsed: node.collapsed };
+      return { pageId, parentId: node.parentId };
     });
-    const active = source.activePageId;
+    const active = this.viewOf(source).activePageId;
+    const heir = source.tree.branchSuccessorOf(id);
     const successor =
-      active !== null && branch.includes(active)
-        ? source.tree.branchSuccessorOf(id)
-        : active;
-    if (
-      source.split &&
-      branch.some((pageId) => inSplit(source.split!, pageId))
-    ) {
-      source.split = null;
+      active !== null && branch.includes(active) ? heir : active;
+    for (const viewer of this.trails.viewers) {
+      const view = viewer.views.get(source.id);
+      if (
+        view?.split &&
+        branch.some((pageId) => inSplit(view.split!, pageId))
+      ) {
+        view.split = null;
+      }
     }
     source.tree.removeBranch(id);
     for (const node of structure) {
@@ -1118,11 +1242,11 @@ export class BrowserController {
         isRoot ? parentId : node.parentId,
         isRoot ? index : undefined,
       );
-      target.tree.setCollapsed(node.pageId, node.collapsed);
       this.require(node.pageId).workspaceId = target.id;
     }
-    if (target.activePageId === null) target.activePageId = id;
-    this.afterRemoval(source, successor);
+    const targetView = this.viewOf(target);
+    targetView.activePageId ??= id;
+    this.afterRemoval(source, successor, heir);
     return branch.length;
   }
 
@@ -1146,7 +1270,7 @@ export class BrowserController {
           customTitle: page.customTitle,
           note: page.note,
           pinned: page.pinned,
-          collapsed: node.collapsed,
+          collapsed: this.collapsedIds.has(id),
           history: page.host?.captureHistory() ?? page.history,
           createdAt: page.createdAt,
           lastActiveAt: page.lastActiveAt,
@@ -1160,8 +1284,8 @@ export class BrowserController {
           id,
           name: workspace.name,
           appearance: workspace.appearance,
-          activePageId: workspace.activePageId,
-          split: workspace.split,
+          activePageId: this.viewOf(workspace).activePageId,
+          split: this.viewOf(workspace).split,
           createdAt: workspace.createdAt,
         };
       }),
@@ -1180,6 +1304,8 @@ export class BrowserController {
     for (const pageId of this.pages.keys()) this.release(pageId);
     this.workspaces.clear();
     this.workspaceOrder = [];
+    this.views.clear();
+    this.collapsedIds.clear();
 
     for (const stored of session.workspaces) {
       const workspace = this.addWorkspace(stored.name, stored.id);
@@ -1194,7 +1320,7 @@ export class BrowserController {
           ? stored.parentId
           : null;
       workspace.tree.add(stored.id, parentId);
-      workspace.tree.setCollapsed(stored.id, stored.collapsed);
+      if (stored.collapsed) this.collapsedIds.add(stored.id);
       this.pages.set(stored.id, {
         ...this.newPage(workspace.id),
         state: {
@@ -1215,18 +1341,21 @@ export class BrowserController {
     }
     for (const stored of session.workspaces) {
       const workspace = this.workspaces.get(stored.id)!;
-      workspace.activePageId =
-        stored.activePageId !== null && workspace.tree.has(stored.activePageId)
-          ? stored.activePageId
-          : (workspace.tree.rootIds[0] ?? null);
       const split = stored.split ?? null;
-      workspace.split =
-        split &&
-        split.leftId !== split.rightId &&
-        workspace.tree.has(split.leftId) &&
-        workspace.tree.has(split.rightId)
-          ? split
-          : null;
+      this.views.set(stored.id, {
+        activePageId:
+          stored.activePageId !== null &&
+          workspace.tree.has(stored.activePageId)
+            ? stored.activePageId
+            : (workspace.tree.rootIds[0] ?? null),
+        split:
+          split &&
+          split.leftId !== split.rightId &&
+          workspace.tree.has(split.leftId) &&
+          workspace.tree.has(split.rightId)
+            ? split
+            : null,
+      });
     }
     this.closed = [...(session.closed ?? [])].slice(-MAX_CLOSED_RECORDS);
     this.closedSerial = Math.max(
@@ -1252,10 +1381,11 @@ export class BrowserController {
         id,
         parentId: node.parentId,
         childIds: [...node.childIds],
-        collapsed: node.collapsed,
+        collapsed: this.collapsedIds.has(id),
         ...page.state,
         ...this.trailNavigation(id),
         isDiscarded: page.host === null && page.state.url !== null,
+        shownElsewhere: this.shownElsewhere(id),
         customTitle: page.customTitle,
         note: page.note,
         isPinned: page.pinned,
@@ -1264,11 +1394,15 @@ export class BrowserController {
         permissionRequest: page.permissionQueue[0]?.request ?? null,
       };
     }
+    const { activePageId, split } = this.viewOf(workspace);
     return {
       pages,
       rootIds: [...workspace.tree.rootIds],
-      activePageId: workspace.activePageId,
-      split: workspace.split && { ...workspace.split },
+      activePageId,
+      split: split && { ...split },
+      otherWindows: [...this.trails.viewers]
+        .filter((viewer) => viewer !== this)
+        .map((viewer) => ({ id: viewer.viewerId, title: viewer.title() })),
       lastClosed: this.closed.at(-1)?.summary ?? null,
       workspaces: this.workspaceOrder.map((id) => {
         const other = this.requireWorkspace(id);
@@ -1285,7 +1419,9 @@ export class BrowserController {
 
   /** Also used before closing a window or quitting; leaves trail records intact. */
   async prepareWindowClose(): Promise<boolean> {
-    return this.prepareClose([...this.pages.keys()]);
+    return this.prepareClose(
+      [...this.pages.keys()].filter((id) => this.holds(id)),
+    );
   }
 
   private guardRemoval(
@@ -1317,7 +1453,7 @@ export class BrowserController {
           page.history = history ?? page.history;
           page.host = null;
           host.destroy();
-          this.visibleIds.delete(id);
+          this.forgetView(id);
           page.state = {
             ...page.state,
             isLoading: false,
@@ -1335,18 +1471,182 @@ export class BrowserController {
       // from captured Chromium state if they were visible before cancellation.
       if (!allowed && !this.disposed) {
         const active = this.activePageId;
-        if (active && this.pages.has(active)) this.activatePage(active);
+        if (active && this.pages.has(active)) {
+          this.activatePage(active, { steal: false });
+        }
         this.syncVisibleHost();
       }
       this.changed();
     }
   }
 
+  /**
+   * The window has closed. Its pages stay in the trails, asleep, and any that
+   * another window has open wake up there.
+   */
   dispose(): void {
     this.disposed = true;
-    for (const page of this.pages.values()) page.host?.destroy();
-    this.pages.clear();
+    const { trails } = this;
+    trails.viewers.delete(this);
+    for (const page of this.pages.values()) {
+      if (page.holder !== this || !page.host) continue;
+      try {
+        page.history = page.host.captureHistory() ?? page.history;
+      } catch {
+        // The window took the contents with it; the last save has the history.
+      }
+      this.cancelPermissionRequests(page);
+      page.host.destroy();
+      page.host = null;
+      page.state = {
+        ...page.state,
+        isLoading: false,
+        isAudible: false,
+        isUnresponsive: false,
+        find: null,
+      };
+    }
     this.visibleIds.clear();
+    if (trails.lead === this) {
+      trails.lead = trails.viewers.values().next().value ?? this;
+    }
+    for (const viewer of trails.viewers) viewer.wakeWanted();
+  }
+
+  // ── Windows ────────────────────────────────────────────────────────────
+
+  /**
+   * Hands a page to another window and brings that window forward. This one
+   * goes on to the next page.
+   */
+  moveToWindow(id: PageId, viewerId: string): void {
+    const viewer = [...this.trails.viewers].find(
+      (other) => other.viewerId === viewerId,
+    );
+    if (!viewer || viewer === this) return;
+    this.stepAwayFrom(id);
+    viewer.activatePage(id);
+    viewer.options.focusWindow?.();
+  }
+
+  /** Stops showing a page that's leaving for another window. */
+  stepAwayFrom(id: PageId): void {
+    const workspace = this.workspaceOf(id);
+    const view = this.viewOf(workspace);
+    if (view.split && inSplit(view.split, id)) view.split = null;
+    if (view.activePageId !== id) return this.changed();
+    const next =
+      workspace.tree.branchSuccessorOf(id) ?? workspace.tree.successorOf(id);
+    if (next !== null) this.activatePage(next, { steal: false });
+    else this.createPage();
+  }
+
+  /** What this window is showing, to tell it from the others. */
+  private title(): string {
+    const id = this.activePageId;
+    const page = id === null ? undefined : this.pages.get(id);
+    return page ? nameOf(page.customTitle, page.state) : 'New page';
+  }
+
+  /** The pages this window means to show, whichever window has them now. */
+  private wantedIds(): PageId[] {
+    const workspace = this.workspaces.get(this.activeWorkspaceId);
+    if (!workspace) return [];
+    const { activePageId } = this.viewOf(workspace);
+    if (activePageId === null) return [];
+    const split = this.visibleSplit(workspace);
+    return split ? [split.leftId, split.rightId] : [activePageId];
+  }
+
+  private wantedByPeer(id: PageId): boolean {
+    return [...this.trails.viewers].some(
+      (viewer) => viewer !== this && viewer.wantedIds().includes(id),
+    );
+  }
+
+  /** Whether another window is showing this page, so this one can't. */
+  private shownElsewhere(id: PageId): boolean {
+    const page = this.pages.get(id);
+    return (
+      page?.host != null &&
+      page.holder !== this &&
+      page.holder?.wantedIds().includes(id) === true
+    );
+  }
+
+  /**
+   * Moves a page's view here. Without `steal` it stays with a window that
+   * still wants it.
+   */
+  private claim(id: PageId, steal: boolean): void {
+    const page = this.require(id);
+    const holder = page.holder;
+    if (!page.host || holder === this) return;
+    if (!steal && holder?.wantedIds().includes(id)) return;
+    if (holder?.visibleIds.delete(id)) page.host.hide();
+    if (holder?.fullscreenId === id) holder.fullscreenId = null;
+    page.holder = this;
+    if (this.options.site !== undefined) page.host.moveTo(this.options.site);
+  }
+
+  /** Takes back what another window has stopped showing. */
+  private settle(): void {
+    if (this.trails.viewers.size < 2) return;
+    const workspace = this.workspace;
+    const view = this.viewOf(workspace);
+    const first = workspace.tree.rootIds[0];
+    if (view.activePageId === null && first !== undefined) {
+      return this.activatePage(first, { steal: false });
+    }
+    let moved = false;
+    for (const id of this.wantedIds()) {
+      if (this.pages.has(id) && !this.holds(id) && !this.shownElsewhere(id)) {
+        const before = this.pages.get(id)?.holder;
+        this.claim(id, false);
+        moved ||= this.pages.get(id)?.holder !== before;
+      }
+    }
+    if (!moved) return;
+    this.syncVisibleHost();
+    this.changed();
+  }
+
+  /** A window closed: wakes what this one had open and it was showing. */
+  private wakeWanted(): void {
+    for (const id of this.wantedIds()) {
+      if (!this.pages.has(id)) continue;
+      this.ensureLive(id);
+      this.claim(id, false);
+    }
+    this.syncVisibleHost();
+    this.changed();
+  }
+
+  /** Forgets that a view is on screen anywhere, as it's about to be gone. */
+  private forgetView(id: PageId): void {
+    for (const viewer of this.trails.viewers) {
+      viewer.visibleIds.delete(id);
+      if (viewer.fullscreenId === id) viewer.fullscreenId = null;
+    }
+  }
+
+  /** Expands every page above this one, in this window. */
+  private reveal(workspace: Workspace, id: PageId): void {
+    let parentId = workspace.tree.get(id)?.parentId ?? null;
+    while (parentId !== null) {
+      this.collapsedIds.delete(parentId);
+      parentId = workspace.tree.get(parentId)?.parentId ?? null;
+    }
+  }
+
+  /** What this window has open in a workspace; at first, its first page. */
+  private viewOf(workspace: Workspace): WorkspaceView {
+    let view = this.views.get(workspace.id);
+    if (!view) {
+      view = { activePageId: workspace.tree.rootIds[0] ?? null, split: null };
+      this.views.set(workspace.id, view);
+    }
+    return view;
   }
 
   // ── Internals ──────────────────────────────────────────────────────────
@@ -1369,8 +1669,6 @@ export class BrowserController {
       name,
       appearance: DEFAULT_APPEARANCE,
       tree: new TrailTree(),
-      activePageId: null,
-      split: null,
       createdAt: this.now(),
     };
     this.workspaces.set(id, workspace);
@@ -1416,6 +1714,7 @@ export class BrowserController {
     return {
       workspaceId,
       host: null,
+      holder: null,
       state: { ...EMPTY_STATE },
       history: null,
       createdAt: now,
@@ -1452,7 +1751,7 @@ export class BrowserController {
         id,
         parentId: node?.parentId ?? null,
         index: workspace.tree.indexOf(id),
-        collapsed: node?.collapsed ?? false,
+        collapsed: this.collapsedIds.has(id),
         customTitle: page.customTitle,
         note: page.note,
         pinned: page.pinned,
@@ -1489,12 +1788,13 @@ export class BrowserController {
   private keepPinned(id: PageId): void {
     const workspace = this.workspaceOf(id);
     const page = this.require(id);
-    if (workspace.activePageId === id) {
+    if (this.viewOf(workspace).activePageId === id) {
       const neighbour =
         workspace.tree.branchSuccessorOf(id) ?? workspace.tree.successorOf(id);
-      if (neighbour !== null) this.activatePage(neighbour);
+      if (neighbour !== null) this.activatePage(neighbour, { steal: false });
     }
-    const asleep = workspace.activePageId !== id;
+    const asleep =
+      this.viewOf(workspace).activePageId !== id && !this.wantedByPeer(id);
     if (asleep) this.discard(id);
     this.options.onNotice?.({
       kind: 'kept-pinned',
@@ -1509,26 +1809,55 @@ export class BrowserController {
     const page = this.pages.get(id);
     if (page) {
       // A split view ends when either of its pages goes.
-      const workspace = this.workspaces.get(page.workspaceId);
-      if (workspace?.split && inSplit(workspace.split, id)) {
-        workspace.split = null;
+      for (const viewer of this.trails.viewers) {
+        const view = viewer.views.get(page.workspaceId);
+        if (view?.split && inSplit(view.split, id)) view.split = null;
+        viewer.collapsedIds.delete(id);
       }
     }
-    this.visibleIds.delete(id);
+    this.forgetView(id);
     this.pages.delete(id);
-    if (this.fullscreenId === id) this.fullscreenId = null;
     if (page) this.cancelPermissionRequests(page);
     page?.host?.destroy();
   }
 
-  private afterRemoval(workspace: Workspace, successor: PageId | null): void {
-    workspace.activePageId =
+  /**
+   * Pages left a workspace. `successor` is what this window goes on to, and
+   * `heir` is what a window that was showing one of them goes on to.
+   */
+  private afterRemoval(
+    workspace: Workspace,
+    successor: PageId | null,
+    heir: PageId | null = successor,
+  ): void {
+    const view = this.viewOf(workspace);
+    view.activePageId =
       successor !== null && this.pages.has(successor) ? successor : null;
-    if (workspace.id === this.activeWorkspaceId && workspace.activePageId) {
-      this.activatePage(workspace.activePageId);
+    for (const viewer of this.trails.viewers) {
+      if (viewer !== this) viewer.followRemoval(workspace, heir);
+    }
+    if (workspace.id === this.activeWorkspaceId && view.activePageId) {
+      this.activatePage(view.activePageId, { steal: false });
     } else {
       this.syncVisibleHost();
       this.changed();
+    }
+  }
+
+  /** Another window removed pages: moves on if this one was showing one. */
+  private followRemoval(workspace: Workspace, heir: PageId | null): void {
+    const view = this.views.get(workspace.id);
+    if (!view) return;
+    const { activePageId } = view;
+    if (activePageId !== null && workspace.tree.has(activePageId)) return;
+    view.activePageId =
+      heir !== null && workspace.tree.has(heir)
+        ? heir
+        : (workspace.tree.rootIds[0] ?? null);
+    if (workspace.id === this.activeWorkspaceId && view.activePageId) {
+      this.activatePage(view.activePageId, { steal: false });
+    } else {
+      this.syncVisibleHost();
     }
   }
 
@@ -1547,14 +1876,16 @@ export class BrowserController {
   private spawnHost(id: PageId): PageHost {
     // Events from a host that has since been discarded or closed are stale.
     const isCurrent = () => this.pages.get(id)?.host === host;
+    // The page may have moved since: what it does belongs to its window now.
+    const at = (): BrowserController => this.pages.get(id)?.holder ?? this;
     const host: PageHost = this.options.createHost({
       pageId: id,
       onStateChange: (patch) => {
-        if (isCurrent()) this.updateState(id, patch);
+        if (isCurrent()) at().updateState(id, patch);
       },
       onOpenRequest: (url, { background }) => {
         if (isCurrent()) {
-          this.createPage({ url, parentId: id, activate: !background });
+          at().createPage({ url, parentId: id, activate: !background });
         }
       },
       onZoomChange: (percent) => {
@@ -1583,31 +1914,33 @@ export class BrowserController {
         this.changed();
       },
       onBranchRequest: (url, referrer) => {
-        if (isCurrent()) this.createPage({ url, parentId: id, referrer });
+        if (isCurrent()) at().createPage({ url, parentId: id, referrer });
       },
       onNavigationCommand: (command) => {
         if (!isCurrent()) return;
-        if (command === 'back') this.goBack(id);
-        else if (command === 'forward') this.goForward(id);
-        else this.reload(id);
+        if (command === 'back') at().goBack(id);
+        else if (command === 'forward') at().goForward(id);
+        else at().reload(id);
       },
       navigationAvailability: () => this.trailNavigation(id),
       onFocus: () => {
         // Clicking into the other side of a split view makes it active.
+        const viewer = at();
         if (
           isCurrent() &&
-          this.activePageId !== id &&
-          this.visibleIds.has(id)
+          viewer.activePageId !== id &&
+          viewer.visibleIds.has(id)
         ) {
-          this.activatePage(id);
+          viewer.activatePage(id);
         }
       },
-      onNotice: (notice) => this.options.onNotice?.(notice),
+      onNotice: (notice) => at().options.onNotice?.(notice),
       onFullscreenChange: (active) => {
         if (!isCurrent()) return;
-        if (active) this.fullscreenId = id;
-        else if (this.fullscreenId === id) this.fullscreenId = null;
-        this.syncVisibleHost();
+        const viewer = at();
+        if (active) viewer.fullscreenId = id;
+        else if (viewer.fullscreenId === id) viewer.fullscreenId = null;
+        viewer.syncVisibleHost();
       },
       onPermissionRequest: (origin, permissions, opens) => {
         const page = this.pages.get(id);
@@ -1636,6 +1969,7 @@ export class BrowserController {
         this.changed();
       },
     });
+    this.require(id).holder = this;
     return host;
   }
 
@@ -1686,11 +2020,13 @@ export class BrowserController {
     const live = [...this.pages.entries()].filter(([, page]) => page.host);
     let excess = live.length - this.maxLiveViews;
     if (excess <= 0) return;
-    const activeId = this.activePageId;
+    const wanted = new Set(
+      [...this.trails.viewers].flatMap((viewer) => viewer.wantedIds()),
+    );
     const candidates = live
       .filter(
         ([id, page]) =>
-          id !== activeId &&
+          !wanted.has(id) &&
           !this.visibleIds.has(id) &&
           !page.host?.isAudible() &&
           !page.state.hasFormEdits,
@@ -1755,6 +2091,7 @@ export class BrowserController {
       const page = this.pages.get(id);
       const showable =
         page?.host != null &&
+        page.holder === this &&
         page.state.url !== null &&
         page.state.error === null;
       if (!showable) placements.delete(id);
@@ -1787,7 +2124,7 @@ export class BrowserController {
       for (const id of ids) {
         rows.push(id);
         const node = tree.get(id);
-        if (node && !node.collapsed) visit(node.childIds);
+        if (node && !this.collapsedIds.has(id)) visit(node.childIds);
       }
     };
     visit(tree.rootIds);
@@ -1796,18 +2133,25 @@ export class BrowserController {
 
   /** The workspace's split view, if it is on screen. */
   private visibleSplit(workspace: Workspace): SplitView | null {
-    const { split, activePageId } = workspace;
+    const { split, activePageId } = this.viewOf(workspace);
     return split && activePageId !== null && inSplit(split, activePageId)
       ? split
       : null;
   }
 
+  /** Every window redraws: they all show the same trails. */
   private changed(): void {
+    for (const viewer of this.trails.viewers) viewer.queueSnapshot();
+  }
+
+  private queueSnapshot(): void {
     if (this.flushPending || this.disposed) return;
     this.flushPending = true;
     this.schedule(() => {
       this.flushPending = false;
-      if (!this.disposed) this.options.onSnapshot(this.snapshot());
+      if (this.disposed) return;
+      this.settle();
+      this.options.onSnapshot(this.snapshot());
     });
   }
 

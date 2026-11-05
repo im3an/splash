@@ -1,6 +1,6 @@
 import type { Rectangle } from 'electron';
 import type { BrowserSnapshot, Notice } from '../../shared/types';
-import { BrowserController } from './browser-controller';
+import { BrowserController, SharedTrails } from './browser-controller';
 import type {
   LoadOptions,
   PageHistory,
@@ -79,6 +79,10 @@ class FakeHost implements PageHost {
   }
   hide() {
     this.visible = false;
+  }
+  site: unknown = null;
+  moveTo(site: unknown) {
+    this.site = site;
   }
   focus() {
     this.calls.push('focus');
@@ -1744,4 +1748,187 @@ it('opens a restored child with its destination before publishing it as active',
   expect(latest().activePageId).toBe(child);
   expect(latest().pages[child]?.url).toBe('https://www.wikipedia.org/');
   expect(hosts.at(-1)?.loaded).toEqual(['https://www.wikipedia.org/']);
+});
+
+describe('shared trails', () => {
+  /** Two windows on one set of trails. Ids and hosts are shared too. */
+  function twoWindows() {
+    const trails = new SharedTrails();
+    const hosts: FakeHost[] = [];
+    let next = 0;
+    const open = (site: string) => {
+      const snapshots: BrowserSnapshot[] = [];
+      const focus = vi.fn();
+      const controller = new BrowserController({
+        trails,
+        site,
+        focusWindow: focus,
+        createHost: (events) => {
+          const host = new FakeHost(events);
+          hosts.push(host);
+          return host;
+        },
+        onSnapshot: (snapshot) => snapshots.push(snapshot),
+        schedule: (flush) => flush(),
+        createId: () => `page-${++next}`,
+      });
+      controller.setContentBounds(BOUNDS);
+      return { controller, latest: () => snapshots.at(-1)!, focus };
+    };
+    const a = open('a');
+    const pageA = a.controller.createPage({ url: 'https://a.com/' });
+    const pageB = a.controller.createPage({ url: 'https://b.com/' });
+    const b = open('b');
+    return { trails, a, b, pageA, pageB, hosts, open };
+  }
+
+  it('shows every window the same pages', () => {
+    const { a, b } = twoWindows();
+    const page = b.controller.createPage({ url: 'https://c.com/' });
+    expect(a.latest().pages[page]?.url).toBe('https://c.com/');
+    expect(b.latest().pages[page]?.url).toBe('https://c.com/');
+    a.controller.renamePage(page, 'Mine');
+    expect(b.latest().pages[page]?.customTitle).toBe('Mine');
+    expect(a.latest().otherWindows).toEqual([
+      { id: b.controller.viewerId, title: 'Mine' },
+    ]);
+  });
+
+  it('gives each window its own open page', () => {
+    const { a, b, pageA, pageB } = twoWindows();
+    b.controller.activatePage(pageA);
+    expect(a.controller.activePageId).toBe(pageB);
+    expect(b.controller.activePageId).toBe(pageA);
+  });
+
+  it('gives each window its own expanded and collapsed pages', () => {
+    const { a, b, pageB } = twoWindows();
+    a.controller.createChildPage(pageB);
+    b.controller.setCollapsed(pageB, true);
+    expect(b.latest().pages[pageB]?.collapsed).toBe(true);
+    expect(a.latest().pages[pageB]?.collapsed).toBe(false);
+  });
+
+  it('moves a page to the window that opens it', () => {
+    const { a, b, pageB, hosts } = twoWindows();
+    const host = hosts[1]!;
+    expect(host.visible).toBe(true);
+    b.controller.activatePage(pageB);
+    expect(host.site).toBe('b');
+    expect(host.visible).toBe(true);
+    expect(a.controller.holds(pageB)).toBe(false);
+    expect(b.controller.holds(pageB)).toBe(true);
+    expect(a.controller.activePageId).toBe(pageB);
+    expect(a.latest().pages[pageB]?.shownElsewhere).toBe(true);
+    expect(b.latest().pages[pageB]?.shownElsewhere).toBe(false);
+  });
+
+  it('gets a page back once the other window moves on', () => {
+    const { a, b, pageA, pageB, hosts } = twoWindows();
+    b.controller.activatePage(pageB);
+    b.controller.activatePage(pageA);
+    expect(hosts[1]!.site).toBe('a');
+    expect(a.controller.holds(pageB)).toBe(true);
+    expect(hosts[1]!.visible).toBe(true);
+    expect(a.latest().pages[pageB]?.shownElsewhere).toBe(false);
+  });
+
+  it('leaves a page where it is when switching workspaces', () => {
+    const { a, b, pageB } = twoWindows();
+    const first = a.controller.currentWorkspaceId;
+    const other = a.controller.createWorkspace('Other');
+    a.controller.switchWorkspace(first);
+    b.controller.switchWorkspace(other);
+    b.controller.switchWorkspace(first);
+    expect(a.controller.holds(pageB)).toBe(true);
+    expect(b.latest().pages[pageB]?.shownElsewhere).toBe(true);
+  });
+
+  it('moves every window on when a page they show closes', () => {
+    const { a, b, pageA, pageB } = twoWindows();
+    b.controller.activatePage(pageB);
+    a.controller.closePage(pageB);
+    expect(a.controller.activePageId).toBe(pageA);
+    expect(b.controller.activePageId).toBe(pageA);
+  });
+
+  it('moves a window off a workspace another one deletes', () => {
+    const { a, b } = twoWindows();
+    const other = a.controller.createWorkspace('Other');
+    b.controller.switchWorkspace(other);
+    a.controller.deleteWorkspace(other);
+    expect(b.controller.currentWorkspaceId).not.toBe(other);
+  });
+
+  it('reports what a moved page does to the window it moved to', () => {
+    const { a, b, pageB, hosts } = twoWindows();
+    b.controller.activatePage(pageB);
+    hosts[1]!.events.onOpenRequest('https://c.com/', { background: false });
+    expect(b.controller.activePageId).not.toBe(pageB);
+    expect(a.controller.activePageId).toBe(pageB);
+  });
+
+  it('sends a page to another window, and goes on to the next here', () => {
+    const { a, b, pageA, pageB } = twoWindows();
+    a.controller.moveToWindow(pageB, b.controller.viewerId);
+    expect(b.controller.activePageId).toBe(pageB);
+    expect(b.controller.holds(pageB)).toBe(true);
+    expect(a.controller.activePageId).toBe(pageA);
+    expect(b.focus).toHaveBeenCalled();
+  });
+
+  it('opens a new window with its own empty page, reusing a free one', () => {
+    const { b, open, pageB } = twoWindows();
+    b.controller.startWindow();
+    const empty = b.controller.activePageId!;
+    expect(empty).not.toBe(pageB);
+    const third = open('c');
+    third.controller.startWindow();
+    expect(third.controller.activePageId).not.toBe(empty);
+  });
+
+  it('keeps the pages of a closed window, asleep, and wakes what others show', () => {
+    const { a, b, pageA, pageB, hosts } = twoWindows();
+    a.controller.dispose();
+    expect(hosts[1]!.destroyed).toBe(true);
+    expect(b.controller.hasPage(pageA)).toBe(true);
+    expect(b.latest().pages[pageA]?.url).toBe('https://a.com/');
+    // The second window was showing the page the first had open.
+    expect(b.controller.activePageId).toBe(pageB);
+    expect(b.controller.holds(pageB)).toBe(true);
+    expect(hosts.at(-1)!.visible).toBe(true);
+  });
+
+  it('comes back to where it was after every window closed', () => {
+    const { trails, a, b, pageB, open } = twoWindows();
+    a.controller.dispose();
+    b.controller.dispose();
+    expect(trails.viewers.size).toBe(0);
+    const again = open('c');
+    again.controller.startWindow();
+    expect(again.controller.activePageId).toBe(pageB);
+    expect(again.controller.holds(pageB)).toBe(true);
+  });
+
+  it('saves the window you were last in', () => {
+    const { a, b, pageA } = twoWindows();
+    b.controller.activatePage(pageA);
+    expect(b.controller.exportSession().workspaces[0]?.activePageId).toBe(
+      pageA,
+    );
+    a.controller.becomeLead();
+    expect(a.controller).toBe(
+      (a.controller as unknown as { trails: SharedTrails }).trails.lead,
+    );
+  });
+
+  it('counts live views across windows', () => {
+    const { a, b, trails } = twoWindows();
+    trails.maxLiveViews = 2;
+    b.controller.createPage({ url: 'https://c.com/' });
+    expect(
+      a.controller.taskPages().live.length +
+        b.controller.taskPages().live.length,
+    ).toBeLessThanOrEqual(2);
+  });
 });

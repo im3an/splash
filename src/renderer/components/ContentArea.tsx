@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CircleAlert, PanelLeft, PanelRight, Plus, Search } from 'lucide-react';
+import {
+  AppWindow,
+  CircleAlert,
+  PanelLeft,
+  PanelRight,
+  Plus,
+  Search,
+} from 'lucide-react';
 import type { ContentInsets, PageId, PageSnapshot } from '../../shared/types';
 import { useContentInsets } from '../hooks/use-content-insets';
 import { describeError, pageLabel, pageParts } from '../lib/format';
@@ -233,10 +240,32 @@ function Surface() {
 
 /** What the shell shows for a page whose own view can't cover its area. */
 function PageSurface({ page }: { page: PageSnapshot }) {
+  if (page.shownElsewhere) return <ShownElsewhere page={page} />;
   if (page.error) return <PageFailed page={page} />;
   if (page.url === null) return <NewPage />;
   // The page's own view covers this area.
   return null;
+}
+
+/** A view can only be in one window: this page is in another right now. */
+function ShownElsewhere({ page }: { page: PageSnapshot }) {
+  return (
+    <PageState
+      lead={<AppWindow size={20} className="text-fg-subtle" aria-hidden />}
+      title="Showing in another window"
+      detail={pageLabel(page)}
+    >
+      <PageStateActions>
+        <button
+          type="button"
+          onClick={() => void api().activatePage(page.id)}
+          className="button button-raised button-lg"
+        >
+          Show here
+        </button>
+      </PageStateActions>
+    </PageState>
+  );
 }
 
 function NoPages() {

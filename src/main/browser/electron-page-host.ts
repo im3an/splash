@@ -76,6 +76,8 @@ export interface PageHostEnvironment {
   plainHttpAllowed(url: string): boolean;
   /** A page's contents were created; extensions can now see it. */
   onContentsCreated?(contents: WebContents): void;
+  /** A page's contents now belong to another window. */
+  onContentsMoved?(contents: WebContents, window: BaseWindow): void;
   /** A page's link wants another app (mailto:, tel:): ask, then open it. */
   openExternal?(contents: WebContents, url: string): void;
   /** Extension items for a page's context menu, such as "Block element". */
@@ -138,7 +140,7 @@ class ElectronPageHost implements PageHost {
   private readonly view: WebContentsView;
   /** The view releases its getter on native close; retain the lifecycle object. */
   private readonly nativeContents: WebContents;
-  private readonly window: BaseWindow;
+  private window: BaseWindow;
   private readonly environment: PageHostEnvironment;
   private readonly links = new LinkActivations();
   private readonly gestures = new UserGestures();
@@ -252,6 +254,14 @@ class ElectronPageHost implements PageHost {
     if (!this.window.isDestroyed()) {
       this.window.contentView.removeChildView(this.view);
     }
+  }
+
+  moveTo(site: unknown): void {
+    const window = site as BaseWindow;
+    if (window === this.window) return;
+    this.hide();
+    this.window = window;
+    this.environment.onContentsMoved?.(this.contents, window);
   }
 
   focus(): void {

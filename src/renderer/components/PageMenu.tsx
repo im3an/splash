@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   Star,
   Share,
   ArrowLeft,
@@ -239,6 +240,23 @@ export function pageMenuEntries(
           />
         ),
         run: () => void splash.movePageToWorkspace(pageId, workspace.id),
+      })),
+    },
+    {
+      kind: 'action',
+      label: 'Move to New Window',
+      icon: <AppWindow {...ICON} />,
+      run: () => void splash.movePageToWindow(pageId, null),
+    },
+    snapshot.otherWindows.length > 0 && {
+      kind: 'submenu',
+      label: 'Move to Window',
+      icon: <AppWindow {...ICON} />,
+      entries: snapshot.otherWindows.map((other) => ({
+        kind: 'action',
+        label: other.title,
+        icon: <AppWindow {...ICON} />,
+        run: () => void splash.movePageToWindow(pageId, other.id),
       })),
     },
     { kind: 'separator' },

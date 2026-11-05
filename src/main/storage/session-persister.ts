@@ -3,6 +3,8 @@ import type { StoredSession, TrailStore } from './trail-store';
 export interface SessionPersisterOptions {
   store: TrailStore;
   exportSession(): StoredSession;
+  /** Nothing can change right now, so the regular save can sleep. */
+  isIdle?(): boolean;
   /** Quiet period after the last change before writing. */
   delayMs?: number;
   /** Saves happen at least this often, to keep scroll positions current. */
@@ -24,6 +26,7 @@ export class SessionPersister {
 
   constructor(private readonly options: SessionPersisterOptions) {
     this.interval = setInterval(() => {
+      if (options.isIdle?.()) return;
       this.dirty = true;
       this.flush();
     }, options.intervalMs ?? 30_000);

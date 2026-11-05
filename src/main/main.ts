@@ -37,9 +37,11 @@ import {
 import { SchemaTooNewError } from './storage/migrations';
 import { openTrailStore, SqliteTrailStore } from './storage/sqlite-trail-store';
 import type { TrailStore } from './storage/trail-store';
+import { SessionPersister } from './storage/session-persister';
 import { TrailWindow } from './windows/browser-window';
 import { registerShellScheme, serveShell } from './windows/shell-url';
 import { ExtensionHost } from './extensions/extension-host';
+import { SharedTrails } from './browser/browser-controller';
 import { contentsForPage, pageHandleFor } from './browser/electron-page-host';
 import { PreferencesService } from './preferences';
 import type { DownloadManager } from './downloads/download-manager';
@@ -53,6 +55,9 @@ const qaProfile = app.isPackaged ? undefined : process.env.SPLASH_USER_DATA_DIR;
 if (qaProfile && path.isAbsolute(qaProfile)) app.setPath('userData', qaProfile);
 
 const windows = new Set<TrailWindow>();
+const trails = new SharedTrails();
+let persister: SessionPersister;
+let saveProblem: string | null = null;
 let store: TrailStore;
 let preferences: PreferencesService;
 let downloads: DownloadManager;
@@ -191,7 +196,8 @@ function listTasks(): TaskList {
   let asleep = 0;
   for (const trailWindow of windows) {
     const { live, asleep: sleeping } = trailWindow.controller.taskPages();
-    asleep += sleeping;
+    // Every window counts the same shared trails.
+    asleep = sleeping;
     for (const { id, ...page } of live) {
       const contents = contentsForPage(id);
       // A crashed page has no process, and no frames left to ask about.
@@ -228,8 +234,20 @@ function listTasks(): TaskList {
   );
 }
 
-function openWindow(): TrailWindow {
+function openWindow(show?: { pageId: string } | { url: string }): TrailWindow {
+  const beside = currentWindow()?.window.getNormalBounds();
   const trailWindow = new TrailWindow({
+    trails,
+    saves: {
+      schedule: () => persister.schedule(),
+      flush: () => persister.flush(),
+      problem: () => saveProblem,
+    },
+    ...(beside
+      ? { bounds: { ...beside, x: beside.x + 28, y: beside.y + 28 } }
+      : {}),
+    ...(show ? { show } : {}),
+    openPageInNewWindow: (pageId) => void openWindow({ pageId }),
     store,
     preferences,
     downloads,
@@ -260,7 +278,7 @@ function windowOfContents(
   const pageId = pageHandleFor(contents)?.pageId;
   if (!pageId) return null;
   for (const trailWindow of windows) {
-    if (trailWindow.controller.snapshot().pages[pageId]) {
+    if (trailWindow.controller.holds(pageId)) {
       return { trailWindow, pageId };
     }
   }
@@ -294,11 +312,7 @@ function createExtensionHost(): ExtensionHost {
       const found = windowOfContents(contents);
       found?.trailWindow.controller.closePage(found.pageId);
     },
-    openWindow: (url) => {
-      const trailWindow = openWindow();
-      if (url) trailWindow.controller.createPage({ url });
-      return trailWindow.window;
-    },
+    openWindow: (url) => openWindow(url ? { url } : undefined).window,
   });
 }
 
@@ -369,6 +383,21 @@ if (!app.requestSingleInstanceLock()) {
     });
     const startup = openStartupStore();
     store = startup.store;
+    persister = new SessionPersister({
+      store,
+      exportSession: () => trails.lead!.exportSession(),
+      isIdle: () => windows.size === 0,
+      onError: (error) => {
+        console.error('Could not save the session', error);
+        saveProblem = error instanceof Error ? error.message : String(error);
+        for (const trailWindow of windows) trailWindow.sendStorage();
+      },
+      onSaved: () => {
+        if (saveProblem === null) return;
+        saveProblem = null;
+        for (const trailWindow of windows) trailWindow.sendStorage();
+      },
+    });
     // Before any window restores its pages, which may include opened files.
     keepOpenedFiles(store);
     configureAppSession(session.defaultSession);
@@ -416,6 +445,7 @@ if (!app.requestSingleInstanceLock()) {
       clearCache: () => webSession.clearCache(),
       clearDownloadList: () => downloads.clearFinished(),
       forgetClosedPages: () => {
+        if (windows.size === 0) trails.lead?.forgetClosed();
         for (const trailWindow of windows)
           trailWindow.controller.forgetClosed();
         // A file that's no longer on any page leaves no trace of its path.
@@ -504,7 +534,10 @@ if (!app.requestSingleInstanceLock()) {
       });
   });
 
-  app.on('will-quit', () => store?.close());
+  app.on('will-quit', () => {
+    persister?.dispose();
+    store?.close();
+  });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

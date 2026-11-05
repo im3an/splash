@@ -158,6 +158,11 @@ export function installApplicationMenu(actions: MenuActions): void {
           },
         },
         {
+          label: 'New Window',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => actions.openWindow(),
+        },
+        {
           label: 'New Child Page',
           accelerator: 'Alt+CmdOrCtrl+T',
           click: withActivePage((w, id) => {

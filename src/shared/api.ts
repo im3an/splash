@@ -64,6 +64,7 @@ export interface InvokeOutputs {
   'app:open-settings': void;
   'page:duplicate': PageId;
   'page:move-to-workspace': void;
+  'page:move-to-window': void;
   'page:open-split': void;
   'page:toggle-split': void;
   'split:close': void;
@@ -171,6 +172,8 @@ export interface SplashApi {
   duplicatePage(pageId: PageId): Promise<PageId>;
   /** Moves a page with its branch to the end of another workspace. */
   movePageToWorkspace(pageId: PageId, workspaceId: WorkspaceId): Promise<void>;
+  /** Shows a page in another window, or in a new one when `windowId` is `null`. */
+  movePageToWindow(pageId: PageId, windowId: string | null): Promise<void>;
   setNote(pageId: PageId, note: string | null): Promise<void>;
   /**
    * Shows `pageId` beside `otherId` and makes it active: on `side` when
