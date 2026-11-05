@@ -86,6 +86,9 @@ class FakeHost implements PageHost {
   toggleDevTools() {
     this.calls.push('devtools');
   }
+  applySiteZoom() {
+    this.calls.push('apply-zoom');
+  }
   destroy() {
     this.destroyed = true;
     this.visible = false;
@@ -98,6 +101,7 @@ function setup(
   options: {
     maxLiveViews?: number;
     idPrefix?: string;
+    defaultZoom?: () => number;
     allowPlainHttp?: (url: string) => void;
   } = {},
 ) {
@@ -170,6 +174,202 @@ describe('BrowserController', () => {
       url: 'https://b.com/',
     });
     expect(snapshot.activePageId).toBe(childId);
+  });
+
+  it('reloads a crashed page in place, keeping its history', () => {
+    const { controller, hosts, latest } = setup();
+    const id = controller.createPage({ input: 'a.com' });
+    hosts[0]!.events.onStateChange({
+      error: {
+        kind: 'crashed',
+        code: 5,
+        description: 'crashed',
+        url: 'https://a.com/',
+      },
+    });
+    expect(hosts[0]!.visible).toBe(false);
+    controller.reload(id);
+    expect(hosts[0]!.calls).toContain('reload');
+    expect(hosts[0]!.loaded).toEqual(['https://a.com/']);
+    expect(hosts[0]!.visible).toBe(true);
+    expect(latest().pages[id]!.error).toBeNull();
+  });
+
+  describe('HTTPS-only mode', () => {
+    const failure = (kind: 'no-secure-connection' | 'load-failed') => ({
+      error: {
+        kind,
+        code: -102,
+        description: 'ERR_CONNECTION_REFUSED',
+        url: 'http://a.com/',
+      },
+    });
+
+    it('tells the page a typed host may fall back, but not a typed https://', () => {
+      const { controller, hosts } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      controller.navigate(id, 'https://b.com/');
+      controller.navigate(id, 'c.com');
+      expect(hosts[0]!.plainAddresses).toEqual([
+        'http://a.com/',
+        undefined,
+        'http://c.com/',
+      ]);
+    });
+
+    it('does not treat a link as typed', () => {
+      const { controller, hosts } = setup();
+      controller.createPage({ url: 'https://a.com/' });
+      expect(hosts[0]!.plainAddresses).toEqual([undefined]);
+    });
+
+    it('continues over HTTP only from the warning, and remembers the site', () => {
+      const allowPlainHttp = vi.fn();
+      const { controller, hosts, latest } = setup({ allowPlainHttp });
+      const id = controller.createPage({ url: 'http://a.com/' });
+
+      controller.continueOverHttp(id);
+      expect(allowPlainHttp).not.toHaveBeenCalled();
+      hosts[0]!.events.onStateChange(failure('load-failed'));
+      controller.continueOverHttp(id);
+      expect(allowPlainHttp).not.toHaveBeenCalled();
+
+      hosts[0]!.events.onStateChange(failure('no-secure-connection'));
+      controller.continueOverHttp(id);
+      expect(allowPlainHttp).toHaveBeenCalledWith('http://a.com/');
+      expect(hosts[0]!.loaded.at(-1)).toBe('http://a.com/');
+      expect(latest().pages[id]!.error).toBeNull();
+    });
+
+    it('tries the plain address again, so the upgrade runs again', () => {
+      const { controller, hosts } = setup();
+      const id = controller.createPage({ url: 'http://a.com/' });
+      hosts[0]!.events.onStateChange(failure('no-secure-connection'));
+      controller.reload(id);
+      expect(hosts[0]!.loaded).toEqual(['http://a.com/', 'http://a.com/']);
+    });
+  });
+
+  describe('zoom', () => {
+    it('resets to the default zoom', () => {
+      const { controller, hosts } = setup({ defaultZoom: () => 125 });
+      const id = controller.createPage({ input: 'a.com' });
+      controller.zoom(id, 'reset');
+      expect(hosts[0]!.zoomPercent).toBe(125);
+    });
+
+    it('shows a zoom on every page of the site, and only there', () => {
+      const { controller, hosts, latest } = setup();
+      const a = controller.createPage({ input: 'a.com' });
+      const sibling = controller.createPage({ input: 'a.com/other' });
+      const other = controller.createPage({ input: 'b.com' });
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+      hosts[1]!.events.onStateChange({ url: 'https://a.com/other' });
+      hosts[2]!.events.onStateChange({ url: 'https://b.com/' });
+      hosts[0]!.events.onZoomChange(150);
+      expect(latest().pages[a]!.zoomPercent).toBe(150);
+      expect(latest().pages[sibling]!.zoomPercent).toBe(150);
+      expect(latest().pages[other]!.zoomPercent).toBe(100);
+    });
+
+    it('asks awake pages to apply changed settings', () => {
+      const { controller, hosts } = setup();
+      controller.createPage({ input: 'a.com' });
+      controller.applyZoomSettings();
+      expect(hosts[0]!.calls).toContain('apply-zoom');
+    });
+  });
+
+  describe('rebuilding views for new display settings', () => {
+    it('brings pages on screen straight back and puts others to sleep', () => {
+      const { controller, hosts, latest } = setup();
+      const hidden = controller.createPage({ input: 'a.com' });
+      const shown = controller.createPage({ input: 'b.com' });
+      controller.rebuildViews();
+      expect(hosts[0]!.destroyed).toBe(true);
+      expect(hosts[1]!.destroyed).toBe(true);
+      expect(latest().pages[hidden]!.isDiscarded).toBe(true);
+      expect(latest().pages[shown]!.isDiscarded).toBe(false);
+      expect(hosts[2]!.restored?.entries[0]?.url).toBe('https://b.com/');
+      expect(hosts[2]!.visible).toBe(true);
+    });
+
+    it('leaves alone a page being typed in or playing sound', () => {
+      const { controller, hosts } = setup();
+      controller.createPage({ input: 'a.com' });
+      controller.createPage({ input: 'b.com' });
+      hosts[0]!.events.onStateChange({ hasFormEdits: true });
+      hosts[1]!.audible = true;
+      controller.rebuildViews();
+      expect(hosts[0]!.destroyed).toBe(false);
+      expect(hosts[1]!.destroyed).toBe(false);
+    });
+  });
+
+  describe('blocked popups', () => {
+    it('lists them on the page, each once, and shows them as blocked', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      hosts[0]!.events.onPopupBlocked('https://ads.com/');
+      hosts[0]!.events.onPopupBlocked('https://ads.com/');
+      hosts[0]!.events.onPopupBlocked(null);
+      expect(latest().pages[id]).toMatchObject({
+        blockedPopups: ['https://ads.com/'],
+        blockedPermissions: ['popups'],
+      });
+      expect(latest().pages[id]!.childIds).toEqual([]);
+    });
+
+    it('stops listing a page that keeps trying', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      for (let i = 0; i < 50; i++) {
+        hosts[0]!.events.onPopupBlocked(`https://ads.com/${i}`);
+      }
+      expect(latest().pages[id]!.blockedPopups).toHaveLength(20);
+    });
+
+    it('opens one on request as a child, and forgets it', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      hosts[0]!.events.onPopupBlocked('https://ads.com/');
+      controller.openBlockedPopup(id, 'https://ads.com/');
+      const page = latest().pages[id]!;
+      expect(page.blockedPopups).toEqual([]);
+      expect(page.blockedPermissions).toEqual([]);
+      expect(latest().pages[page.childIds[0]!]!.url).toBe('https://ads.com/');
+    });
+
+    it('opens only what the page actually tried to open', () => {
+      const { controller, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      controller.openBlockedPopup(id, 'https://elsewhere.com/');
+      expect(latest().pages[id]!.childIds).toEqual([]);
+    });
+
+    it('starts each document with a clean slate', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+      hosts[0]!.events.onPopupBlocked('https://ads.com/');
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/#section' });
+      expect(latest().pages[id]!.blockedPopups).toHaveLength(1);
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/other' });
+      expect(latest().pages[id]!.blockedPopups).toEqual([]);
+      expect(latest().pages[id]!.blockedPermissions).toEqual([]);
+    });
+
+    it('stops saying blocked once the site is allowed, keeping the list', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+      hosts[0]!.events.onPopupBlocked('https://ads.com/');
+      controller.clearBlockedPopups('https://a.com');
+      expect(latest().pages[id]).toMatchObject({
+        blockedPermissions: [],
+        blockedPopups: ['https://ads.com/'],
+      });
+    });
   });
 
   it('keeps background children inactive', () => {

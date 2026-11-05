@@ -1,5 +1,6 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
 import {
+  Activity,
   ArrowLeft,
   ArrowRight,
   Columns2,
@@ -71,6 +72,7 @@ const COMMAND_ICONS: Record<PaletteCommand, LucideIcon> = {
   'zoom-reset': Scaling,
   'show-downloads': Download,
   'show-history': History,
+  'show-tasks': Activity,
   'open-settings': Settings,
   'go-back': ArrowLeft,
   'go-forward': ArrowRight,

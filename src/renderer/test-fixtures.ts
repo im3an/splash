@@ -27,6 +27,7 @@ export function page(
     find: null,
     isUnresponsive: false,
     blockedPermissions: [],
+    blockedPopups: [],
     permissionRequest: null,
     ...overrides,
   };

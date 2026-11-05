@@ -4,7 +4,12 @@ import {
   TOOLBAR_ACTIONS,
   DEFAULT_PREFERENCES,
   AWAKE_PAGE_CHOICES,
+  DEFAULT_ZOOM_CHOICES,
+  FONT_SIZE_CHOICES,
+  MINIMUM_FONT_SIZE_CHOICES,
+  MONOSPACE_FONTS,
   SEARCH_ENGINES,
+  STANDARD_FONTS,
   type Preferences,
 } from '../../shared/preferences';
 import type {
@@ -12,8 +17,6 @@ import type {
   ClearRange,
   ContentBlockingStatus,
   DefaultBrowserStatus,
-  PermissionDecision,
-  SitePermission,
   SiteSettings,
 } from '../../shared/types';
 import { Brand } from '../components/Brand';
@@ -21,7 +24,7 @@ import { toolbarLabels } from '../components/ToolbarActions';
 import { WorkspaceIcon } from '../components/WorkspaceIcon';
 import { api } from '../splash-api';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
-import { filterListsSummary } from '../lib/format';
+import { filterListsSummary, siteDecisionOptions } from '../lib/format';
 import { Button, Choice, Row, Section, Toggle } from './controls';
 
 function usePreferences(): [
@@ -335,21 +338,12 @@ export function WorkspaceSettings() {
   );
 }
 
-const DECISIONS: { value: PermissionDecision; label: string }[] = [
-  { value: 'allow', label: 'Allow' },
-  { value: 'ask', label: 'Ask' },
-  { value: 'block', label: 'Block' },
-];
-
 const RANGES: { value: ClearRange; label: string }[] = [
   { value: 'hour', label: 'Last hour' },
   { value: 'day', label: 'Last 24 hours' },
   { value: 'week', label: 'Last 7 days' },
   { value: 'all', label: 'All time' },
 ];
-
-/** Decided by Splash itself, so a site never asks for them. */
-const NEVER_ASKED = new Set<SitePermission>(['sound', 'ads', 'insecure']);
 
 function ContentBlockingSettings() {
   const [preferences, update] = usePreferences();
@@ -416,6 +410,121 @@ function ContentBlockingSettings() {
         </Button>
       </Row>
     </Section>
+  );
+}
+
+const SELECT = 'h-7 rounded-control bg-field px-2 text-small text-fg';
+
+/** Zoom and fonts: how sites are shown, not how Splash is. */
+export function PageSettings() {
+  const [preferences, update] = usePreferences();
+  if (!preferences) return null;
+  const zoomed = Object.entries(preferences.siteZoom).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  const forget = (host: string) => {
+    const { [host]: _removed, ...siteZoom } = preferences.siteZoom;
+    update({ siteZoom });
+  };
+  return (
+    <>
+      <Section title="Zoom">
+        <Row
+          label="Default zoom"
+          help="For sites you haven’t zoomed yourself. Zooming a site with ⌘+ or ⌘− is remembered for that site."
+        >
+          <select
+            aria-label="Default zoom"
+            value={preferences.defaultZoom}
+            onChange={(event) =>
+              update({ defaultZoom: Number(event.target.value) })
+            }
+            className={SELECT}
+          >
+            {DEFAULT_ZOOM_CHOICES.map((percent) => (
+              <option key={percent} value={percent}>
+                {percent}%
+              </option>
+            ))}
+          </select>
+        </Row>
+        {zoomed.map(([host, percent]) => (
+          <Row key={host} label={host} help={`${percent}%`}>
+            <Button onClick={() => forget(host)}>Reset</Button>
+          </Row>
+        ))}
+      </Section>
+      <Section
+        title="Fonts"
+        description="For text a site doesn’t style itself. Open pages reload to apply a change."
+      >
+        <Row label="Font">
+          <select
+            aria-label="Font"
+            value={preferences.standardFont}
+            onChange={(event) => update({ standardFont: event.target.value })}
+            className={SELECT}
+          >
+            <option value="">Default</option>
+            {STANDARD_FONTS.map((font) => (
+              <option key={font} value={font}>
+                {font}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <Row label="Font size">
+          <select
+            aria-label="Font size"
+            value={preferences.defaultFontSize}
+            onChange={(event) =>
+              update({ defaultFontSize: Number(event.target.value) })
+            }
+            className={SELECT}
+          >
+            {FONT_SIZE_CHOICES.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <Row label="Fixed-width font">
+          <select
+            aria-label="Fixed-width font"
+            value={preferences.monospaceFont}
+            onChange={(event) => update({ monospaceFont: event.target.value })}
+            className={SELECT}
+          >
+            <option value="">Default</option>
+            {MONOSPACE_FONTS.map((font) => (
+              <option key={font} value={font}>
+                {font}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <Row
+          label="Minimum font size"
+          help="No text is drawn smaller than this, even where a site asks for it."
+        >
+          <select
+            aria-label="Minimum font size"
+            value={preferences.minimumFontSize}
+            onChange={(event) =>
+              update({ minimumFontSize: Number(event.target.value) })
+            }
+            className={SELECT}
+          >
+            {MINIMUM_FONT_SIZE_CHOICES.map((size) => (
+              <option key={size} value={size}>
+                {size === 0 ? 'None' : size}
+              </option>
+            ))}
+          </select>
+        </Row>
+      </Section>
+    </>
   );
 }
 
@@ -645,11 +754,7 @@ export function PrivacySettings() {
                         )
                         .then(loadSites)
                     }
-                    options={DECISIONS.filter(
-                      (option) =>
-                        !NEVER_ASKED.has(entry.permission) ||
-                        option.value !== 'ask',
-                    )}
+                    options={siteDecisionOptions(entry.permission)}
                   />
                 </div>
               ))}

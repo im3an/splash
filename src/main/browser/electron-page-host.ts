@@ -10,15 +10,19 @@ import {
   type Rectangle,
   type Session,
   type WebContents,
+  type WebPreferences,
 } from 'electron';
 import {
   BRANCH_LINK,
   FORM_EDITED,
+  FRAME_GESTURE,
   LINK_ACTIVATED,
+  LINK_DROPPED,
   NAVIGATION_BUTTON,
 } from '../../shared/page-bridge';
 import type { ExternalApp, Notice, SitePermission } from '../../shared/types';
 import { webContextMenu } from '../menus/web-context-menu';
+import { popupWindowOptions, wirePopupWindow } from '../windows/popup-window';
 import { isSameDocumentUrl, LinkActivations } from './link-activations';
 import type {
   LoadOptions,
@@ -37,6 +41,12 @@ import {
   mayOpenFromPage,
 } from './url';
 import { requestPageClose } from './close-page';
+import {
+  isBlankPopup,
+  isGestureInput,
+  judgePopup,
+  UserGestures,
+} from './popup-policy';
 import { stepZoom } from './zoom';
 import { SecureAttempt } from '../security/https-only';
 import { CONTENT_RADIUS } from '../../shared/geometry';
@@ -52,6 +62,14 @@ export interface PageHostEnvironment {
   preload: string;
   /** Whether the user turned sound off for a site. */
   isSoundBlocked(origin: string): boolean;
+  /** Settings that shape a page's view when it is created. */
+  webPreferences(): WebPreferences;
+  /** The zoom settings give a page at this address. */
+  zoomFor(url: string): number;
+  /** The user zoomed a page at this address. */
+  rememberZoom(url: string, percent: number): void;
+  /** The site's popup setting; `null` when the user hasn't chosen. */
+  popupsAllowed(origin: string): boolean | null;
   /** The HTTPS-only setting. */
   httpsOnly(): boolean;
   /** Whether the user already chose to use this plain HTTP address's site. */
@@ -123,6 +141,7 @@ class ElectronPageHost implements PageHost {
   private readonly window: BaseWindow;
   private readonly environment: PageHostEnvironment;
   private readonly links = new LinkActivations();
+  private readonly gestures = new UserGestures();
   private readonly secureAttempt = new SecureAttempt();
   /** The HTTPS address showing the warning, and the HTTP one it stands for. */
   private failedUpgrade: { secure: string; plain: string } | null = null;
@@ -140,6 +159,7 @@ class ElectronPageHost implements PageHost {
     this.environment = environment;
     this.view = new WebContentsView({
       webPreferences: {
+        ...environment.webPreferences(),
         session: environment.session,
         // Web content never gets Node.js. Its preload runs in an isolated
         // world and can only report link clicks.
@@ -283,6 +303,13 @@ class ElectronPageHost implements PageHost {
 
   setZoomPercent(percent: number): void {
     this.contents.setZoomFactor(percent / 100);
+    this.environment.rememberZoom(this.contents.getURL(), percent);
+    this.events.onZoomChange(percent);
+  }
+
+  applySiteZoom(): void {
+    const percent = this.environment.zoomFor(this.contents.getURL());
+    this.contents.setZoomFactor(percent / 100);
     this.events.onStateChange({ zoomPercent: percent });
   }
 
@@ -375,16 +402,61 @@ class ElectronPageHost implements PageHost {
   private wire(contents: WebContents): void {
     const emit = this.events.onStateChange;
 
-    contents.setWindowOpenHandler(({ url, disposition }) => {
+    contents.on('input-event', (_event, input) => {
+      if (isGestureInput(input.type)) this.gestures.record();
+    });
+    contents.setWindowOpenHandler(({ url, disposition, features }) => {
       if (isExternalAppUrl(url)) {
         this.environment.openExternal?.(contents, url);
-      } else if (mayOpenFromPage(url)) {
-        this.events.onOpenRequest(url, {
-          background: disposition === 'background-tab',
-        });
+        return { action: 'deny' };
       }
+      const blank = isBlankPopup(url);
+      if (!blank && !mayOpenFromPage(url)) return { action: 'deny' };
+      const origin = originOf(contents.getURL());
+      const verdict = judgePopup({
+        url,
+        disposition,
+        features,
+        gesture: this.gestures.consume(),
+        linkClick: this.links.take(url),
+        allowed: origin ? this.environment.popupsAllowed(origin) : null,
+      });
+      if (verdict === 'block') {
+        this.events.onPopupBlocked(blank ? null : url);
+        return { action: 'deny' };
+      }
+      if (verdict === 'window') {
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: popupWindowOptions(
+            this.window,
+            this.environment.session,
+          ),
+        };
+      }
+      this.events.onOpenRequest(url, {
+        background: disposition === 'background-tab',
+      });
       // The trail creates its own page instead of an Electron window.
       return { action: 'deny' };
+    });
+    contents.on('did-create-window', (popup) =>
+      wirePopupWindow(popup, (url) =>
+        this.events.onOpenRequest(url, { background: false }),
+      ),
+    );
+    // `input-event` above doesn't see clicks inside a frame from another site.
+    contents.ipc.on(FRAME_GESTURE, (event) => {
+      if (event.senderFrame?.parent) this.gestures.record();
+    });
+    contents.ipc.on(LINK_DROPPED, (_event, href: unknown) => {
+      if (
+        typeof href === 'string' &&
+        href.length <= MAX_URL_LENGTH &&
+        isNavigableUrl(href)
+      ) {
+        this.events.onOpenRequest(href, { background: false });
+      }
     });
 
     contents.ipc.on(FORM_EDITED, (event, edited: unknown) => {
@@ -531,13 +603,13 @@ class ElectronPageHost implements PageHost {
       if (leftSite && origin && this.environment.isSoundBlocked(origin)) {
         this.setMuted(true);
       }
+      this.applySiteZoom();
       emit({
         url,
         ...(this.sourceUrl
           ? { title: `Source · ${new URL(this.sourceUrl.slice(12)).host}` }
           : {}),
         ...this.navigationState(),
-        zoomPercent: Math.round(contents.getZoomFactor() * 100),
         find: null,
         // The previous site's icon must not linger on a different site.
         ...(leftSite ? { faviconUrl: null } : {}),

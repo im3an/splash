@@ -17,6 +17,7 @@ import type {
   PermissionDecision,
   SiteInfo,
   SitePermission,
+  TaskList,
   TrailPosition,
   UiCommand,
   WorkspaceAppearance,
@@ -77,12 +78,15 @@ export interface InvokeOutputs {
   'page:find': void;
   'page:stop-find': void;
   'page:respond-permission': void;
+  'page:open-blocked-popup': void;
   'site:get-info': SiteInfo | null;
   'site:set-permission': void;
   'site:reset': void;
   'view:freeze': Record<PageId, string>;
   'palette:query': PaletteItem[];
   'search:suggest': PaletteItem[];
+  'tasks:list': TaskList;
+  'tasks:end': void;
   'downloads:list': DownloadSummary[];
   'downloads:act': void;
   'downloads:clear': void;
@@ -200,6 +204,8 @@ export interface SplashApi {
     options: { forward: boolean; findNext: boolean },
   ): Promise<void>;
   stopFind(pageId: PageId): Promise<void>;
+  /** Opens a popup the page was stopped from opening, beneath that page. */
+  openBlockedPopup(pageId: PageId, url: string): Promise<void>;
   respondToPermission(
     pageId: PageId,
     requestId: string,
@@ -238,6 +244,10 @@ export interface SplashApi {
   onSnapshot(listener: (snapshot: BrowserSnapshot) => void): () => void;
   onUiCommand(listener: (command: UiCommand) => void): () => void;
   onNotice(listener: (notice: Notice) => void): () => void;
+  /** What's running, with its memory and processor use. */
+  listTasks(): Promise<TaskList>;
+  /** Ends a page's process; the page offers to reload. */
+  endTask(pageId: PageId): Promise<void>;
   listDownloads(): Promise<DownloadSummary[]>;
   actOnDownload(id: string, action: DownloadAction): Promise<void>;
   clearDownloads(): Promise<void>;

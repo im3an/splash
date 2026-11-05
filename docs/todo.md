@@ -67,18 +67,35 @@ Bookmarks
 
 Pages and windows
 
-- [ ] Popup handling: allow/block per site, indicator in the address bar **(check)**
-- [ ] Crashed-page screen: "This page stopped working" exists in the code and has
-      a unit test. Trigger a real crash once to see it.
-- [ ] Per-site zoom remembered, and a default zoom in Settings
-- [ ] Minimum font size and default font settings
-- [ ] Text encoding
-- [ ] Merge / move a page between windows
-- [ ] Task manager: memory and CPU per page, end an unresponsive page
+- [x] Popup handling. There was no blocker: any script could open pages. Now
+      only a click or key press opens one thing; Allow / On click / Block per
+      site in site settings; a shield in the address bar and a list of what was
+      blocked, each with Open. Sized popups are real windows that keep their
+      opener, so sign-in can report back; their title shows the real host.
+  - [ ] Try a real "Continue with Google" popup, and ⌘W in a popup, by hand
+- [x] Crashed-page screen: tested with real crashes. Says "crashed", "ran out of
+      memory" or "was stopped"; Reload keeps the back/forward list.
+- [x] Per-site zoom remembered, across restarts and every page of the site; a
+      default zoom and a list of zoomed sites in Settings › Pages
+- [x] Minimum font size and default fonts in Settings › Pages. They're fixed when
+      a view is created, so open pages reload, unless they hold typing or sound.
+- [x] Text encoding: nothing to build. Chromium detected undeclared Cyrillic
+      correctly whatever the default said, so the setting had no effect and was
+      removed. A page declaring the wrong charset can't be overridden: Electron
+      has no API for it.
+- [ ] Merge / move a page between windows. Needs shared trails first (see New
+      Window above and Phase F).
+- [x] Task manager: memory and CPU per process across all windows, End for a page
+      (⌘K "task manager", or View › Task Manager)
+  - [ ] End a truly hung page by hand (only tested on a responsive one)
 - [x] PDF viewing: web and local PDFs display in Chromium's viewer (tested)
-- [ ] Save as PDF from Print **(check)**
-- [ ] Drag a link, image or text into the sidebar or a page and out of it **(check)**
-- [ ] Always-on-top / picture-in-window option (low priority)
+- [ ] Save as PDF from Print **(check)**: needs the native dialog, by hand
+- [x] Drop a link on a page: opens as a child page, unless a site's drop zone or a
+      field takes it (tested with synthetic drags)
+  - [ ] Drop a link on the trail to open it. The Bookmarks work owns that hook
+        and files links for now; add it there.
+  - [ ] Real mouse drags: out of a page to another app, image and text, by hand
+- [x] Keep Window on Top, in the View menu, for this session (unit test only)
 
 Privacy and security
 

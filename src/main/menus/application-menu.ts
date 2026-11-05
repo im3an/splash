@@ -423,6 +423,11 @@ export function installApplicationMenu(actions: MenuActions): void {
         ...rowShortcuts,
         { type: 'separator' },
         {
+          label: 'Task Manager',
+          click: () =>
+            actions.currentWindow()?.sendUiCommand({ type: 'show-tasks' }),
+        },
+        {
           label: 'Downloads',
           accelerator: 'Alt+CmdOrCtrl+L',
           click: () =>
@@ -430,6 +435,13 @@ export function installApplicationMenu(actions: MenuActions): void {
         },
         { type: 'separator' },
         { role: 'togglefullscreen' },
+        {
+          label: 'Keep Window on Top',
+          type: 'checkbox',
+          checked: actions.currentWindow()?.window.isAlwaysOnTop() ?? false,
+          click: (item) =>
+            actions.currentWindow()?.window.setAlwaysOnTop(item.checked),
+        },
         { type: 'separator' },
         {
           label: 'View Page Source',

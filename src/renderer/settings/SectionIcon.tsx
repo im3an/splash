@@ -4,6 +4,7 @@ import {
   Keyboard,
   Layers,
   Paintbrush,
+  ScanText,
   Settings,
   SlidersHorizontal,
   type LucideIcon,
@@ -17,6 +18,7 @@ export type SectionIconName =
   | 'general'
   | 'appearance'
   | 'workspaces'
+  | 'pages'
   | 'privacy'
   | 'downloads'
   | 'shortcuts'
@@ -26,6 +28,7 @@ const ICONS: Record<SectionIconName, LucideIcon> = {
   general: SlidersHorizontal,
   appearance: Paintbrush,
   workspaces: Layers,
+  pages: ScanText,
   privacy: Hand,
   downloads: Download,
   shortcuts: Keyboard,

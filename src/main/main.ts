@@ -8,9 +8,12 @@ import {
   dialog,
   nativeTheme,
   session,
+  webContents,
   type WebContents,
 } from 'electron';
 import { eventChannels } from '../shared/api';
+import type { TaskList } from '../shared/types';
+import { buildTaskList, type LivePage } from './browser/task-list';
 import { keepOpenedFiles } from './browser/opened-files';
 import {
   allowLocalFile,
@@ -182,6 +185,49 @@ function refreshMenu(): void {
   });
 }
 
+/** What every window has running, as the task manager shows it. */
+function listTasks(): TaskList {
+  const pages: LivePage[] = [];
+  let asleep = 0;
+  for (const trailWindow of windows) {
+    const { live, asleep: sleeping } = trailWindow.controller.taskPages();
+    asleep += sleeping;
+    for (const { id, ...page } of live) {
+      const contents = contentsForPage(id);
+      // A crashed page has no process, and no frames left to ask about.
+      if (!contents || contents.isCrashed()) continue;
+      pages.push({
+        ...page,
+        pageId: id,
+        pid: contents.getOSProcessId(),
+        framePids: contents.mainFrame.framesInSubtree.map(
+          (frame) => frame.osProcessId,
+        ),
+      });
+    }
+  }
+  const extensionPages = webContents
+    .getAllWebContents()
+    .filter((contents) => contents.getURL().startsWith('chrome-extension://'));
+  return buildTaskList(
+    app.getAppMetrics().map((process) => ({
+      pid: process.pid,
+      cpuPercent: process.cpu.percentCPUUsage,
+      workingSetKb: process.memory.workingSetSize,
+    })),
+    pages,
+    extensionPages.map((contents) => {
+      const id = new URL(contents.getURL()).host;
+      return {
+        id,
+        name: contents.session.extensions.getExtension(id)?.name ?? 'Extension',
+        pid: contents.getOSProcessId(),
+      };
+    }),
+    asleep,
+  );
+}
+
 function openWindow(): TrailWindow {
   const trailWindow = new TrailWindow({
     store,
@@ -191,6 +237,7 @@ function openWindow(): TrailWindow {
     extensions,
     onWorkspacesChanged: refreshMenu,
     openSettings,
+    listTasks,
     onSnapshot: (snapshot) => settings?.send(eventChannels.snapshot, snapshot),
   });
   windows.add(trailWindow);

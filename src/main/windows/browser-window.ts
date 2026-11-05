@@ -22,6 +22,7 @@ import type {
   StorageStatus,
   SiteInfo,
   SitePermission,
+  TaskList,
   UiCommand,
   WorkspaceAppearance,
   WorkspaceMode,
@@ -36,6 +37,8 @@ import {
 } from '../browser/electron-page-host';
 import { requestExternalOpen } from '../security/external-apps';
 import { contentBounds } from '../browser/layout';
+import { pageWebPreferences } from '../browser/page-preferences';
+import { rememberZoom, zoomFor } from '../browser/site-zoom';
 import { savePage } from '../browser/save-page';
 import { OfflineRetry } from '../browser/offline-retry';
 import { isSameDocument, shellUrl } from './shell-url';
@@ -77,6 +80,8 @@ export interface TrailWindowOptions {
    */
   onWorkspacesChanged(): void;
   openSettings(): void;
+  /** What's running in every window, for the task manager. */
+  listTasks(): TaskList;
   /** Every snapshot sent to this window, for other windows that mirror it. */
   onSnapshot?(snapshot: BrowserSnapshot): void;
   /** Extensions see this window's pages as their tabs. */
@@ -130,6 +135,14 @@ function chromeBackground(appearance: WorkspaceAppearance): string {
  * One browser window: the shell UI in the window's own WebContents, and the
  * page views managed by its `BrowserController` layered above it.
  */
+function appliedZoomKey({ defaultZoom, siteZoom }: Preferences): string {
+  return JSON.stringify([defaultZoom, siteZoom]);
+}
+
+function appliedViewKey(preferences: Preferences): string {
+  return JSON.stringify(pageWebPreferences(preferences));
+}
+
 export class TrailWindow {
   readonly window: BrowserWindow;
   readonly controller: BrowserController;
@@ -149,6 +162,9 @@ export class TrailWindow {
   private workspaceKey = '';
   /** The active page's toggles the menu bar names: Pin or Unpin, Mute or Unmute. */
   private menuStateKey = '';
+  /** What's in force, so an unrelated settings change touches no page. */
+  private appliedZoom: string;
+  private appliedView: string;
   /** The contents extensions were last told are in front. */
   private extensionContentsId: number | null = null;
   /** Why the last save failed, until one succeeds again. */
@@ -165,6 +181,8 @@ export class TrailWindow {
     const url = shellUrl();
     const { store } = options;
     const bounds = savedBounds(store);
+    this.appliedZoom = appliedZoomKey(options.preferences.get());
+    this.appliedView = appliedViewKey(options.preferences.get());
 
     this.window = new BrowserWindow({
       ...(bounds ?? { width: 1320, height: 860 }),
@@ -192,6 +210,18 @@ export class TrailWindow {
         preload: path.join(__dirname, 'page-preload.cjs'),
         isSoundBlocked: (origin) =>
           this.safely(() => store.getPermission(origin, 'sound')) === false,
+        webPreferences: () => pageWebPreferences(options.preferences.get()),
+        zoomFor: (address) => zoomFor(options.preferences.get(), address),
+        rememberZoom: (address, percent) => {
+          const siteZoom = rememberZoom(
+            options.preferences.get(),
+            address,
+            percent,
+          );
+          if (siteZoom) options.preferences.update({ siteZoom });
+        },
+        popupsAllowed: (origin) =>
+          this.safely(() => store.getPermission(origin, 'popups')) ?? null,
         httpsOnly: () => options.preferences.get().httpsOnly,
         plainHttpAllowed: (address) =>
           this.safely(() =>
@@ -254,6 +284,7 @@ export class TrailWindow {
         }
       },
       maxLiveViews: options.preferences.get().awakePages,
+      defaultZoom: () => options.preferences.get().defaultZoom,
       allowPlainHttp: (address) => {
         this.safely(() =>
           store.setPermission(new URL(address).origin, 'insecure', true),
@@ -379,6 +410,8 @@ export class TrailWindow {
         'page:stop-find': ({ pageId }) => this.controller.stopFind(pageId),
         'page:respond-permission': ({ pageId, requestId, granted }) =>
           this.controller.respondToPermission(pageId, requestId, granted),
+        'page:open-blocked-popup': ({ pageId, url }) =>
+          this.controller.openBlockedPopup(pageId, url),
         'site:get-info': ({ pageId }) => this.siteInfo(pageId),
         'site:set-permission': ({ origin, permission, decision }) => {
           store.setPermission(
@@ -389,12 +422,20 @@ export class TrailWindow {
           if (permission === 'sound') {
             this.controller.applySoundPolicy(origin, decision === 'block');
           }
+          if (permission === 'popups' && decision === 'allow') {
+            this.controller.clearBlockedPopups(origin);
+          }
         },
         'site:reset': ({ origin }) => {
           store.clearPermissions(origin);
           this.controller.applySoundPolicy(origin, false);
         },
         'view:freeze': () => this.controller.captureVisiblePages(),
+        'tasks:list': () => this.options.listTasks(),
+        'tasks:end': ({ pageId }) => {
+          // Reload brings it back; the page shows that it was stopped.
+          contentsForPage(pageId)?.forcefullyCrashRenderer();
+        },
         'downloads:list': () => this.options.downloads.list(),
         'downloads:act': ({ id, action }) =>
           this.options.downloads.act(id, action),
@@ -604,6 +645,16 @@ export class TrailWindow {
   /** Applies changed app-wide settings to this window. */
   applyPreferences(preferences: Preferences): void {
     this.controller.setMaxLiveViews(preferences.awakePages);
+    const zoom = appliedZoomKey(preferences);
+    if (zoom !== this.appliedZoom) {
+      this.appliedZoom = zoom;
+      this.controller.applyZoomSettings();
+    }
+    const view = appliedViewKey(preferences);
+    if (view !== this.appliedView) {
+      this.appliedView = view;
+      this.controller.rebuildViews();
+    }
     this.applyAppearance();
     this.send(eventChannels.preferences, preferences);
   }

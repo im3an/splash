@@ -2,6 +2,7 @@ import type {
   ContentBlockingStatus,
   PageError,
   PageSnapshot,
+  PermissionDecision,
   SitePermission,
 } from '../../shared/types';
 
@@ -237,8 +238,20 @@ export function describeError(error: PageError): {
   detail: string;
 } {
   if (error.kind === 'crashed') {
+    if (error.description === 'oom') {
+      return {
+        title: 'This page ran out of memory',
+        detail: 'Reloading usually brings it back.',
+      };
+    }
+    if (error.description === 'killed') {
+      return {
+        title: 'This page was stopped',
+        detail: 'Something ended its process. Reload it when you need it.',
+      };
+    }
     return {
-      title: 'This page stopped working',
+      title: 'This page crashed',
       detail:
         'Its process ended unexpectedly. Reloading usually brings it back.',
     };
@@ -258,6 +271,7 @@ const PERMISSION_NAMES: Record<SitePermission, string> = {
   microphone: 'microphone',
   location: 'location',
   notifications: 'notifications',
+  popups: 'popups',
   midi: 'MIDI devices',
   clipboard: 'clipboard',
   sound: 'sound',
@@ -265,6 +279,29 @@ const PERMISSION_NAMES: Record<SitePermission, string> = {
   apps: 'other apps',
   insecure: 'unencrypted HTTP',
 };
+
+/**
+ * The choices a site permission offers. Sound and ads are decided by Splash,
+ * so no site asks about them; a popup never asks either, and its middle
+ * choice lets through only what the user clicked for.
+ */
+export function siteDecisionOptions(
+  permission: SitePermission,
+): { value: PermissionDecision; label: string }[] {
+  const middle =
+    permission === 'popups'
+      ? [{ value: 'ask' as const, label: 'On click' }]
+      : permission === 'sound' ||
+          permission === 'ads' ||
+          permission === 'insecure'
+        ? []
+        : [{ value: 'ask' as const, label: 'Ask' }];
+  return [
+    { value: 'allow', label: 'Allow' },
+    ...middle,
+    { value: 'block', label: 'Block' },
+  ];
+}
 
 /** "camera and microphone", "camera, microphone and location". */
 export function permissionNames(

@@ -330,7 +330,7 @@ function PageFailed({ page }: { page: PageSnapshot }) {
           onClick={() => void api().reload(page.id)}
           className="button button-raised button-lg"
         >
-          Try again
+          {error.kind === 'crashed' ? 'Reload' : 'Try again'}
         </button>
       </PageStateActions>
     </PageState>

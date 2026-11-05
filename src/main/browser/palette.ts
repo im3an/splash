@@ -240,6 +240,12 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     shortcut: '⌥⌘L',
   },
   {
+    command: 'show-tasks',
+    title: 'Show task manager',
+    keywords: 'memory cpu processes slow end unresponsive',
+    shortcut: null,
+  },
+  {
     command: 'show-history',
     title: 'Show history',
     keywords: 'visited past browsing sites',

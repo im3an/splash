@@ -89,6 +89,8 @@ const api: SplashApi = {
   find: (pageId, text, { forward, findNext }) =>
     invoke('page:find', { pageId, text, forward, findNext }),
   stopFind: (pageId) => invoke('page:stop-find', { pageId }),
+  openBlockedPopup: (pageId, url) =>
+    invoke('page:open-blocked-popup', { pageId, url }),
   respondToPermission: (pageId, requestId, granted) =>
     invoke('page:respond-permission', { pageId, requestId, granted }),
   getSiteInfo: (pageId) => invoke('site:get-info', { pageId }),
@@ -108,6 +110,8 @@ const api: SplashApi = {
   onSnapshot: (listener) => subscribe(eventChannels.snapshot, listener),
   onUiCommand: (listener) => subscribe(eventChannels.uiCommand, listener),
   onNotice: (listener) => subscribe(eventChannels.notice, listener),
+  listTasks: () => invoke('tasks:list'),
+  endTask: (pageId) => invoke('tasks:end', { pageId }),
   listDownloads: () => invoke('downloads:list'),
   actOnDownload: (id, action) => invoke('downloads:act', { id, action }),
   clearDownloads: () => invoke('downloads:clear'),

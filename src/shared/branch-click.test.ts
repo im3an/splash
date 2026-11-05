@@ -1,4 +1,4 @@
-import { canBranchLink } from './branch-click';
+import { canBranchLink, droppedLink } from './branch-click';
 describe('ordinary link branching', () => {
   it('branches new documents without unloading their source form', () => {
     expect(
@@ -38,5 +38,18 @@ describe('ordinary link branching', () => {
     expect(
       canBranchLink('https://a.example/form', 'javascript:alert(1)', '', false),
     ).toBe(false);
+  });
+});
+
+describe('droppedLink', () => {
+  it('takes the first address, skipping comments and blank lines', () => {
+    expect(
+      droppedLink('# from a page\r\n\r\nhttps://a.com/\r\nhttps://b.com/'),
+    ).toBe('https://a.com/');
+  });
+
+  it('finds nothing in an empty list', () => {
+    expect(droppedLink('')).toBeNull();
+    expect(droppedLink('# only a comment')).toBeNull();
   });
 });

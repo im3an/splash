@@ -15,6 +15,26 @@ export interface PageError {
   url: string;
 }
 
+/** A row of the task manager: one process and what runs in it. */
+export interface TaskEntry {
+  id: string;
+  kind: 'page' | 'extension' | 'splash';
+  title: string;
+  url: string | null;
+  faviconUrl: string | null;
+  /** The pages ended together if this row is ended; empty if it can't be. */
+  pageIds: PageId[];
+  memoryBytes: number;
+  cpuPercent: number;
+  isUnresponsive: boolean;
+}
+
+export interface TaskList {
+  entries: TaskEntry[];
+  /** Pages with no process right now. */
+  asleepPages: number;
+}
+
 export interface FindResult {
   /** 1-based; 0 when nothing matched. */
   activeMatch: number;
@@ -50,6 +70,8 @@ export interface PageSnapshot {
   hasFormEdits?: boolean;
   /** Permissions this page asked for and was refused, for the address bar. */
   blockedPermissions: SitePermission[];
+  /** Addresses this page tried to open without being asked, newest last. */
+  blockedPopups: string[];
   /** A permission request waiting for the user's answer. */
   permissionRequest: PermissionRequest | null;
 }
@@ -60,6 +82,8 @@ export type SitePermission =
   | 'microphone'
   | 'location'
   | 'notifications'
+  /** Windows a site opens that the user didn't click for. */
+  | 'popups'
   | 'midi'
   | 'clipboard'
   | 'sound'
@@ -165,6 +189,7 @@ export type PaletteCommand =
   | 'edit-note'
   | 'show-downloads'
   | 'show-history'
+  | 'show-tasks'
   | 'open-settings'
   | 'zoom-in'
   | 'zoom-out'
@@ -432,6 +457,7 @@ export type UiCommand =
   | { type: 'find'; action: 'open' | 'next' | 'previous' }
   | { type: 'show-downloads' }
   | { type: 'show-history' }
+  | { type: 'show-tasks' }
   /** Edit › Undo while the shell has focus: text first, then the trail. */
   | { type: 'undo' }
   | { type: 'filter-trail' }

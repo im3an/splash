@@ -259,7 +259,14 @@ describe('describeError', () => {
         description: 'crashed',
         url: '',
       }).title,
-    ).toBe('This page stopped working');
+    ).toBe('This page crashed');
+  });
+
+  it('says why a page died when Chromium knows', () => {
+    const crash = (description: string) =>
+      describeError({ kind: 'crashed', code: 0, description, url: '' }).title;
+    expect(crash('oom')).toBe('This page ran out of memory');
+    expect(crash('killed')).toBe('This page was stopped');
   });
 });
 

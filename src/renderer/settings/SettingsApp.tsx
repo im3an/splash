@@ -8,6 +8,7 @@ import {
   AppearanceSettings,
   DownloadSettings,
   GeneralSettings,
+  PageSettings,
   PrivacySettings,
   ShortcutSettings,
   WorkspaceSettings,
@@ -30,6 +31,12 @@ const SECTIONS: {
     id: 'workspaces',
     label: 'Workspaces',
     body: WorkspaceSettings,
+  },
+  {
+    id: 'pages',
+    label: 'Pages',
+    title: 'How pages look',
+    body: PageSettings,
   },
   {
     id: 'privacy',

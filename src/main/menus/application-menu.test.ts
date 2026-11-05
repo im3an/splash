@@ -18,7 +18,11 @@ vi.mock('electron', () => ({
 
 function setup() {
   const browser = {
-    window: { close: vi.fn() },
+    window: {
+      close: vi.fn(),
+      isAlwaysOnTop: () => false,
+      setAlwaysOnTop: vi.fn(),
+    },
     controller: {
       activePageId: 'a' as string | null,
       snapshot: () => sampleSnapshot(),
@@ -37,7 +41,11 @@ function setup() {
   const item = (file.submenu as MenuItemConstructorOptions[]).find(
     (item) => item.accelerator === 'CmdOrCtrl+W',
   )!;
-  return { browser, close: item.click as () => void };
+  const view = template.find((entry) => entry.label === 'View')!;
+  const keepOnTop = (view.submenu as MenuItemConstructorOptions[]).find(
+    (entry) => entry.label === 'Keep Window on Top',
+  )!;
+  return { browser, close: item.click as () => void, keepOnTop };
 }
 
 it('closes the focused Settings window without touching browser pages', () => {
@@ -56,4 +64,16 @@ it('still closes the active page when its browser window is focused', () => {
   close();
   expect(browser.controller.closePage).toHaveBeenCalledWith('a');
   expect(browser.window.close).not.toHaveBeenCalled();
+});
+
+it('keeps the window on top when asked, and lets it go again', () => {
+  const { browser, keepOnTop } = setup();
+  const click = keepOnTop.click as unknown as (item: {
+    checked: boolean;
+  }) => void;
+  expect(keepOnTop.checked).toBe(false);
+  click({ checked: true });
+  expect(browser.window.setAlwaysOnTop).toHaveBeenLastCalledWith(true);
+  click({ checked: false });
+  expect(browser.window.setAlwaysOnTop).toHaveBeenLastCalledWith(false);
 });

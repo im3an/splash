@@ -34,6 +34,10 @@ async function performPaletteItem(
     if (item.command === 'site-info' && active?.url) {
       return overlay.open({ kind: 'site-info' });
     }
+    if (item.command === 'show-tasks') {
+      overlay.close();
+      return shell.setSidebarPanel('tasks');
+    }
     if (item.command === 'show-downloads' || item.command === 'show-history') {
       overlay.close();
       return shell.setSidebarPanel(

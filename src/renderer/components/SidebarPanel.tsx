@@ -2,11 +2,13 @@ import { useEffect, useRef } from 'react';
 import { useShell, type SidebarPanel as Panel } from '../stores/shell-store';
 import { DownloadsPanel } from './DownloadsPanel';
 import { HistoryPanel } from './HistoryPanel';
+import { TasksPanel } from './TasksPanel';
 import { WorkspaceEditor } from './WorkspaceEditor';
 
 const LABELS: Record<Panel, string> = {
   downloads: 'Downloads',
   history: 'History',
+  tasks: 'Task Manager',
   workspace: 'Workspace',
 };
 
@@ -42,6 +44,8 @@ export function SidebarPanel({ panel }: { panel: Panel }) {
         <DownloadsPanel />
       ) : panel === 'history' ? (
         <HistoryPanel />
+      ) : panel === 'tasks' ? (
+        <TasksPanel />
       ) : (
         <WorkspaceEditor key={editingId ?? 'new'} workspaceId={editingId} />
       )}

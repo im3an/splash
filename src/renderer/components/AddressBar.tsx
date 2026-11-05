@@ -68,6 +68,9 @@ export function AddressBar({
   // A page that never connected has no security state worth showing.
   const security = page?.error ? 'none' : securityOf(url);
   const blocked = page?.blockedPermissions ?? [];
+  const defaultZoom = useShell(
+    (state) => state.preferences?.defaultZoom ?? 100,
+  );
 
   useEffect(() => {
     if (focusRequest === handledFocus.current) return;
@@ -300,11 +303,11 @@ export function AddressBar({
             )}
           </button>
         )}
-        {!editing && page && page.zoomPercent !== 100 && (
+        {!editing && page?.url && page.zoomPercent !== defaultZoom && (
           <button
             type="button"
             onClick={() => void api().zoom(page.id, 'reset')}
-            aria-label={`Zoom ${page.zoomPercent}%. Reset to 100%`}
+            aria-label={`Zoom ${page.zoomPercent}%. Reset to ${defaultZoom}%`}
             title="Reset zoom (⌘0)"
             className="button button-sm rounded-inner px-1.5 text-caption font-medium tabular-nums"
           >

@@ -84,7 +84,45 @@ export interface Preferences {
   /** The assistant the AI panel shows. */
   aiProvider: AiProviderId;
   aiPanelWidth: number;
+  /** Zoom for sites the user hasn't zoomed, in percent. */
+  defaultZoom: number;
+  /** The zoom the user chose for a site, by host. */
+  siteZoom: Record<string, number>;
+  /** The font for pages that don't name one; empty keeps Chromium's. */
+  standardFont: string;
+  /** The font for code and other fixed-width text; empty keeps Chromium's. */
+  monospaceFont: string;
+  /** Size in pixels of text a page doesn't size itself. */
+  defaultFontSize: number;
+  /** No text is drawn smaller than this, in pixels; 0 turns it off. */
+  minimumFontSize: number;
 }
+
+export const DEFAULT_ZOOM_CHOICES = [
+  75, 80, 90, 100, 110, 125, 150, 175, 200,
+] as const;
+export const FONT_SIZE_CHOICES = [12, 14, 16, 18, 20, 24] as const;
+export const MINIMUM_FONT_SIZE_CHOICES = [
+  0, 9, 10, 11, 12, 14, 16, 18,
+] as const;
+/** Fonts every Mac has. */
+export const STANDARD_FONTS = [
+  'Arial',
+  'Avenir Next',
+  'Georgia',
+  'Helvetica Neue',
+  'New York',
+  'Palatino',
+  'Times New Roman',
+  'Verdana',
+] as const;
+export const MONOSPACE_FONTS = [
+  'Andale Mono',
+  'Courier New',
+  'Menlo',
+  'Monaco',
+  'SF Mono',
+] as const;
 
 export const AWAKE_PAGE_CHOICES = [6, 12, 24, 48] as const;
 
@@ -108,4 +146,10 @@ export const DEFAULT_PREFERENCES: Preferences = {
   hideCookieNotices: true,
   aiProvider: 'claude',
   aiPanelWidth: 420,
+  defaultZoom: 100,
+  siteZoom: {},
+  standardFont: '',
+  monospaceFont: '',
+  defaultFontSize: 16,
+  minimumFontSize: 0,
 };

@@ -71,6 +71,8 @@ interface Page {
   permissionQueue: PendingPermission[];
   /** Permissions refused on the current site. */
   blocked: Set<SitePermission>;
+  /** Addresses stopped from opening in the current document. */
+  blockedPopups: string[];
 }
 
 interface PendingPermission {
@@ -106,6 +108,8 @@ export interface BrowserControllerOptions {
   now?: () => number;
   /** Live views kept before the least recently used are discarded. */
   maxLiveViews?: number;
+  /** What resetting a page's zoom goes back to, in percent. */
+  defaultZoom?: () => number;
   /** The engine typed searches go to. */
   searchEngine?: () => SearchEngineId;
   /** The user chose to use this site's plain HTTP address from now on. */
@@ -137,6 +141,7 @@ function nameOf(customTitle: string | null, state: PageRuntimeState): string {
 
 const DEFAULT_MAX_LIVE_VIEWS = 12;
 const MAX_CLOSED_RECORDS = 25;
+const MAX_BLOCKED_POPUPS = 20;
 const DEFAULT_WORKSPACE_NAME = 'Personal';
 
 const EMPTY_STATE: PageRuntimeState = {
@@ -674,6 +679,15 @@ export class BrowserController {
 
   reload(id: PageId, options: { ignoreCache?: boolean } = {}): void {
     const page = this.require(id);
+    // A crash leaves the history intact, so reloading adds nothing to it and
+    // keeps the back button honest.
+    if (page.state.error?.kind === 'crashed' && page.host) {
+      page.state = { ...page.state, error: null, isLoading: true };
+      page.host.reload(options);
+      this.syncVisibleHost();
+      this.changed();
+      return;
+    }
     // After a failed load the committed entry is Chromium's error page, so
     // retry the address that failed rather than reloading the error.
     if (page.state.error) {
@@ -772,7 +786,9 @@ export class BrowserController {
   zoom(id: PageId, direction: 'in' | 'out' | 'reset'): void {
     const page = this.require(id);
     const percent =
-      direction === 'reset' ? 100 : stepZoom(page.state.zoomPercent, direction);
+      direction === 'reset'
+        ? (this.options.defaultZoom?.() ?? 100)
+        : stepZoom(page.state.zoomPercent, direction);
     page.host?.setZoomPercent(percent);
   }
 
@@ -832,6 +848,74 @@ export class BrowserController {
         page.host.setMuted(muted);
       }
     }
+  }
+
+  /** Zoom settings changed: every awake page takes up what now applies. */
+  applyZoomSettings(): void {
+    for (const page of this.pages.values()) page.host?.applySiteZoom();
+  }
+
+  /**
+   * Fonts and encodings are fixed when a view is created, so settings for
+   * them need new views. Pages on screen come straight back; the others wake
+   * into the new settings. A page someone is typing in or listening to keeps
+   * its view rather than lose anything.
+   */
+  rebuildViews(): void {
+    for (const [id, page] of this.pages) {
+      if (!page.host || page.state.error || page.host.isAudible()) continue;
+      const onScreen = this.visibleIds.has(id) || id === this.activePageId;
+      this.discard(id);
+      if (onScreen) this.ensureLive(id);
+    }
+    this.syncVisibleHost();
+    this.changed();
+  }
+
+  /** Opens a popup the page was stopped from opening, as its child. */
+  openBlockedPopup(id: PageId, url: string): void {
+    const page = this.require(id);
+    if (!page.blockedPopups.includes(url)) return;
+    page.blockedPopups = page.blockedPopups.filter((other) => other !== url);
+    if (page.blockedPopups.length === 0) page.blocked.delete('popups');
+    this.createPage({ url, parentId: id });
+  }
+
+  /** A site's popups were allowed: its pages stop saying they're blocked. */
+  clearBlockedPopups(origin: string): void {
+    for (const page of this.pages.values()) {
+      if (page.state.url && originOf(page.state.url) === origin) {
+        page.blocked.delete('popups');
+      }
+    }
+    this.changed();
+  }
+
+  /** Pages in this window with a live view, and how many are asleep. */
+  taskPages(): {
+    live: {
+      id: PageId;
+      title: string;
+      url: string | null;
+      faviconUrl: string | null;
+      isUnresponsive: boolean;
+    }[];
+    asleep: number;
+  } {
+    const live = [];
+    let asleep = 0;
+    for (const [id, page] of this.pages) {
+      if (page.host) {
+        live.push({
+          id,
+          title: nameOf(page.customTitle, page.state),
+          url: page.state.url,
+          faviconUrl: page.state.faviconUrl,
+          isUnresponsive: page.state.isUnresponsive,
+        });
+      } else if (page.state.url !== null) asleep += 1;
+    }
+    return { live, asleep };
   }
 
   /** Every page in every workspace, for search. */
@@ -1176,6 +1260,7 @@ export class BrowserController {
         note: page.note,
         isPinned: page.pinned,
         blockedPermissions: [...page.blocked],
+        blockedPopups: [...page.blockedPopups],
         permissionRequest: page.permissionQueue[0]?.request ?? null,
       };
     }
@@ -1342,6 +1427,7 @@ export class BrowserController {
       committedUrl: null,
       permissionQueue: [],
       blocked: new Set(),
+      blockedPopups: [],
     };
   }
 
@@ -1470,6 +1556,31 @@ export class BrowserController {
         if (isCurrent()) {
           this.createPage({ url, parentId: id, activate: !background });
         }
+      },
+      onZoomChange: (percent) => {
+        const page = this.pages.get(id);
+        if (!isCurrent() || !page) return;
+        // Chromium zooms the whole site; what the shell shows follows it.
+        const site = originOf(page.state.url);
+        for (const other of this.pages.values()) {
+          if (other === page || (site && originOf(other.state.url) === site)) {
+            other.state = { ...other.state, zoomPercent: percent };
+          }
+        }
+        this.changed();
+      },
+      onPopupBlocked: (url) => {
+        const page = this.pages.get(id);
+        if (!isCurrent() || !page) return;
+        const listed =
+          url !== null &&
+          !page.blockedPopups.includes(url) &&
+          page.blockedPopups.length < MAX_BLOCKED_POPUPS;
+        if (listed) page.blockedPopups.push(url);
+        // A page looping on `window.open` shouldn't redraw the shell each time.
+        if (!listed && page.blocked.has('popups')) return;
+        page.blocked.add('popups');
+        this.changed();
       },
       onBranchRequest: (url, referrer) => {
         if (isCurrent()) this.createPage({ url, parentId: id, referrer });
@@ -1607,6 +1718,9 @@ export class BrowserController {
         page.blocked.clear();
       }
       if (previous === null || !isSameDocumentUrl(patch.url, previous)) {
+        // Popups are stopped per document; a new one starts with a clean slate.
+        page.blockedPopups = [];
+        page.blocked.delete('popups');
         this.options.onVisit?.(patch.url);
       }
     }

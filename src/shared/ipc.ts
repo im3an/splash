@@ -16,6 +16,13 @@ const inset = z.number().finite().min(0).max(10_000);
 const pageTitle = z.string().max(300).nullable();
 const workspaceId = z.uuid();
 
+const zoomPercent = z.number().min(25).max(500);
+/** Goes into page settings, so it stays a plain name. */
+const fontName = z
+  .string()
+  .max(64)
+  .regex(/^[\p{L}\p{N} -]*$/u);
+
 export const preferencesSchema = z.strictObject({
   sidebarWidth: z.number().int().min(220).max(420),
   toolbarActions: z
@@ -87,12 +94,19 @@ export const preferencesSchema = z.strictObject({
   hideCookieNotices: z.boolean(),
   aiProvider: z.enum(AI_PROVIDER_IDS),
   aiPanelWidth: z.number().int().min(320).max(720),
+  defaultZoom: zoomPercent,
+  siteZoom: z.record(z.string().min(1).max(255), zoomPercent),
+  standardFont: fontName,
+  monospaceFont: fontName,
+  defaultFontSize: z.number().int().min(6).max(72),
+  minimumFontSize: z.number().int().min(0).max(24),
 });
 const sitePermission = z.enum([
   'camera',
   'microphone',
   'location',
   'notifications',
+  'popups',
   'midi',
   'clipboard',
   'sound',
@@ -255,6 +269,10 @@ export const invokeContract = {
     requestId: z.uuid(),
     granted: z.boolean(),
   }),
+  'page:open-blocked-popup': z.strictObject({
+    pageId,
+    url: z.string().min(1).max(8192),
+  }),
   'site:get-info': z.strictObject({ pageId }),
   'site:set-permission': z.strictObject({
     origin: siteOrigin,
@@ -263,6 +281,8 @@ export const invokeContract = {
   }),
   'site:reset': z.strictObject({ origin: siteOrigin }),
   'view:freeze': z.undefined(),
+  'tasks:list': z.undefined(),
+  'tasks:end': z.strictObject({ pageId }),
   'downloads:list': z.undefined(),
   'downloads:act': z.strictObject({
     id: z.uuid(),

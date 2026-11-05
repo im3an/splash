@@ -21,7 +21,7 @@ export interface PageRuntimeState {
   /** The page is producing sound right now. */
   isAudible: boolean;
   isMuted: boolean;
-  /** Page zoom in percent; Chromium shares it across a site. */
+  /** Page zoom in percent; shared across a site and remembered for it. */
   zoomPercent: number;
   /** The latest find-in-page result, while a search is open. */
   find: FindResult | null;
@@ -57,6 +57,10 @@ export interface PageHostEvents {
   onStateChange(patch: Partial<PageRuntimeState>): void;
   /** The page asked to open a new window (`window.open`, `target=_blank`). */
   onOpenRequest(url: string, options: { background: boolean }): void;
+  /** A popup was stopped; `url` is `null` for one with no address yet. */
+  onPopupBlocked(url: string | null): void;
+  /** The user zoomed this page, and with it the rest of its site. */
+  onZoomChange(percent: number): void;
   /** The user clicked a link; the trail grows a child page instead. */
   onBranchRequest(url: string, referrer: string): void;
   /** Back/forward/reload from inside the page (its context menu). */
@@ -103,6 +107,8 @@ export interface PageHost {
   isAudible(): boolean;
   setMuted(muted: boolean): void;
   setZoomPercent(percent: number): void;
+  /** Goes back to the zoom settings say this page should have. */
+  applySiteZoom(): void;
   find(text: string, options: { forward: boolean; findNext: boolean }): void;
   stopFind(): void;
   /** A still image of what the page shows, as a data URL. */

@@ -1,9 +1,11 @@
-import { canBranchLink } from '../shared/branch-click';
+import { canBranchLink, droppedLink } from '../shared/branch-click';
 import { ipcRenderer } from 'electron';
 import {
   BRANCH_LINK,
   FORM_EDITED,
+  FRAME_GESTURE,
   LINK_ACTIVATED,
+  LINK_DROPPED,
   NAVIGATION_BUTTON,
 } from '../shared/page-bridge';
 
@@ -88,6 +90,53 @@ window.addEventListener(
   },
   { capture: true },
 );
+
+// A click in an embedded frame may open something; the main process can't see
+// input to a frame from another site, so the frame says it happened.
+if (window !== window.top) {
+  for (const type of ['pointerdown', 'keydown']) {
+    window.addEventListener(
+      type,
+      (event) => {
+        if (event.isTrusted) ipcRenderer.send(FRAME_GESTURE);
+      },
+      { capture: true },
+    );
+  }
+}
+
+// A link dragged in from elsewhere opens beneath this page. Listening last, on
+// the way back up, leaves a site's own drop zones and text fields their drops.
+// A drag that began here is the page's own business, however it ends.
+let draggingFromHere = false;
+window.addEventListener('dragstart', () => (draggingFromHere = true), {
+  capture: true,
+});
+window.addEventListener('dragend', () => (draggingFromHere = false), {
+  capture: true,
+});
+
+function acceptsLink(event: DragEvent): boolean {
+  if (!event.isTrusted || event.defaultPrevented || draggingFromHere) {
+    return false;
+  }
+  if (!event.dataTransfer?.types.includes('text/uri-list')) return false;
+  const target = event.target;
+  return !(
+    target instanceof Element &&
+    target.closest('input, textarea, [contenteditable]')
+  );
+}
+
+window.addEventListener('dragover', (event) => {
+  if (acceptsLink(event)) event.preventDefault();
+});
+window.addEventListener('drop', (event) => {
+  if (!acceptsLink(event)) return;
+  event.preventDefault();
+  const href = droppedLink(event.dataTransfer!.getData('text/uri-list'));
+  if (href) ipcRenderer.send(LINK_DROPPED, href);
+});
 
 // Keep edited documents awake. Only an event flag crosses the boundary, never
 // field values, names, credentials or other content, including inside frames.

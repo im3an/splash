@@ -5,21 +5,13 @@ import type {
   SiteInfo,
   SitePermission,
 } from '../../shared/types';
+import { siteDecisionOptions } from '../lib/format';
 import { api } from '../splash-api';
 import { useOverlay } from '../stores/overlay-store';
 import { selectActivePage, useShell } from '../stores/shell-store';
 import { AnchoredPanel } from './AnchoredPanel';
 import { PanelState } from './PanelState';
 import { SegmentedControl } from './SegmentedControl';
-
-/** Decided by Splash itself, so a site never asks for them. */
-const NEVER_ASKED = new Set<SitePermission>(['sound', 'ads', 'insecure']);
-
-const DECISIONS: { value: PermissionDecision; label: string }[] = [
-  { value: 'allow', label: 'Allow' },
-  { value: 'ask', label: 'Ask' },
-  { value: 'block', label: 'Block' },
-];
 
 /** Connection security and this site's permissions, from the address bar. */
 export function SiteInfoPopover() {
@@ -137,6 +129,9 @@ export function SiteInfoPopover() {
                 </p>
               </div>
             </div>
+            {page && page.blockedPopups.length > 0 && (
+              <BlockedPopups pageId={page.id} urls={page.blockedPopups} />
+            )}
             <div className="flex flex-col gap-0.5 px-2 py-2">
               {info.permissions.map(({ permission, label, decision }) => (
                 <div
@@ -158,10 +153,7 @@ export function SiteInfoPopover() {
                     label={label}
                     value={decision}
                     disabled={busy}
-                    options={DECISIONS.filter(
-                      (option) =>
-                        !NEVER_ASKED.has(permission) || option.value !== 'ask',
-                    )}
+                    options={siteDecisionOptions(permission)}
                     onChange={(value) => void decide(permission, value)}
                   />
                 </div>
@@ -206,5 +198,40 @@ export function SiteInfoPopover() {
         )}
       </AnchoredPanel>
     </>
+  );
+}
+
+/** What this page tried to open on its own, each one a click away. */
+function BlockedPopups({ pageId, urls }: { pageId: string; urls: string[] }) {
+  return (
+    <section
+      aria-label="Blocked popups"
+      className="border-b border-divider px-4 py-2.5"
+    >
+      <p className="text-small text-fg-muted">
+        {urls.length === 1
+          ? 'A popup was blocked on this page.'
+          : `${urls.length} popups were blocked on this page.`}
+      </p>
+      <ul className="mt-1.5 flex max-h-32 flex-col gap-1 overflow-y-auto">
+        {urls.map((url) => (
+          <li key={url} className="flex items-center justify-between gap-3">
+            <span
+              className="min-w-0 truncate text-small text-fg-subtle"
+              title={url}
+            >
+              {url}
+            </span>
+            <button
+              type="button"
+              onClick={() => void api().openBlockedPopup(pageId, url)}
+              className="button button-sm shrink-0"
+            >
+              Open
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
