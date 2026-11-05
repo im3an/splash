@@ -9,7 +9,7 @@ import {
   updateLibrary,
 } from '../lib/collections';
 import { useSidebarMenu } from '../hooks/use-sidebar-menu';
-import { usePageDrag } from '../stores/drag-store';
+import { useDragging } from '../stores/drag-store';
 import { useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 import type { MenuEntry } from './ContextMenu';
@@ -37,7 +37,7 @@ export function SavedGroups() {
   const hasFavorites = collections.some(
     (item) => item.kind === 'folder' && item.links.length > 0,
   );
-  const dragging = usePageDrag((state) => state.pageId !== null);
+  const dragging = useDragging();
   const menu = useSidebarMenu('Saved group');
   if (!groups.length && !hasFavorites && !dragging) return null;
 

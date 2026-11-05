@@ -16,7 +16,12 @@ import type {
 } from '../../shared/types';
 
 /** A view shown in the sidebar in place of the trail. */
-export type SidebarPanel = 'downloads' | 'history' | 'tasks' | 'workspace';
+export type SidebarPanel =
+  | 'downloads'
+  | 'history'
+  | 'bookmarks'
+  | 'tasks'
+  | 'workspace';
 
 interface ShellState {
   /** `null` until the main process has sent the first snapshot. */
@@ -254,6 +259,8 @@ export function connectShell(splash: SplashApi): () => void {
         return shell.toggleSidebarPanel('downloads');
       case 'show-history':
         return shell.toggleSidebarPanel('history');
+      case 'show-bookmarks':
+        return shell.toggleSidebarPanel('bookmarks');
       case 'show-tasks':
         return shell.toggleSidebarPanel('tasks');
       case 'create-workspace':

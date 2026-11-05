@@ -283,7 +283,7 @@ export function ContextMenu({
             />
           ) : (
             <MenuRow
-              key={entry.label}
+              key={`${entry.label}-${index}`}
               icon={entry.icon}
               label={entry.label}
               shortcut={entry.kind === 'action' ? entry.shortcut : undefined}

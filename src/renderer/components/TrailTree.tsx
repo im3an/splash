@@ -80,7 +80,8 @@ import {
   selectWorkspaces,
   useShell,
 } from '../stores/shell-store';
-import { bookmarkPage, collectionNotice, webLink } from '../lib/collections';
+import { fileLink } from '../lib/bookmarks';
+import { collectionNotice, webLink } from '../lib/collections';
 import {
   splitPartner,
   usePageDrag,
@@ -453,13 +454,15 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
 function dropOutside(pageId: PageId, target: DropTarget): void {
   const page = useShell.getState().snapshot?.pages[pageId];
   if (!page) return;
-  if (target.kind === 'favorites') {
-    if (!webLink(page)) {
-      collectionNotice('Only web pages can be favorites.');
+  if (target.kind === 'favorites' || target.kind === 'folder') {
+    const link = webLink(page);
+    if (!link) {
+      collectionNotice('Only web pages can be bookmarked.');
       return;
     }
-    void bookmarkPage(page).then(() =>
-      collectionNotice(`Added ${pageParts(page).title} to Favorites.`),
+    void fileLink(
+      { ...link, title: pageParts(page).title },
+      target.kind === 'folder' ? target.id : null,
     );
     return;
   }

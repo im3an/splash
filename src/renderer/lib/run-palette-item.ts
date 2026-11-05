@@ -1,8 +1,10 @@
 import type { PaletteScope } from '../../shared/palette';
 import type { PaletteItem } from '../../shared/types';
+import { bookmarkBranch, setBookmarksBar } from './bookmarks';
 import { pageLabel } from './format';
 import { noticeToast } from './notices';
 import { api } from '../splash-api';
+import { showBookmarks } from '../stores/bookmarks-view-store';
 import { openLocation, useOverlay } from '../stores/overlay-store';
 import { selectActivePage, useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
@@ -37,6 +39,10 @@ async function performPaletteItem(
     if (item.command === 'show-tasks') {
       overlay.close();
       return shell.setSidebarPanel('tasks');
+    }
+    if (item.command === 'show-bookmarks') {
+      overlay.close();
+      return shell.setSidebarPanel('bookmarks');
     }
     if (item.command === 'show-downloads' || item.command === 'show-history') {
       overlay.close();
@@ -79,6 +85,17 @@ async function performPaletteItem(
           return void openLocation();
         case 'reopen-closed':
           await splash.reopenClosed();
+          return;
+        case 'toggle-bookmarks-bar':
+          return setBookmarksBar(!shell.preferences?.bookmarksBar);
+        case 'bookmark-branch':
+          if (active && shell.snapshot)
+            await bookmarkBranch(
+              shell.snapshot,
+              active.id,
+              pageLabel(active),
+              showBookmarks,
+            );
           return;
         case 'close-page':
           if (active) await splash.closePage(active.id);

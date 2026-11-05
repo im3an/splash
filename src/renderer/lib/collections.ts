@@ -1,8 +1,11 @@
+import { mainFolder } from '../../shared/bookmarks';
 import type { Preferences, SavedCollection } from '../../shared/preferences';
 import type { BrowserSnapshot, PageId, PageSnapshot } from '../../shared/types';
 import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
+
+export { mainFolder };
 
 export function collectionNotice(message: string) {
   useToast
@@ -46,9 +49,7 @@ export function bookmarkPage(page: PageSnapshot, folderId?: string) {
   return updateLibrary((items) => {
     const target = folderId
       ? items.find((item) => item.id === folderId)
-      : items.find(
-          (item) => item.kind === 'folder' && item.name === 'Bookmarks',
-        );
+      : mainFolder(items);
     if (target)
       return items.map((item) =>
         item.id === target.id
@@ -152,9 +153,7 @@ function addBookmark(
   page: PageSnapshot,
 ): SavedCollection[] {
   const link = webLink(page)!;
-  const folder = items.find(
-    (item) => item.kind === 'folder' && item.name === 'Bookmarks',
-  );
+  const folder = mainFolder(items);
   return folder
     ? items.map((item) =>
         item === folder
@@ -242,7 +241,7 @@ export function moveFavorite(linkId: string, index: number) {
   });
 }
 
-/** Removes every saved copy of an address from Favorites, with Undo. */
+/** Removes every saved copy of an address from Bookmarks, with Undo. */
 export async function removeFavorite(url: string, title: string) {
   let before: SavedCollection[] = [];
   const saved = await updateLibrary((items) => {
@@ -255,7 +254,7 @@ export async function removeFavorite(url: string, title: string) {
   });
   if (!saved) return;
   useToast.getState().show({
-    message: `Removed ${title} from Favorites`,
+    message: `Removed ${title} from Bookmarks`,
     detail: null,
     durationMs: 7000,
     actions: [
@@ -301,14 +300,7 @@ export function renameSavedLink(linkId: string, title: string) {
   );
 }
 
-function mainFolder(items: SavedCollection[]) {
-  return items.find(
-    (item) =>
-      item.kind === 'folder' && item.name === 'Bookmarks' && !item.parentId,
-  );
-}
-
-function newFolder(links: SavedCollection['links']): SavedCollection {
+export function newFolder(links: SavedCollection['links']): SavedCollection {
   return {
     id: crypto.randomUUID(),
     name: 'Bookmarks',

@@ -21,8 +21,11 @@ import {
   StickyNote,
   Type,
   X,
+  FolderHeart,
 } from 'lucide-react';
 import type { BrowserSnapshot, PageId } from '../../shared/types';
+import { bookmarkBranch, branchLinks } from '../lib/bookmarks';
+import { showBookmarks } from '../stores/bookmarks-view-store';
 import {
   bookmarkPage,
   collectionNotice,
@@ -64,6 +67,7 @@ export function pageMenuEntries(
   const shell = useShell.getState();
   const url = page.url;
   const hasChildren = page.childIds.length > 0;
+  const branchWebPages = hasChildren ? branchLinks(snapshot, pageId).length : 0;
   const activeId = snapshot.activePageId;
   const current = pageId === activeId;
   const key = (shortcut: string) => (current ? shortcut : undefined);
@@ -133,15 +137,32 @@ export function pageMenuEntries(
     },
     {
       kind: 'action',
-      label: 'Add to Favorites',
+      label: 'Add to Bookmarks',
       icon: <Star {...ICON} />,
       disabled: !url || !/^https?:/.test(url),
       run: () => {
         void bookmarkPage(page).then(() =>
-          collectionNotice(`Added ${pageLabel(page)} to Favorites.`),
+          collectionNotice(`Added ${pageLabel(page)} to Bookmarks.`),
         );
       },
     },
+    ...(hasChildren
+      ? ([
+          {
+            kind: 'action',
+            label: `Bookmark Branch (${branchWebPages} ${branchWebPages === 1 ? 'Page' : 'Pages'})`,
+            icon: <FolderHeart {...ICON} />,
+            disabled: branchWebPages === 0,
+            run: () =>
+              void bookmarkBranch(
+                snapshot,
+                pageId,
+                pageLabel(page),
+                showBookmarks,
+              ),
+          },
+        ] satisfies MenuEntry[])
+      : []),
     {
       kind: 'action',
       label: hasChildren ? 'Save Trail as Group' : 'Save as Group',

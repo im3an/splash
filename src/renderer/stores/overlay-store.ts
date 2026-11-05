@@ -8,6 +8,7 @@ import { api } from '../splash-api';
 export type Overlay =
   | { kind: 'palette'; scope: PaletteScope }
   | { kind: 'toolbar-menu' }
+  | { kind: 'bookmarks-menu' }
   | { kind: 'suggestions' }
   | { kind: 'site-info' };
 

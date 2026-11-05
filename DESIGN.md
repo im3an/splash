@@ -46,7 +46,7 @@ Settings help text is one short sentence, two only for a privacy fact. It says w
 
 ## Panels and states
 
-History, Downloads and the workspace editor are sidebar panels: they share the header with its back button, and esc goes back to the trail. History and Downloads share empty-state hierarchy. Loading must be visible, failures explain a next step, and empty search offers a reset. Dialogs keep keyboard focus inside while open. Saving prevents duplicate submission, preserves entered values on failure and provides inline recovery. Undo feedback remains available while hovered or keyboard-focused.
+History, Downloads, Bookmarks and the workspace editor are sidebar panels: they share the header with its back button, and esc goes back to the trail. History and Downloads share empty-state hierarchy. Loading must be visible, failures explain a next step, and empty search offers a reset. Dialogs keep keyboard focus inside while open. Saving prevents duplicate submission, preserves entered values on failure and provides inline recovery. Undo feedback remains available while hovered or keyboard-focused.
 
 ## Motion
 

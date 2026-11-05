@@ -60,10 +60,10 @@ Address bar and search
 
 Bookmarks
 
-- [ ] Bookmark manager view (search, rename, move, delete many at once)
-- [ ] Bookmark a dragged link or URL into a folder
-- [ ] Bookmark all pages in a branch
-- [ ] Bookmarks bar toggle (optional; sidebar already holds them)
+- [x] Bookmark manager view (search, rename, move, delete many at once)
+- [x] Bookmark a dragged link or URL into a folder
+- [x] Bookmark all pages in a branch
+- [x] Bookmarks bar toggle (optional; sidebar already holds them)
 
 Pages and windows
 

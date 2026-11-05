@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useShell, type SidebarPanel as Panel } from '../stores/shell-store';
+import { BookmarksPanel } from './BookmarksPanel';
 import { DownloadsPanel } from './DownloadsPanel';
 import { HistoryPanel } from './HistoryPanel';
 import { TasksPanel } from './TasksPanel';
@@ -8,12 +9,13 @@ import { WorkspaceEditor } from './WorkspaceEditor';
 const LABELS: Record<Panel, string> = {
   downloads: 'Downloads',
   history: 'History',
+  bookmarks: 'Bookmarks',
   tasks: 'Task Manager',
   workspace: 'Workspace',
 };
 
 /**
- * Downloads, History or the workspace editor, standing in for the trail in
+ * Downloads, History, Bookmarks or the workspace editor, standing in for the trail in
  * the widened sidebar.
  */
 export function SidebarPanel({ panel }: { panel: Panel }) {
@@ -44,6 +46,8 @@ export function SidebarPanel({ panel }: { panel: Panel }) {
         <DownloadsPanel />
       ) : panel === 'history' ? (
         <HistoryPanel />
+      ) : panel === 'bookmarks' ? (
+        <BookmarksPanel />
       ) : panel === 'tasks' ? (
         <TasksPanel />
       ) : (

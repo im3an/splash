@@ -1,4 +1,4 @@
-import { useMemo, type MouseEvent } from 'react';
+import { useMemo, type CSSProperties, type MouseEvent } from 'react';
 import {
   closestCenter,
   DndContext,
@@ -12,8 +12,17 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { Copy, ExternalLink, Plus, Star, Trash2 } from 'lucide-react';
+import {
+  Copy,
+  ExternalLink,
+  Folder,
+  Plus,
+  Settings2,
+  Star,
+  Trash2,
+} from 'lucide-react';
 import type { SavedCollection } from '../../shared/preferences';
+import { folderTree } from '../lib/bookmarks';
 import {
   collectionNotice,
   favoritesOf,
@@ -21,7 +30,8 @@ import {
   removeFavorite,
   type Favorite,
 } from '../lib/collections';
-import { usePageDrag } from '../stores/drag-store';
+import { showBookmarks } from '../stores/bookmarks-view-store';
+import { useDragging, useDropTarget } from '../stores/drag-store';
 import { useShell } from '../stores/shell-store';
 import { useSidebarMenu } from '../hooks/use-sidebar-menu';
 import type { MenuEntry } from './ContextMenu';
@@ -41,9 +51,10 @@ export function Favorites() {
     (state) => state.preferences?.collections ?? EMPTY,
   );
   const favorites = useMemo(() => favoritesOf(collections), [collections]);
-  const dragging = usePageDrag((state) => state.pageId !== null);
-  const over = usePageDrag((state) => state.target?.kind === 'favorites');
-  const menu = useSidebarMenu('Favorite');
+  const dragging = useDragging();
+  const target = useDropTarget();
+  const over = target?.kind === 'favorites';
+  const menu = useSidebarMenu('Bookmark');
   const activeUrl = useShell((state) => {
     const id = state.snapshot?.activePageId;
     return id ? (state.snapshot?.pages[id]?.url ?? null) : null;
@@ -65,8 +76,8 @@ export function Favorites() {
       {favorites.length ? (
         <IconStack
           id="favorites"
-          name="Favorites"
-          label="Favorites"
+          name="Bookmarks"
+          label="Saved pages"
           links={favorites.map((f) => f.link)}
           menuOpen={false}
         >
@@ -97,7 +108,23 @@ export function Favorites() {
       ) : (
         <div className="favorites-empty">
           <Star size={14} strokeWidth={1.75} aria-hidden />
-          Drop here to add to Favorites
+          Drop here to add to Bookmarks
+        </div>
+      )}
+      {dragging && (
+        <div className="folder-drops" aria-hidden>
+          {folderTree(collections).map(({ folder, depth }) => (
+            <div
+              key={folder.id}
+              data-drop={`folder:${folder.id}`}
+              data-over={target?.kind === 'folder' && target.id === folder.id}
+              style={{ '--depth': depth } as CSSProperties}
+              className="folder-drop"
+            >
+              <Folder size={14} aria-hidden />
+              <span className="min-w-0 truncate">{folder.name}</span>
+            </div>
+          ))}
         </div>
       )}
       {menu.element}
@@ -174,9 +201,17 @@ function favoriteEntries(favorite: Favorite): MenuEntry[] {
     { kind: 'separator' },
     {
       kind: 'action',
-      label: 'Remove from Favorites',
+      label: 'Remove from Bookmarks',
       icon: <Trash2 {...ICON} />,
       run: () => void removeFavorite(link.url, link.title || hostOf(link.url)),
+    },
+    { kind: 'separator' },
+    {
+      kind: 'action',
+      label: 'Manage Bookmarks…',
+      icon: <Settings2 {...ICON} />,
+      shortcut: '⌥⌘B',
+      run: () => showBookmarks(),
     },
   ];
 }

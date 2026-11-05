@@ -7,7 +7,14 @@ import { selectVisibleSplit, useShell } from './shell-store';
 /** Somewhere outside the trail a dragged page can be dropped. */
 export type DropTarget =
   | { kind: 'favorites' }
+  | { kind: 'folder'; id: string }
   | { kind: 'split'; side: 'left' | 'right' };
+
+/** A drop target that files what's dropped, rather than showing it. */
+export type BookmarkDrop = Extract<
+  DropTarget,
+  { kind: 'favorites' | 'folder' }
+>;
 
 interface PageDragState {
   /** The page being dragged out of the trail, if any. */
@@ -48,15 +55,7 @@ export const usePageDrag = create<PageDragState>()((set, get) => ({
   },
   track: (x, y) => {
     const target = dropTargetAt(x, y);
-    const current = get().target;
-    if (
-      current?.kind === target?.kind &&
-      (current?.kind !== 'split' ||
-        (target?.kind === 'split' && current.side === target.side))
-    ) {
-      return;
-    }
-    set({ target });
+    if (!sameTarget(get().target, target)) set({ target });
   },
   end: () => {
     set({ pageId: null, target: null });
@@ -70,6 +69,29 @@ export const usePageDrag = create<PageDragState>()((set, get) => ({
     }, 120);
   },
 }));
+
+/**
+ * A link dragged in from a page or another app, a native drag that the shell
+ * only hears about through drag events. It can only be filed, never shown.
+ */
+export const useLinkDrag = create<{
+  active: boolean;
+  target: BookmarkDrop | null;
+}>()(() => ({ active: false, target: null }));
+
+/** Whether anything that can be bookmarked is being dragged. */
+export function useDragging() {
+  const page = usePageDrag((state) => state.pageId !== null);
+  const link = useLinkDrag((state) => state.active);
+  return page || link;
+}
+
+/** Where the drag in progress would land, whatever is being dragged. */
+export function useDropTarget(): DropTarget | null {
+  const page = usePageDrag((state) => state.target);
+  const link = useLinkDrag((state) => state.target);
+  return page ?? link;
+}
 
 /**
  * The page a page dropped on `side` would be shown beside: the other side
@@ -92,12 +114,21 @@ export function splitPartner(
   return activeId && activeId !== pageId ? activeId : null;
 }
 
-function dropTargetAt(x: number, y: number): DropTarget | null {
+export function sameTarget(a: DropTarget | null, b: DropTarget | null) {
+  if (a === null || b === null) return a === b;
+  if (a.kind === 'split') return b.kind === 'split' && a.side === b.side;
+  if (a.kind === 'folder') return b.kind === 'folder' && a.id === b.id;
+  return a.kind === b.kind;
+}
+
+export function dropTargetAt(x: number, y: number): DropTarget | null {
   for (const element of document.elementsFromPoint(x, y)) {
     const zone = element.closest<HTMLElement>('[data-drop]');
     if (!zone) continue;
     const drop = zone.dataset.drop;
     if (drop === 'favorites') return { kind: 'favorites' };
+    if (drop?.startsWith('folder:'))
+      return { kind: 'folder', id: drop.slice('folder:'.length) };
     if (drop === 'split-left') return { kind: 'split', side: 'left' };
     if (drop === 'split-right') return { kind: 'split', side: 'right' };
   }

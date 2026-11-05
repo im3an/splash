@@ -21,7 +21,7 @@ Build on macOS for the native app. The build fetches the bundled extension if it
 - Open a page with **⌘T**. Ordinary links grow a child page in its trail; same-document links stay in place. Back and forward include the trail relationship.
 - **⌘L** focuses the address field. **⌘K** searches pages, workspaces, commands and history. Prefix a query with `>` to search commands.
 - Pin an important page with **⌘D**. Closing a pinned page puts it to sleep when another page can take its place. The context menu can unpin and close it.
-- The toolbar star saves a bookmark. Organize saved links into nested folders; a saved group holds a reusable set of pages. These are separate from live pinned pages.
+- The toolbar star saves a bookmark. Bookmarks (⌥⌘B) searches, renames, moves and deletes them, many at once. Drag a page or link onto Bookmarks or a folder to file it, or use Bookmark Branch to save a whole branch as a folder. An optional bookmarks bar (⇧⌘B) sits over the page. A saved group holds a reusable set of pages. These are separate from live pinned pages.
 - Right-click a page, folder or saved link for contextual actions. Menus support arrows, type-ahead and Escape; folder actions are also available through their visible action button.
 - Drag the sidebar divider to give long titles more room. The divider supports arrow keys, Home, End, and double-click to reset. Width and toolbar layout survive restarts.
 - Workspaces keep their own trail, selected page, scroll position, appearance and split view. **⌃1–9** switches workspaces.

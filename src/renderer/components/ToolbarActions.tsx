@@ -20,7 +20,7 @@ import { SplitButton } from './Toolbar';
 import { DownloadsButton } from './DownloadsButton';
 
 export const toolbarLabels: Record<ToolbarAction, string> = {
-  bookmark: 'Favorite',
+  bookmark: 'Bookmark',
   share: 'Share',
   extensions: 'Extensions',
   split: 'Split view',
@@ -152,16 +152,16 @@ export function ToolbarActions() {
             aria-label={
               action === 'bookmark'
                 ? saved
-                  ? 'Remove from Favorites'
-                  : 'Add to Favorites'
+                  ? 'Remove from Bookmarks'
+                  : 'Add to Bookmarks'
                 : 'Share page'
             }
             aria-pressed={action === 'bookmark' ? Boolean(saved) : undefined}
             title={
               action === 'bookmark'
                 ? saved
-                  ? 'Remove from Favorites'
-                  : 'Add to Favorites'
+                  ? 'Remove from Bookmarks'
+                  : 'Add to Bookmarks'
                 : 'Share page'
             }
             onClick={() => {

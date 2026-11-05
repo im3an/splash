@@ -60,6 +60,8 @@ export interface Preferences {
   density: 'comfortable' | 'compact';
   /** The site's name, quieter, after each page's title in the sidebar. */
   showSiteNames: boolean;
+  /** A row of bookmarks over the page; the sidebar holds them too. */
+  bookmarksBar: boolean;
   /** Hairlines down each branch of the trail. */
   showBranchLines: boolean;
   /** Turn motion down in Splash even when macOS doesn't. */
@@ -135,6 +137,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   theme: 'dark',
   density: 'comfortable',
   showSiteNames: true,
+  bookmarksBar: false,
   showBranchLines: true,
   reduceMotion: false,
   addressBar: 'toolbar',

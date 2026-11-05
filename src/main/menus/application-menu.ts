@@ -433,6 +433,22 @@ export function installApplicationMenu(actions: MenuActions): void {
           click: () =>
             actions.currentWindow()?.sendUiCommand({ type: 'show-downloads' }),
         },
+        {
+          label: 'Bookmarks',
+          accelerator: 'Alt+CmdOrCtrl+B',
+          click: () =>
+            actions.currentWindow()?.sendUiCommand({ type: 'show-bookmarks' }),
+        },
+        {
+          label: actions.preferences.get().bookmarksBar
+            ? 'Hide Bookmarks Bar'
+            : 'Show Bookmarks Bar',
+          accelerator: 'Shift+CmdOrCtrl+B',
+          click: () =>
+            actions.preferences.update({
+              bookmarksBar: !actions.preferences.get().bookmarksBar,
+            }),
+        },
         { type: 'separator' },
         { role: 'togglefullscreen' },
         {

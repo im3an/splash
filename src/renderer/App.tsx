@@ -1,4 +1,5 @@
 import { AiPanel } from './components/AiPanel';
+import { BookmarksBar } from './components/BookmarksBar';
 import { ContentArea } from './components/ContentArea';
 import { FindBar } from './components/FindBar';
 import { PageMenu } from './components/PageMenu';
@@ -10,6 +11,7 @@ import { Toolbar } from './components/Toolbar';
 import { useEffect, useRef } from 'react';
 import { useWorkspaceTheme } from './hooks/use-workspace-theme';
 import { useInterfacePreferences } from './hooks/use-interface-preferences';
+import { useLinkDrop } from './hooks/use-link-drop';
 import { openLocation, useOverlay, type Overlay } from './stores/overlay-store';
 import {
   selectAddressInSidebar,
@@ -20,6 +22,7 @@ import {
 export function App() {
   useWorkspaceTheme();
   useInterfacePreferences();
+  useLinkDrop();
   const addressInSidebar = useShell(selectAddressInSidebar);
   // A window or page with nothing in it opens straight into the location
   // field: once per blank page, so dismissing it sticks. Leaving the blank
@@ -53,6 +56,7 @@ export function App() {
         data-toolbar={!addressInSidebar}
       >
         <Toolbar />
+        <BookmarksBar />
         <StorageBar />
         <UnresponsiveBar />
         <PermissionBar />

@@ -189,7 +189,10 @@ export type PaletteCommand =
   | 'edit-note'
   | 'show-downloads'
   | 'show-history'
+  | 'show-bookmarks'
   | 'show-tasks'
+  | 'toggle-bookmarks-bar'
+  | 'bookmark-branch'
   | 'open-settings'
   | 'zoom-in'
   | 'zoom-out'
@@ -457,6 +460,7 @@ export type UiCommand =
   | { type: 'find'; action: 'open' | 'next' | 'previous' }
   | { type: 'show-downloads' }
   | { type: 'show-history' }
+  | { type: 'show-bookmarks' }
   | { type: 'show-tasks' }
   /** Edit › Undo while the shell has focus: text first, then the trail. */
   | { type: 'undo' }

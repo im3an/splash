@@ -252,6 +252,25 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     shortcut: '⌘Y',
   },
   {
+    command: 'show-bookmarks',
+    title: 'Show bookmarks',
+    keywords: 'favorites favourites saved folders manager organize',
+    shortcut: '⌥⌘B',
+  },
+  {
+    command: 'toggle-bookmarks-bar',
+    title: 'Toggle bookmarks bar',
+    keywords: 'favorites favourites hide show',
+    shortcut: '⇧⌘B',
+  },
+  {
+    command: 'bookmark-branch',
+    title: 'Bookmark branch',
+    keywords: 'favorites favourites save all pages folder trail',
+    shortcut: null,
+    needs: 'children',
+  },
+  {
     command: 'customize-workspace',
     title: 'Customize workspace',
     keywords: 'icon colour color theme appearance rename',

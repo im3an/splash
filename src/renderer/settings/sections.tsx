@@ -230,6 +230,18 @@ export function AppearanceSettings() {
           />
         </Row>
       </Section>
+      <Section title="Bookmarks">
+        <Row
+          label="Show bookmarks bar"
+          help="A row of bookmarks over the page. The sidebar holds the same ones."
+        >
+          <Toggle
+            label="Show bookmarks bar"
+            checked={preferences.bookmarksBar}
+            onChange={(bookmarksBar) => update({ bookmarksBar })}
+          />
+        </Row>
+      </Section>
       <Section title="Sidebar">
         <Row label="Density" help="Compact fits more pages in the sidebar.">
           <Choice
@@ -817,6 +829,13 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ['Move page up / down', '⌥⌘↑ / ⌥⌘↓'],
       ['Nest under the page above / move out', '⌥⌘→ / ⌥⌘←'],
       ['Rename page', 'F2'],
+    ],
+  ],
+  [
+    'Bookmarks',
+    [
+      ['Show bookmarks', '⌥⌘B'],
+      ['Show or hide bookmarks bar', '⇧⌘B'],
     ],
   ],
   [

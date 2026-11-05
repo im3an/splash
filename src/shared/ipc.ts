@@ -83,6 +83,7 @@ export const preferencesSchema = z.strictObject({
   theme: z.enum(['system', 'light', 'dark']),
   density: z.enum(['comfortable', 'compact']),
   showSiteNames: z.boolean(),
+  bookmarksBar: z.boolean(),
   showBranchLines: z.boolean(),
   reduceMotion: z.boolean(),
   addressBar: z.enum(['toolbar', 'sidebar']),
