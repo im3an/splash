@@ -1,5 +1,6 @@
 import type { ClosedSummary, Notice } from '../../shared/types';
 import { api } from '../splash-api';
+import type { UndoStep } from './trail-undo';
 import { useToast, type ToastInput } from '../stores/toast-store';
 
 const UNDO_MS = 9000;
@@ -25,6 +26,11 @@ export function undoMessage(closed: ClosedSummary): string {
       ? `Deleted workspace ${name} and its ${pages}.`
       : `Deleted workspace ${name}.`;
   }
+  if (closed.kind === 'group') {
+    return closed.pageCount > 0
+      ? `Deleted group ${name} and its ${pages}.`
+      : `Deleted group ${name}.`;
+  }
   return closed.pageCount > 1
     ? `Closed ${name} and ${closed.pageCount - 1} more.`
     : `Closed ${name}.`;
@@ -32,6 +38,8 @@ export function undoMessage(closed: ClosedSummary): string {
 
 /** The offer to bring back what was just closed. */
 export function closedToast(closed: ClosedSummary): ToastInput {
+  // A redo closes them again as a new close, which the next undo must name.
+  let { serial } = closed;
   return {
     message: undoMessage(closed),
     detail: '⇧⌘T also undoes it.',
@@ -42,7 +50,13 @@ export function closedToast(closed: ClosedSummary): ToastInput {
         label: 'Undo',
         title: 'Reopen closed (⇧⌘T)',
         icon: 'undo',
-        run: () => void api().reopenClosed(),
+        run: () => api().undoClose(serial),
+        redo: async () => {
+          const next = await api().closeAgain(serial);
+          if (next === null) return false;
+          serial = next;
+          return true;
+        },
       },
     ],
   };
@@ -50,6 +64,20 @@ export function closedToast(closed: ClosedSummary): ToastInput {
 
 export function noticeMessage(notice: Notice): string {
   switch (notice.kind) {
+    case 'exported':
+      return `Saved “${shortName(notice.filename)}”.`;
+    case 'password-saved':
+      return `Saved your password for ${notice.host}.`;
+    case 'passkey-unavailable':
+      return `${notice.host} asked for a passkey, and Splash can’t use Touch ID or iCloud passkeys yet.`;
+    case 'no-video':
+      return notice.blocked
+        ? 'This site doesn’t allow picture in picture.'
+        : 'There’s no video playing on this page.';
+    case 'cannot-open-file':
+      return `Splash can’t show “${shortName(notice.filename)}”.`;
+    case 'helper-ended':
+      return `${notice.extension} couldn’t reach its helper app.`;
     case 'moved': {
       const name = `“${shortName(notice.label)}”`;
       const what =
@@ -100,6 +128,32 @@ export function noticeMessage(notice: Notice): string {
 export function noticeToast(notice: Notice): ToastInput {
   const message = noticeMessage(notice);
   switch (notice.kind) {
+    case 'passkey-unavailable':
+      return {
+        message,
+        detail:
+          'Use a security key if you have one, or another way to sign in.',
+        durationMs: UNDO_MS,
+        actions: [],
+      };
+    case 'cannot-open-file':
+      return {
+        message,
+        detail: 'It opens web pages, PDFs, images, text, audio and video.',
+        durationMs: UNDO_MS,
+        actions: [],
+      };
+    case 'helper-ended':
+      return {
+        message,
+        detail:
+          'Its desktop features, such as unlocking with the desktop app, may not work. The rest of it still does.',
+        durationMs: UNDO_MS,
+        actions: [],
+      };
+    case 'exported':
+    case 'password-saved':
+    case 'no-video':
     case 'page-saved':
     case 'copied':
     case 'no-app':
@@ -107,7 +161,7 @@ export function noticeToast(notice: Notice): ToastInput {
     case 'shell-recovered':
       return { message, detail: null, durationMs: CONFIRM_MS, actions: [] };
     case 'pinned': {
-      const { pageId, pinned, origin } = notice;
+      const { pageId, pinned, origin, at } = notice;
       return {
         message,
         detail: pinned ? '⌘D unpins it.' : null,
@@ -117,7 +171,8 @@ export function noticeToast(notice: Notice): ToastInput {
             label: 'Undo',
             title: pinned ? 'Unpin it' : 'Pin it again',
             icon: 'undo',
-            run: () => void api().setPinned(pageId, !pinned, origin),
+            run: () => api().setPinned(pageId, !pinned, origin),
+            redo: () => api().setPinned(pageId, pinned, at),
           },
         ],
       };
@@ -146,7 +201,7 @@ function movedToast(
   notice: Extract<Notice, { kind: 'moved' }>,
   message: string,
 ): ToastInput {
-  const { pageId, origin, label } = notice;
+  const { pageId, origin, workspaceId, index } = notice;
   return {
     message,
     detail: null,
@@ -161,17 +216,15 @@ function movedToast(
         label: 'Undo',
         title: 'Move it back',
         icon: 'undo',
-        run: () =>
-          void api()
-            .returnPage(pageId, origin)
-            .catch(() =>
-              useToast.getState().show({
-                message: `Couldn’t move “${shortName(label)}” back. It may have been closed.`,
-                detail: null,
-                durationMs: CONFIRM_MS,
-                actions: [],
-              }),
-            ),
+        run: () => api().returnPage(pageId, origin),
+        // The same call, quiet, sends it forward again.
+        redo: () =>
+          api().returnPage(pageId, {
+            workspaceId,
+            parentId: null,
+            index,
+            wasActive: false,
+          }),
       },
     ],
   };
@@ -183,13 +236,15 @@ export function trailMoveToast({
   parentLabel,
   sameParent,
   undo,
+  redo,
 }: {
   label: string;
   /** Where it went; `null` for the top level. */
   parentLabel: string | null;
   /** Only its order among its siblings changed. */
   sameParent: boolean;
-  undo(): void;
+  undo: UndoStep;
+  redo: UndoStep;
 }): ToastInput {
   const name = `“${shortName(label)}”`;
   const message = sameParent
@@ -201,14 +256,17 @@ export function trailMoveToast({
     message,
     detail: null,
     durationMs: UNDO_MS,
-    actions: [{ label: 'Undo', title: 'Put it back', icon: 'undo', run: undo }],
+    actions: [
+      { label: 'Undo', title: 'Put it back', icon: 'undo', run: undo, redo },
+    ],
   };
 }
 
 /** Confirms a rename; `name` is `null` when it went back to the page's title. */
 export function renamedToast(
   name: string | null,
-  undo: () => void,
+  undo: UndoStep,
+  redo: UndoStep,
 ): ToastInput {
   return {
     message: name
@@ -217,7 +275,13 @@ export function renamedToast(
     detail: null,
     durationMs: UNDO_MS,
     actions: [
-      { label: 'Undo', title: 'Use the old name', icon: 'undo', run: undo },
+      {
+        label: 'Undo',
+        title: 'Use the old name',
+        icon: 'undo',
+        run: undo,
+        redo,
+      },
     ],
   };
 }

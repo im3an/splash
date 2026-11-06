@@ -43,7 +43,7 @@ Trail changes are saved to SQLite, with visible save failures and retry. Failed 
 
 ## Extensions and sharing
 
-The bundled extension and unpacked Chrome extensions run through Electron and `electron-chrome-extensions`. Load and remove unpacked extensions through Customize toolbar → Manage Extensions. Some Chrome APIs are unavailable, and Chrome Web Store installation is not implemented. Only load extensions you trust.
+The bundled extension and unpacked Chrome extensions run through Electron and `electron-chrome-extensions`. Add them from the Chrome Web Store or a folder, and manage them in Settings → Extensions. Some Chrome APIs are unavailable. Only load extensions you trust.
 
 The share control uses the native macOS share menu. Folder and group menus can copy their links for sharing; this does not create a public or synchronized collection.
 

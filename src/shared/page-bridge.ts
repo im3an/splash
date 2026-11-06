@@ -1,3 +1,5 @@
+import type { FieldGroup, FieldKind } from './form-fields';
+
 /**
  * Messages a web page's preload may send. Kept zod-free for the preload
  * bundle.
@@ -28,6 +30,9 @@ export const FRAME_GESTURE = 'page:frame-gesture';
 /** A link was dropped on the page and nothing in the page took it. */
 export const LINK_DROPPED = 'page:link-dropped';
 
+/** A file was dropped on the page and nothing in the page took it. */
+export const FILE_DROPPED = 'page:file-dropped';
+
 /** A new frame asking, once and synchronously, what applies to it. */
 export const PAGE_SETTINGS = 'page:settings';
 
@@ -47,4 +52,63 @@ export interface PageSettings {
    * this a site that checks first would think the user had refused.
    */
   undecided: string[];
+  /** Splash may offer to fill and save what's typed in this frame's forms. */
+  formAssist: boolean;
+  /** This site's scripts may not open a floating video. */
+  blockPictureInPicture: boolean;
 }
+
+/** The user clicked into a form field Splash can fill; may a menu open? */
+export const FORM_ASK = 'page:form-ask';
+/** The field's menu should close: typing, leaving the field, scrolling. */
+export const FORM_DISMISS = 'page:form-dismiss';
+/** An arrow key or Return pressed while the field's menu is open. */
+export const FORM_KEY = 'page:form-key';
+/** A sign-in was sent. Only ever sent when it was, and only by its own frame. */
+export const FORM_SUBMITTED = 'page:form-submitted';
+/** A page right after a sign-in asks for a password again: it didn't work. */
+export const FORM_STILL_LOGIN = 'page:form-still-login';
+/** Main to frame: put these values in the form the user is in. */
+export const FORM_FILL = 'page:form-fill';
+/** Main to frame: the field's menu has closed. */
+export const FORM_CLOSED = 'page:form-closed';
+/** A page asked for a passkey in a way the user would have to answer. */
+export const PASSKEY_REQUESTED = 'page:passkey-requested';
+
+/** The field a menu opens under, as a frame reports it. */
+export interface FormFieldReport {
+  group: FieldGroup;
+  kind: FieldKind;
+  /** Where the field is in the top frame's viewport; `null` if it can't tell. */
+  rect: { x: number; y: number; width: number; height: number } | null;
+  /** What's typed as the account's name, for a password made up on the spot. */
+  username: string;
+}
+
+/** What a frame is told to fill. */
+export type FormFill =
+  | {
+      group: 'login';
+      username: string | null;
+      password: string | null;
+      /** A made-up password: only "new password" fields take it. */
+      newPassword: string | null;
+    }
+  | {
+      group: 'address';
+      address: {
+        name: string;
+        organization: string;
+        street: string;
+        city: string;
+        region: string;
+        postalCode: string;
+        country: string;
+        tel: string;
+        email: string;
+      };
+    }
+  | {
+      group: 'card';
+      card: { name: string; number: string; expMonth: string; expYear: string };
+    };

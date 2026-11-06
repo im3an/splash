@@ -12,6 +12,13 @@ export function collectionNotice(message: string) {
     .show({ message, detail: null, actions: [], durationMs: 4500 });
 }
 let pending = Promise.resolve();
+/** For undo and redo: a change that didn't save counts as having failed. */
+export async function changeLibrary(
+  change: (items: SavedCollection[]) => SavedCollection[],
+): Promise<void> {
+  if (!(await updateLibrary(change))) throw new Error('Not saved');
+}
+
 export function updateLibrary(
   change: (items: SavedCollection[]) => SavedCollection[],
 ) {
@@ -73,6 +80,17 @@ export function bookmarkPage(page: PageSnapshot, folderId?: string) {
     ];
   });
 }
+function withoutLink(
+  items: SavedCollection[],
+  url: string | null,
+): SavedCollection[] {
+  return items.map((item) =>
+    item.kind === 'folder'
+      ? { ...item, links: item.links.filter((link) => link.url !== url) }
+      : item,
+  );
+}
+
 export async function toggleBookmark(page: PageSnapshot) {
   const url = page.url;
   if (!webLink(page)) return;
@@ -87,13 +105,7 @@ export async function toggleBookmark(page: PageSnapshot) {
         ...item,
         links: item.links.filter((link) => link.url === url),
       }));
-    return removed.length
-      ? items.map((item) =>
-          item.kind === 'folder'
-            ? { ...item, links: item.links.filter((link) => link.url !== url) }
-            : item,
-        )
-      : addBookmark(items, page);
+    return removed.length ? withoutLink(items, url) : addBookmark(items, page);
   });
   if (!saved) return;
   if (!removed.length) {
@@ -108,8 +120,8 @@ export async function toggleBookmark(page: PageSnapshot) {
       {
         label: 'Undo',
         icon: 'undo',
-        run: () => {
-          void updateLibrary((items) => {
+        run: () =>
+          changeLibrary((items) => {
             const restored = items.map((item) => {
               const original = removed.find((value) => value.id === item.id);
               return original
@@ -140,8 +152,8 @@ export async function toggleBookmark(page: PageSnapshot) {
                       : null,
                 })),
             ];
-          });
-        },
+          }),
+        redo: () => changeLibrary((items) => withoutLink(items, url)),
       },
     ],
   });
@@ -245,11 +257,7 @@ export async function removeFavorite(url: string, title: string) {
   let before: SavedCollection[] = [];
   const saved = await updateLibrary((items) => {
     before = items;
-    return items.map((item) =>
-      item.kind === 'folder'
-        ? { ...item, links: item.links.filter((link) => link.url !== url) }
-        : item,
-    );
+    return withoutLink(items, url);
   });
   if (!saved) return;
   useToast.getState().show({
@@ -260,8 +268,8 @@ export async function removeFavorite(url: string, title: string) {
       {
         label: 'Undo',
         icon: 'undo',
-        run: () => {
-          void updateLibrary((items) =>
+        run: () =>
+          changeLibrary((items) =>
             items.map((item) => {
               const original = before.find((value) => value.id === item.id);
               if (!original || item.kind !== 'folder') return item;
@@ -274,8 +282,12 @@ export async function removeFavorite(url: string, title: string) {
               });
               return { ...item, links };
             }),
-          );
-        },
+          ),
+        redo: () =>
+          changeLibrary((items) => {
+            before = items;
+            return withoutLink(items, url);
+          }),
       },
     ],
   });

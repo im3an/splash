@@ -195,7 +195,7 @@ function LibraryButton() {
         title="Downloads, History and Bookmarks"
         className="icon-button relative shrink-0 justify-self-start"
       >
-        <Archive size={15} />
+        <Archive size={16} />
         {(unseenProblems > 0 || progressing) && (
           <span
             className={`absolute top-1 right-1 size-1.5 rounded-full ${unseenProblems > 0 ? 'bg-danger' : 'bg-accent'}`}

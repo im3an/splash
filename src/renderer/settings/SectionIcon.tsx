@@ -1,11 +1,15 @@
 import {
+  ArrowLeftRight,
   Download,
   Hand,
+  KeyRound,
   Keyboard,
   Layers,
   Paintbrush,
+  Puzzle,
   ScanText,
   Settings,
+  Signpost,
   SlidersHorizontal,
   type LucideIcon,
 } from 'lucide-react';
@@ -16,20 +20,28 @@ import {
  */
 export type SectionIconName =
   | 'general'
+  | 'waymarks'
+  | 'extensions'
   | 'appearance'
   | 'workspaces'
   | 'pages'
   | 'privacy'
+  | 'passwords'
+  | 'transfer'
   | 'downloads'
   | 'shortcuts'
   | 'advanced';
 
 const ICONS: Record<SectionIconName, LucideIcon> = {
   general: SlidersHorizontal,
+  waymarks: Signpost,
+  extensions: Puzzle,
   appearance: Paintbrush,
   workspaces: Layers,
   pages: ScanText,
   privacy: Hand,
+  passwords: KeyRound,
+  transfer: ArrowLeftRight,
   downloads: Download,
   shortcuts: Keyboard,
   advanced: Settings,

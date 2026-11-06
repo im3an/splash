@@ -1,12 +1,22 @@
 import { create } from 'zustand';
-import { offerUndo } from '../lib/trail-undo';
+import {
+  offerUndo,
+  redoLast,
+  undoLast,
+  type UndoResult,
+  type UndoStep,
+} from '../lib/trail-undo';
 
 export interface ToastAction {
   label: string;
   /** Tooltip, e.g. the shortcut that does the same. */
   title?: string;
-  icon?: 'undo';
-  run(): void;
+  icon?: 'undo' | 'redo';
+  run: UndoStep;
+  /** With the `undo` icon: how to do the change again after undoing it. */
+  redo?: UndoStep;
+  /** It runs what's already in the undo history rather than adding to it. */
+  inHistory?: boolean;
 }
 
 export interface Toast {
@@ -47,8 +57,11 @@ export const useToast = create<ToastState>()((set, get) => ({
   show: (input) => {
     // Undo stays available to ⌘Z after the toast goes.
     const actions = input.actions.map((action) =>
-      action.icon === 'undo'
-        ? { ...action, run: offerUndo(input.message, action.run) }
+      action.icon === 'undo' && !action.inHistory
+        ? (() => {
+            const undo = offerUndo(input.message, action.run, action.redo);
+            return { ...action, run: () => undo().then(confirmUndo) };
+          })()
         : action,
     );
     const toast = { ...input, actions, id: ++nextId };
@@ -67,3 +80,58 @@ export const useToast = create<ToastState>()((set, get) => ({
     else scheduleDismiss(toast);
   },
 }));
+
+/** The toast offers a step through the undo history. */
+export function offersUndoHistory(toast: Toast | null): boolean {
+  return !!toast?.actions.some(
+    (action) => action.icon === 'undo' || action.icon === 'redo',
+  );
+}
+
+const UNDONE_MS = 7000;
+
+/** Says what ⌘Z, ⇧⌘Z or a toast's button just did, and offers the way back. */
+export function confirmUndo({ kind, label, canRedo }: UndoResult): void {
+  const { show } = useToast.getState();
+  switch (kind) {
+    case 'nothing':
+      return;
+    case 'undone':
+      return show({
+        message: `Undid: ${label}`,
+        detail: canRedo ? '⇧⌘Z redoes it.' : null,
+        durationMs: UNDONE_MS,
+        actions: canRedo
+          ? [
+              {
+                label: 'Redo',
+                icon: 'redo',
+                run: () => redoLast().then(confirmUndo),
+              },
+            ]
+          : [],
+      });
+    case 'redone':
+      return show({
+        message: label,
+        detail: '⌘Z undoes it.',
+        durationMs: UNDONE_MS,
+        actions: [
+          {
+            label: 'Undo',
+            icon: 'undo',
+            inHistory: true,
+            run: () => undoLast().then(confirmUndo),
+          },
+        ],
+      });
+    case 'undo-failed':
+    case 'redo-failed':
+      return show({
+        message: `Couldn’t ${kind === 'undo-failed' ? 'undo' : 'redo'}: ${label}`,
+        detail: 'It may have changed since.',
+        durationMs: UNDONE_MS,
+        actions: [],
+      });
+  }
+}

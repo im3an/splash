@@ -7,9 +7,9 @@ const cache = new Map<number, string>();
  * A tile of fractal noise for the window frame, like Arc's grain: grey
  * specks at `amount` (0–1) of full strength, or `none` for no grain.
  */
-export function grainImage(amount: number, strongest = MAX_ALPHA): string {
+export function grainImage(amount: number): string {
   const alpha =
-    Math.round(Math.min(1, Math.max(0, amount)) * strongest * 1000) / 1000;
+    Math.round(Math.min(1, Math.max(0, amount)) * MAX_ALPHA * 1000) / 1000;
   if (alpha === 0) return 'none';
   let image = cache.get(alpha);
   if (!image) {

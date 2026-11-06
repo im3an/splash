@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, RotateCw } from 'lucide-react';
 import { durationMs } from '../lib/motion';
 import { useShell } from '../stores/shell-store';
 import {
@@ -80,6 +80,7 @@ function ToastCard({
       className="press flex h-6 shrink-0 items-center gap-1 rounded-inner px-2 text-fg hover:bg-hover"
     >
       {action.icon === 'undo' && <RotateCcw size={12} />}
+      {action.icon === 'redo' && <RotateCw size={12} />}
       {action.label}
     </button>
   ));

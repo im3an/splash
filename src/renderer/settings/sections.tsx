@@ -8,8 +8,10 @@ import {
   FONT_SIZE_CHOICES,
   MINIMUM_FONT_SIZE_CHOICES,
   MONOSPACE_FONTS,
+  SPELLING_LANGUAGES,
   STANDARD_FONTS,
   type Preferences,
+  type SpellingLanguage,
 } from '../../shared/preferences';
 import { customEngines, SEARCH_ENGINES } from '../../shared/search';
 import type {
@@ -22,7 +24,6 @@ import type {
 } from '../../shared/types';
 import { Brand } from '../components/Brand';
 import { toolbarLabels } from '../components/ToolbarActions';
-import { WorkspaceIcon } from '../components/WorkspaceIcon';
 import { api } from '../splash-api';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
 import {
@@ -30,12 +31,12 @@ import {
   siteDecisionOptions,
   threatListSummary,
 } from '../lib/format';
-import { Button, Choice, Row, Section, Toggle } from './controls';
+import { Button, Choice, Row, Section, Select, Toggle } from './controls';
 import { CookieSettings } from './CookieSettings';
 import { NewPageSettings } from './NewPageSettings';
 import { SearchShortcuts } from './SearchShortcuts';
 
-function usePreferences(): [
+export function usePreferences(): [
   Preferences | null,
   (patch: Partial<Preferences>) => void,
 ] {
@@ -79,11 +80,10 @@ export function GeneralSettings() {
           label="Search engine"
           help="Used for anything you type that isn’t a web address."
         >
-          <select
+          <Select
             aria-label="Search engine"
             value={preferences.searchEngine}
             onChange={(event) => update({ searchEngine: event.target.value })}
-            className="h-7 rounded-control bg-field px-2 text-small text-fg"
           >
             {[...SEARCH_ENGINES, ...customEngines(preferences)].map(
               (engine) => (
@@ -92,7 +92,7 @@ export function GeneralSettings() {
                 </option>
               ),
             )}
-          </select>
+          </Select>
         </Row>
         <Row
           label="Show search suggestions"
@@ -316,12 +316,6 @@ export function WorkspaceSettings() {
           key={workspace.id}
           className="flex min-h-12 items-center gap-3 px-4 py-2"
         >
-          <span className="grid size-7 shrink-0 place-items-center rounded-control bg-field text-small font-semibold text-accent">
-            <WorkspaceIcon
-              icon={workspace.appearance.icon}
-              name={workspace.name}
-            />
-          </span>
           <div className="min-w-0 flex-1">
             <p className="truncate">
               {workspace.name}
@@ -471,8 +465,6 @@ function ContentBlockingSettings() {
   );
 }
 
-const SELECT = 'h-7 rounded-control bg-field px-2 text-small text-fg';
-
 /** Zoom and fonts: how sites are shown, not how Splash is. */
 export function PageSettings() {
   const [preferences, update] = usePreferences();
@@ -491,20 +483,19 @@ export function PageSettings() {
           label="Default zoom"
           help="For sites you haven’t zoomed yourself. Zooming a site with ⌘+ or ⌘− is remembered for that site."
         >
-          <select
+          <Select
             aria-label="Default zoom"
             value={preferences.defaultZoom}
             onChange={(event) =>
               update({ defaultZoom: Number(event.target.value) })
             }
-            className={SELECT}
           >
             {DEFAULT_ZOOM_CHOICES.map((percent) => (
               <option key={percent} value={percent}>
                 {percent}%
               </option>
             ))}
-          </select>
+          </Select>
         </Row>
         {zoomed.map(([host, percent]) => (
           <Row key={host} label={host} help={`${percent}%`}>
@@ -517,11 +508,10 @@ export function PageSettings() {
         description="For text a site doesn’t style itself. Open pages reload to apply a change."
       >
         <Row label="Font">
-          <select
+          <Select
             aria-label="Font"
             value={preferences.standardFont}
             onChange={(event) => update({ standardFont: event.target.value })}
-            className={SELECT}
           >
             <option value="">Default</option>
             {STANDARD_FONTS.map((font) => (
@@ -529,30 +519,28 @@ export function PageSettings() {
                 {font}
               </option>
             ))}
-          </select>
+          </Select>
         </Row>
         <Row label="Font size">
-          <select
+          <Select
             aria-label="Font size"
             value={preferences.defaultFontSize}
             onChange={(event) =>
               update({ defaultFontSize: Number(event.target.value) })
             }
-            className={SELECT}
           >
             {FONT_SIZE_CHOICES.map((size) => (
               <option key={size} value={size}>
                 {size}
               </option>
             ))}
-          </select>
+          </Select>
         </Row>
         <Row label="Fixed-width font">
-          <select
+          <Select
             aria-label="Fixed-width font"
             value={preferences.monospaceFont}
             onChange={(event) => update({ monospaceFont: event.target.value })}
-            className={SELECT}
           >
             <option value="">Default</option>
             {MONOSPACE_FONTS.map((font) => (
@@ -560,26 +548,49 @@ export function PageSettings() {
                 {font}
               </option>
             ))}
-          </select>
+          </Select>
         </Row>
         <Row
           label="Minimum font size"
           help="No text is drawn smaller than this, even where a site asks for it."
         >
-          <select
+          <Select
             aria-label="Minimum font size"
             value={preferences.minimumFontSize}
             onChange={(event) =>
               update({ minimumFontSize: Number(event.target.value) })
             }
-            className={SELECT}
           >
             {MINIMUM_FONT_SIZE_CHOICES.map((size) => (
               <option key={size} value={size}>
                 {size === 0 ? 'None' : size}
               </option>
             ))}
-          </select>
+          </Select>
+        </Row>
+      </Section>
+      <Section title="Spelling">
+        <Row
+          label="Check spelling"
+          help="Automatic follows the language you’re typing. A new language applies the next time you open Splash."
+        >
+          <Select
+            aria-label="Check spelling"
+            value={preferences.spellingLanguage}
+            onChange={(event) =>
+              update({
+                spellingLanguage: event.target.value as SpellingLanguage,
+              })
+            }
+          >
+            <option value="automatic">Automatic</option>
+            <option value="off">Off</option>
+            {SPELLING_LANGUAGES.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </Select>
         </Row>
       </Section>
     </>
@@ -751,18 +762,17 @@ export function PrivacySettings() {
         description="Only history follows the time range, and only history can be undone, for a minute."
       >
         <Row label="History from">
-          <select
+          <Select
             aria-label="Time range"
             value={range}
             onChange={(event) => setRange(event.target.value as ClearRange)}
-            className="h-7 rounded-control bg-field px-2 text-small text-fg"
           >
             {RANGES.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
-          </select>
+          </Select>
         </Row>
         {(
           [

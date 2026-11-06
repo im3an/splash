@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SplashApi } from '../../shared/api';
 import { DEFAULT_PREFERENCES } from '../../shared/preferences';
-import type { PageSnapshot } from '../../shared/types';
+import type { PageSnapshot, UiCommand } from '../../shared/types';
+import { offerUndo, resetTrailUndo } from '../lib/trail-undo';
 import { sampleSnapshot } from '../test-fixtures';
-import { selectStartPageFocus, useShell } from './shell-store';
+import { connectShell, selectStartPageFocus, useShell } from './shell-store';
+import { useToast } from './toast-store';
 
 describe('sidebar panels', () => {
   beforeEach(() => {
@@ -81,5 +85,92 @@ describe('selectStartPageFocus', () => {
     expect(
       selectStartPageFocus(state('start', { url: null, isLoading: true })),
     ).toBeNull();
+  });
+});
+
+describe('Undo and Redo sent to the trail', () => {
+  function connect() {
+    let send: (command: UiCommand) => void = () => undefined;
+    const setTrailUndoOffered = vi.fn();
+    const focusPage = vi.fn();
+    const splash = {
+      onSnapshot: () => () => undefined,
+      onUiCommand: (listener: (command: UiCommand) => void) => {
+        send = listener;
+        return () => undefined;
+      },
+      onNotice: () => () => undefined,
+      onPreferences: () => () => undefined,
+      getPreferences: async () => null,
+      getSnapshot: async () => null,
+      setTrailUndoOffered,
+      focusPage,
+    } as unknown as SplashApi;
+    const disconnect = connectShell(splash);
+    return {
+      send: (command: UiCommand) => send(command),
+      setTrailUndoOffered,
+      focusPage,
+      disconnect,
+    };
+  }
+  const toast = (icon?: 'undo' | 'redo') => ({
+    message: 'Closed “Atlas”.',
+    detail: null,
+    durationMs: 1000,
+    actions: icon
+      ? [{ label: icon, icon, inHistory: true, run: () => undefined }]
+      : [],
+  });
+
+  beforeEach(() => {
+    resetTrailUndo();
+    useToast.setState({ toast: null });
+  });
+
+  it('skips the shell’s own field, which focus has only left behind', async () => {
+    const { send, focusPage, disconnect } = connect();
+    const undo = vi.fn();
+    const redo = vi.fn();
+    offerUndo('closed', undo, redo);
+    const field = document.createElement('input');
+    document.body.append(field);
+    field.focus();
+    send({ type: 'undo', trail: true });
+    await vi.waitFor(() => expect(undo).toHaveBeenCalledOnce());
+    send({ type: 'redo', trail: true });
+    await vi.waitFor(() => expect(redo).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(focusPage).toHaveBeenCalledTimes(2));
+    field.remove();
+    disconnect();
+  });
+
+  it('edits the shell’s field when focus really is in it', () => {
+    const { send, disconnect } = connect();
+    const undo = vi.fn();
+    offerUndo('closed', undo);
+    const exec = vi.fn();
+    document.execCommand = exec;
+    const field = document.createElement('input');
+    document.body.append(field);
+    field.focus();
+    send({ type: 'undo' });
+    expect(exec).toHaveBeenCalledWith('undo');
+    expect(undo).not.toHaveBeenCalled();
+    field.remove();
+    disconnect();
+  });
+
+  it('tells the main process only when an offer starts or ends', () => {
+    const { setTrailUndoOffered, disconnect } = connect();
+    useToast.getState().show(toast());
+    expect(setTrailUndoOffered).not.toHaveBeenCalled();
+    useToast.getState().show(toast('undo'));
+    expect(setTrailUndoOffered).toHaveBeenLastCalledWith(true);
+    useToast.getState().show(toast('redo'));
+    expect(setTrailUndoOffered).toHaveBeenCalledTimes(1);
+    useToast.getState().dismiss(useToast.getState().toast!.id);
+    expect(setTrailUndoOffered).toHaveBeenLastCalledWith(false);
+    disconnect();
   });
 });

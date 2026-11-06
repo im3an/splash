@@ -422,6 +422,9 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
               return inSection;
             });
             const pinned = section.kind === 'pinned';
+            // With no pane around them, a folder's pages show they're inside
+            // by sitting one step in. A row's real depth stays as it is.
+            const nest = minimal && section.kind === 'group' ? 1 : 0;
             // New page leads the open pages, even when every page is pinned.
             if (
               !sectionRows.length &&
@@ -437,12 +440,13 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
                     <TrailRow
                       row={row}
                       depth={
-                        row.id === drag?.activeId &&
+                        nest +
+                        (row.id === drag?.activeId &&
                         projection &&
                         !dropTarget &&
                         !workspaceDrop
                           ? projection.depth
-                          : row.depth
+                          : row.depth)
                       }
                       active={row.id === snapshot.activePageId}
                       tabStop={row.id === tabStop}
@@ -464,7 +468,7 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
                     {!drag && (
                       <PageNote
                         pageId={row.id}
-                        depth={row.depth}
+                        depth={row.depth + nest}
                         indent={indent}
                         lead={flat ? FLAT_LEAD : LEAD}
                       />
@@ -572,11 +576,10 @@ async function moveWithUndo(
       label: pageParts(page).title,
       parentLabel: parent ? pageParts(parent).title : null,
       sameParent: row.parentId === parentId,
-      undo: () =>
-        void splash
-          .movePage(row.id, row.parentId, previousAfterId)
-          // The old spot may be gone (its neighbour closed); then it stays.
-          .catch(() => undefined),
+      // Either spot may be gone by then (a neighbour closed); then it stays,
+      // and the toast says so.
+      undo: () => splash.movePage(row.id, row.parentId, previousAfterId),
+      redo: () => splash.movePage(row.id, parentId, afterId),
     }),
   );
 }
@@ -953,7 +956,8 @@ const TrailRow = memo(function TrailRow({
           )}
           <button
             type="button"
-            tabIndex={0}
+            // One stop for the whole tree: the current row and its actions.
+            tabIndex={tabStop ? 0 : -1}
             aria-label={`Actions for ${label}`}
             title="Page actions"
             aria-haspopup="menu"
@@ -1311,14 +1315,13 @@ function RenameField({
     if (name === initial) return;
     const splash = api();
     void splash.renamePage(pageId, name || null).then(() => {
-      useToast
-        .getState()
-        .show(
-          renamedToast(
-            name || null,
-            () => void splash.renamePage(pageId, previous),
-          ),
-        );
+      useToast.getState().show(
+        renamedToast(
+          name || null,
+          () => splash.renamePage(pageId, previous),
+          () => splash.renamePage(pageId, name || null),
+        ),
+      );
     });
   };
   const cancel = () => {

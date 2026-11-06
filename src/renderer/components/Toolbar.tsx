@@ -109,7 +109,7 @@ export function NavigationButtons() {
           disabled={!page?.url}
           onClick={() => page && void api().reload(page.id)}
         >
-          <RotateCw size={15} />
+          <RotateCw size={16} />
         </ToolbarButton>
       )}
     </>

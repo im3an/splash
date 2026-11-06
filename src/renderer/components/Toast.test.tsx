@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 import { Toast } from './Toast';
@@ -45,12 +51,17 @@ describe('Toast', () => {
     expect(screen.getAllByRole('status')).toHaveLength(1);
   });
 
-  it('runs an action once and goes away', () => {
+  it('runs an action once and gives way to its confirmation', async () => {
     render(<Toast placement="sidebar" />);
     const run = showToast();
+    const message = screen.getByRole('status').textContent;
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    // The undo waits its turn in the history before it runs.
+    await act(() => vi.advanceTimersByTimeAsync(0));
     expect(run).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('status').textContent).toMatch(/^Undid: /);
+    expect(screen.getByRole('status').textContent).not.toBe(message);
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
   });
 
   it('stays while the pointer rests on it, then times out', () => {

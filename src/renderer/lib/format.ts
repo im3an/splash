@@ -220,6 +220,21 @@ function loadFailure(
         title: 'That address isn’t valid',
         detail: 'Check it for typos, then try again.',
       };
+    case -200:
+      return {
+        title: 'This connection isn’t private',
+        detail: `This certificate is made out to a different site than ${host}, so someone could be posing as it. Splash stopped loading it to protect what you send.`,
+      };
+    case -201:
+      return {
+        title: 'This connection isn’t private',
+        detail: `${host}’s certificate has expired or isn’t valid yet, or this Mac’s clock is wrong. Splash stopped loading it to protect what you send.`,
+      };
+    case -202:
+      return {
+        title: 'This connection isn’t private',
+        detail: `No authority Splash trusts vouches for ${host}’s certificate, so someone could be posing as it. That’s normal for your own server or a local one, and suspicious anywhere else.`,
+      };
     default:
       if (code <= -200 && code > -300) {
         return {
@@ -257,6 +272,12 @@ export function describeError(error: PageError): {
         'Its process ended unexpectedly. Reloading usually brings it back.',
     };
   }
+  if (error.certificateLocked) {
+    return {
+      title: 'This connection isn’t private',
+      detail: `${hostOf(error.url)} only allows connections with a valid certificate, and this one isn’t, so Splash can’t let you continue. Something on your network may be interfering. Try another network, or try again later.`,
+    };
+  }
   if (error.kind === 'no-secure-connection') {
     return {
       title: `Couldn’t connect securely to ${hostOf(error.url)}`,
@@ -291,6 +312,9 @@ const PERMISSION_NAMES: Record<SitePermission, string> = {
   autoplay: 'autoplay',
   'third-party-cookies': 'third-party cookies',
   dangerous: 'a site reported as dangerous',
+  certificate: 'an untrusted certificate',
+  'save-passwords': 'saved passwords',
+  'picture-in-picture': 'picture in picture',
 };
 
 const DECIDED_BY_SPLASH: ReadonlySet<SitePermission> = new Set<SitePermission>([
@@ -302,6 +326,9 @@ const DECIDED_BY_SPLASH: ReadonlySet<SitePermission> = new Set<SitePermission>([
   'autoplay',
   'third-party-cookies',
   'dangerous',
+  'certificate',
+  'save-passwords',
+  'picture-in-picture',
 ]);
 
 /**

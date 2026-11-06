@@ -12,8 +12,10 @@ import {
   type WebContents,
   type WebPreferences,
 } from 'electron';
+import { z } from 'zod';
 import {
   BRANCH_LINK,
+  FILE_DROPPED,
   FORM_EDITED,
   FRAME_GESTURE,
   LINK_DROPPED,
@@ -32,7 +34,6 @@ import type {
   PageHostFactory,
 } from './page-host';
 import {
-  allowLocalFile,
   isExternalAppUrl,
   isLocalFileUrl,
   isNavigableUrl,
@@ -48,11 +49,13 @@ import {
   UserGestures,
 } from './popup-policy';
 import { stepZoom } from './zoom';
-import { SecureAttempt } from '../security/https-only';
+import { SECURE_ATTEMPT_LIMIT_MS, SecureAttempt } from '../security/https-only';
+import { togglePictureInPicture } from './picture-in-picture';
 import { CONTENT_RADIUS } from '../../shared/geometry';
 
 /** Chromium's ERR_ABORTED: a load was superseded by another navigation. */
 const ERR_ABORTED = -3;
+const ERR_TIMED_OUT = -7;
 const MAX_URL_LENGTH = 8192;
 
 export interface PageHostEnvironment {
@@ -74,12 +77,20 @@ export interface PageHostEnvironment {
   httpsOnly(): boolean;
   /** Whether the user already chose to use this plain HTTP address's site. */
   plainHttpAllowed(url: string): boolean;
+  /** Whether the user chose to use this site despite its certificate. */
+  certificateException(url: string): boolean;
+  /** Whether this site's certificate warning must not offer a way past it. */
+  certificateLocked(url: string): boolean;
   /** A page's contents were created; extensions can now see it. */
   onContentsCreated?(contents: WebContents): void;
   /** A page's contents now belong to another window. */
   onContentsMoved?(contents: WebContents, window: BaseWindow): void;
   /** A page's link wants another app (mailto:, tel:): ask, then open it. */
   openExternal?(contents: WebContents, url: string): void;
+  /** Lets an opened page go to a file beside it. */
+  allowFile(url: string): void;
+  /** Files dragged from the Finder onto the page. */
+  openDroppedFiles?(paths: string[]): void;
   /** Extension items for a page's context menu, such as "Block element". */
   extensionMenuItems?(
     contents: WebContents,
@@ -104,6 +115,8 @@ export interface PageHandle {
   flaggedDangerous(url: string): void;
   /** Its main-frame request for `plain` is going to `secure` instead. */
   upgraded(plain: string, secure: string): void;
+  /** Where it is in its window, while it's on screen. */
+  place(): { window: BaseWindow; bounds: Rectangle } | null;
 }
 
 const pageHandles = new Map<number, PageHandle>();
@@ -156,6 +169,7 @@ class ElectronPageHost implements PageHost {
   private hasFormEdits = false;
   private origin: string | null = null;
   private sourceUrl: string | null = null;
+  private secureTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     environment: PageHostEnvironment,
@@ -196,7 +210,14 @@ class ElectronPageHost implements PageHost {
       flaggedDangerous: (url) => {
         this.flaggedUrl = url;
       },
-      upgraded: (plain, secure) => this.secureAttempt.begin(plain, secure),
+      upgraded: (plain, secure) => {
+        this.secureAttempt.begin(plain, secure);
+        this.watchSecureAttempt(secure);
+      },
+      place: () =>
+        this.attached
+          ? { window: this.window, bounds: this.view.getBounds() }
+          : null,
     });
     this.view.webContents.once('destroyed', () => pageHandles.delete(id));
     environment.onContentsCreated?.(this.view.webContents);
@@ -206,10 +227,51 @@ class ElectronPageHost implements PageHost {
     return this.nativeContents;
   }
 
+  /**
+   * A site that drops HTTPS connections without an answer can keep a page
+   * waiting for minutes. After a while, offer the plain address instead.
+   */
+  private watchSecureAttempt(secure: string): void {
+    if (this.secureTimer) clearTimeout(this.secureTimer);
+    this.secureTimer = setTimeout(() => {
+      this.secureTimer = null;
+      const { contents } = this;
+      if (contents.isDestroyed() || !this.secureAttempt.active) return;
+      const plain = this.secureAttempt.failed(ERR_TIMED_OUT);
+      if (plain) this.offerPlainHttp(secure, plain, ERR_TIMED_OUT, 'Timed out');
+    }, SECURE_ATTEMPT_LIMIT_MS);
+  }
+
+  private stopWatchingSecureAttempt(): void {
+    if (this.secureTimer) clearTimeout(this.secureTimer);
+    this.secureTimer = null;
+  }
+
+  /** The secure address didn't work: go on, or ask, about the plain one. */
+  private offerPlainHttp(
+    secure: string,
+    plain: string,
+    code: number,
+    description: string,
+  ): void {
+    this.stopWatchingSecureAttempt();
+    if (this.environment.plainHttpAllowed(plain)) {
+      this.load(plain);
+      return;
+    }
+    this.contents.stop();
+    this.failedUpgrade = { secure, plain };
+    this.events.onStateChange({
+      isLoading: false,
+      error: { kind: 'no-secure-connection', code, description, url: plain },
+    });
+  }
+
   load(url: string, options: LoadOptions = {}): void {
     this.sourceUrl = url.startsWith('view-source:') ? url : null;
     if (options.plainAddress && this.environment.httpsOnly()) {
       this.secureAttempt.begin(options.plainAddress, url);
+      this.watchSecureAttempt(url);
     }
     const httpReferrer = options.referrer
       ? {
@@ -403,6 +465,7 @@ class ElectronPageHost implements PageHost {
     // Forget the page now: `destroyed` comes later, and until then a sleeping
     // page would still seem to have this view.
     if (!this.contents.isDestroyed()) pageHandles.delete(this.contents.id);
+    this.stopWatchingSecureAttempt();
     this.hide();
     // A WebContentsView does not destroy its WebContents on its own.
     if (!this.contents.isDestroyed()) this.contents.close();
@@ -425,6 +488,16 @@ class ElectronPageHost implements PageHost {
     contents.setWindowOpenHandler(({ url, disposition, features }) => {
       if (isExternalAppUrl(url)) {
         this.environment.openExternal?.(contents, url);
+        return { action: 'deny' };
+      }
+      // An opened file's link to a file beside it, with `target=_blank`.
+      if (isLocalFileUrl(url)) {
+        if (mayFollowFileLink(contents.getURL(), url)) {
+          this.environment.allowFile(url);
+          this.events.onOpenRequest(url, {
+            background: disposition === 'background-tab',
+          });
+        }
         return { action: 'deny' };
       }
       const blank = isBlankPopup(url);
@@ -476,6 +549,14 @@ class ElectronPageHost implements PageHost {
         this.events.onOpenRequest(href, { background: false });
       }
     });
+    contents.ipc.on(FILE_DROPPED, (event, paths: unknown) => {
+      if (event.senderFrame?.parent !== null) return;
+      const files = z
+        .array(z.string().min(1).max(4096))
+        .max(50)
+        .safeParse(paths);
+      if (files.success) this.environment.openDroppedFiles?.(files.data);
+    });
     contents.ipc.on(FORM_EDITED, (event, edited: unknown) => {
       if (!event.senderFrame || edited !== true) return;
       this.hasFormEdits = true;
@@ -513,7 +594,7 @@ class ElectronPageHost implements PageHost {
           event.preventDefault();
           return;
         }
-        allowLocalFile(event.url);
+        this.environment.allowFile(event.url);
       }
       if (!isPageUrl(event.url)) {
         event.preventDefault();
@@ -555,6 +636,15 @@ class ElectronPageHost implements PageHost {
         copied: (what, subject) =>
           this.events.onNotice({ kind: 'copied', what, subject }),
         print: () => this.print(),
+        pictureInPicture: () =>
+          void togglePictureInPicture(contents).then((result) => {
+            if (result !== 'ok') {
+              this.events.onNotice({
+                kind: 'no-video',
+                blocked: result === 'blocked',
+              });
+            }
+          }),
       });
       const extras =
         this.environment.extensionMenuItems?.(contents, params) ?? [];
@@ -611,10 +701,20 @@ class ElectronPageHost implements PageHost {
     contents.on('did-stop-loading', () =>
       emit({ isLoading: false, ...this.navigationState() }),
     );
-    contents.on('did-navigate', (_event, committed) => {
+    contents.on('did-navigate', (_event, committed, status) => {
+      this.stopWatchingSecureAttempt();
+      // The secure address answered only to say it has nothing there: the
+      // plain one may well be the site.
+      const refused = this.secureAttempt.answeredWithError(status);
+      if (refused && committed.startsWith('https:')) {
+        this.offerPlainHttp(committed, refused, status, `HTTP ${status}`);
+      }
       this.secureAttempt.committed();
       this.hasFormEdits = false;
-      emit({ hasFormEdits: false });
+      emit({
+        hasFormEdits: false,
+        certificateException: this.environment.certificateException(committed),
+      });
       const url = this.sourceUrl ?? committed;
       const origin = originOf(url);
       const leftSite = origin !== this.origin;
@@ -676,6 +776,7 @@ class ElectronPageHost implements PageHost {
           });
           return;
         }
+        this.stopWatchingSecureAttempt();
         const plain = this.secureAttempt.failed(code);
         // Typed without a scheme, on a site the user already chose HTTP for.
         if (plain && this.environment.plainHttpAllowed(plain)) {
@@ -683,11 +784,15 @@ class ElectronPageHost implements PageHost {
           return;
         }
         this.failedUpgrade = plain ? { secure: url, plain } : null;
+        const certificateLocked = this.environment.certificateLocked(url);
         emit({
           isLoading: false,
-          error: plain
-            ? { kind: 'no-secure-connection', code, description, url: plain }
-            : { kind: 'load-failed', code, description, url },
+          error: {
+            ...(plain
+              ? { kind: 'no-secure-connection', code, description, url: plain }
+              : { kind: 'load-failed', code, description, url }),
+            ...(certificateLocked ? { certificateLocked } : {}),
+          },
         });
       },
     );

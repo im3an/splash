@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useRef, useState, type CSSProperties } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import {
   harmonies,
@@ -12,11 +12,15 @@ import {
   type WheelPoint,
 } from '../lib/color-wheel';
 
-/** The canvas's height; colours lie within `RADIUS` of its centre. */
-const HEIGHT = 312;
-const RADIUS = 112;
-const HANDLE = 40;
-const HARMONY = 26;
+/**
+ * The canvas's height; colours lie within `RADIUS` of `CENTER`, which sits a
+ * little high to leave room for the buttons along the bottom.
+ */
+const HEIGHT = 248;
+const CENTER = 112;
+const RADIUS = 92;
+const HANDLE = 32;
+const HARMONY = 20;
 /** How far a press on a matching colour moves before it counts as a drag. */
 const DRAG_SLOP = 3;
 
@@ -24,7 +28,7 @@ function placed(point: WheelPoint, diameter: number) {
   const { x, y } = pointToOffset(point, RADIUS * 2);
   return {
     left: `calc(50% + ${x - diameter / 2}px)`,
-    top: HEIGHT / 2 + y - diameter / 2,
+    top: CENTER + y - diameter / 2,
     width: diameter,
     height: diameter,
   } satisfies CSSProperties;
@@ -47,21 +51,18 @@ function spreadOf(colors: readonly string[]): number {
 }
 
 /**
- * Arc's colour canvas: a field of dots where the angle from the centre is
- * the hue and the distance how vivid it is. Drag the large dot for the main
- * colour (the accent); up to two smaller ones add colours that go with it.
- * Pressing one makes it the main colour; dragging one spreads them apart.
- * `children` sit along the top, as Arc puts light and dark there.
+ * A field of dots, after Arc's, where the angle from the centre is the hue
+ * and the distance how vivid it is. Drag the large dot for the main colour
+ * (the accent); up to two smaller ones add colours that go with it. Pressing
+ * one makes it the main colour; dragging one spreads them apart.
  */
 export function AccentWheel({
   colors,
   onChange,
-  children,
 }: {
   /** One to three `#rrggbb` colours, the main one first. */
   colors: readonly string[];
   onChange(colors: string[]): void;
-  children?: ReactNode;
 }) {
   const key = colors.join(' ');
   const count = Math.max(0, Math.min(2, colors.length - 1));
@@ -99,7 +100,7 @@ export function AccentWheel({
     const box = canvas.current!.getBoundingClientRect();
     return offsetToPoint(
       event.clientX - box.left - box.width / 2,
-      event.clientY - box.top - HEIGHT / 2,
+      event.clientY - box.top - CENTER,
       RADIUS * 2,
     );
   };
@@ -130,9 +131,6 @@ export function AccentWheel({
         dragging.current = false;
       }}
     >
-      <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center *:pointer-events-auto">
-        {children}
-      </div>
       {matches.map((match, index) => (
         <HarmonyDot
           key={index}
@@ -184,16 +182,16 @@ export function AccentWheel({
           choose(next);
         }}
       />
-      <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center gap-3 *:pointer-events-auto">
+      <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center gap-1 *:pointer-events-auto">
         <button
           type="button"
           aria-label="Remove a colour"
           title="Remove a colour"
           disabled={count === 0}
           onClick={() => emit(point, count - 1, spread)}
-          className="icon-button text-fg-muted disabled:opacity-30"
+          className="icon-button"
         >
-          <Minus size={18} />
+          <Minus size={16} />
         </button>
         <button
           type="button"
@@ -201,9 +199,9 @@ export function AccentWheel({
           title="Add a colour"
           disabled={count === 2}
           onClick={() => emit(point, count + 1, spread)}
-          className="icon-button text-fg-muted disabled:opacity-30"
+          className="icon-button"
         >
-          <Plus size={18} />
+          <Plus size={16} />
         </button>
       </div>
     </div>

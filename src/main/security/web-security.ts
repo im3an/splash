@@ -8,6 +8,7 @@ import {
   webOrigin,
   type PermissionDecisions,
 } from './permissions';
+import { webUserAgent } from './user-agent';
 
 /** Web pages browse in their own persistent session, apart from the app shell. */
 export const WEB_PARTITION = 'persist:web';
@@ -33,6 +34,7 @@ export function configureWebSession(
   session: Session,
   decisions: PermissionDecisions,
 ): void {
+  session.setUserAgent(webUserAgent(session.getUserAgent()));
   session.setPermissionRequestHandler(
     (contents, permission, callback, details) => {
       if (AUTO_GRANTED.has(permission)) {

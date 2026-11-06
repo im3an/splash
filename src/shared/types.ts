@@ -15,6 +15,8 @@ export interface PageError {
   code: number;
   description: string;
   url: string;
+  /** The site insists on valid HTTPS, so there's no way past this warning. */
+  certificateLocked?: boolean;
 }
 
 /** A row of the task manager: one process and what runs in it. */
@@ -74,6 +76,8 @@ export interface PageSnapshot {
   find: FindResult | null;
   isUnresponsive: boolean;
   hasFormEdits?: boolean;
+  /** On a site the user chose to use despite its certificate. */
+  certificateException?: boolean;
   /** Permissions this page asked for and was refused, for the address bar. */
   blockedPermissions: SitePermission[];
   /** Addresses this page tried to open without being asked, newest last. */
@@ -93,6 +97,10 @@ export type SitePermission =
   | 'midi'
   | 'clipboard'
   | 'sound'
+  /** Whether Splash offers to keep logins used on this site. */
+  | 'save-passwords'
+  /** A site's scripts floating a video in its own small window. */
+  | 'picture-in-picture'
   /** Allowed means ads and trackers aren't blocked on the site. */
   | 'ads'
   /** Links that open an app on the Mac: mailto:, tel:, zoommtg: … */
@@ -107,7 +115,9 @@ export type SitePermission =
   /** Cookies of other sites while on this one. */
   | 'third-party-cookies'
   /** The user chose to visit a site the lists report as dangerous. */
-  | 'dangerous';
+  | 'dangerous'
+  /** The user chose to use a site despite its certificate. */
+  | 'certificate';
 
 export type PermissionDecision = 'allow' | 'block' | 'ask';
 
@@ -184,6 +194,13 @@ export type PaletteItem = {
 );
 
 export type PaletteCommand =
+  | 'open-file'
+  | 'new-private-window'
+  | 'manage-passwords'
+  | 'import-data'
+  | 'export-bookmarks'
+  | 'export-trail'
+  | 'picture-in-picture'
   | 'new-page'
   | 'new-child-page'
   | 'new-workspace'
@@ -221,6 +238,11 @@ export type PaletteCommand =
   | 'print'
   | 'save-page'
   | 'close-others'
+  | 'close-below'
+  | 'view-source'
+  | 'dev-tools'
+  | 'filter-pages'
+  | 'toggle-ai-panel'
   | 'close-split'
   | 'rename-workspace'
   | 'delete-workspace';
@@ -327,6 +349,24 @@ export interface DefaultBrowserStatus {
   canChange: boolean;
 }
 
+export type ExtensionSource = 'bundled' | 'store' | 'unpacked';
+
+/** One row of the Extensions settings. */
+export interface ExtensionInfo {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  source: ExtensionSource;
+  enabled: boolean;
+  /** A `data:` address, so it still draws while the extension is off. */
+  iconUrl: string | null;
+  optionsUrl: string | null;
+  storeUrl: string | null;
+  /** What it can reach, in plain words, most serious first. */
+  warnings: string[];
+}
+
 export interface AboutInfo {
   version: string;
   electron: string;
@@ -406,11 +446,16 @@ export interface WorkspaceSummary {
 
 /** The most recent close that can be undone. */
 export interface ClosedSummary {
-  kind: 'pages' | 'workspace';
+  kind: 'pages' | 'workspace' | 'group';
   label: string;
   pageCount: number;
   /** Changes with every close, so the shell can tell a new one apart. */
   serial: number;
+  /** The first page's address and icon. Missing in older records. */
+  url?: string | null;
+  faviconUrl?: string | null;
+  /** A redo closed it again; the shell confirms that itself. */
+  redone?: boolean;
 }
 
 /** Two pages of one workspace shown side by side. */
@@ -424,7 +469,12 @@ export interface PageGroup {
   id: string;
   name: string;
   collapsed: boolean;
+  /** What marks it in the trail; a folder when there's none. */
+  icon?: GroupIcon;
 }
+
+/** A group's mark: an emoji, drawn like a workspace's. */
+export type GroupIcon = Extract<WorkspaceIcon, { kind: 'emoji' }>;
 
 export interface OtherWindow {
   id: string;
@@ -475,6 +525,18 @@ export interface TrailPosition {
 /** Something done outside the shell UI that the shell confirms in a toast. */
 export type Notice =
   | { kind: 'page-saved'; filename: string }
+  /** Bookmarks or a trail were written to a file. */
+  | { kind: 'exported'; filename: string }
+  /** A login was kept, after asking or because Splash made its password. */
+  | { kind: 'password-saved'; host: string }
+  /** A site asked for a passkey, and no authenticator in Splash can answer. */
+  | { kind: 'passkey-unavailable'; host: string }
+  /** A page had no video to float, or its site doesn't allow it. */
+  | { kind: 'no-video'; blocked: boolean }
+  /** A file can't be shown as a page. */
+  | { kind: 'cannot-open-file'; filename: string }
+  /** A native helper an extension needs ended as soon as it started. */
+  | { kind: 'helper-ended'; extension: string }
   /** The window's interface crashed and was reloaded; pages kept running. */
   | { kind: 'shell-recovered' }
   /** Paste and Go, with no text on the clipboard. */
@@ -496,6 +558,8 @@ export type Notice =
       workspaceId: WorkspaceId;
       workspaceName: string;
       origin: MoveOrigin;
+      /** Where it landed in the new workspace, for redo. */
+      index: number;
     }
   | {
       kind: 'pinned';
@@ -505,6 +569,8 @@ export type Notice =
       pinned: boolean;
       /** Where it was before, for undo. */
       origin: TrailPosition;
+      /** Where it landed, for redo. */
+      at: TrailPosition;
     }
   | {
       /** Closing a pinned page kept it in the trail. */
@@ -514,6 +580,29 @@ export type Notice =
       /** It went to sleep; false when it was the only page left. */
       asleep: boolean;
     };
+
+/** Sections other windows can send Settings to. */
+export type SettingsSection = 'passwords' | 'transfer';
+
+/** A browser on this Mac that Splash can bring things over from. */
+export interface ImportSource {
+  id: string;
+  browser: string;
+  /** The profile's name, for browsers that have them. */
+  profile: string | null;
+  hasBookmarks: boolean;
+  hasHistory: boolean;
+  /** macOS keeps other apps out of its folder. */
+  blocked: boolean;
+}
+
+export interface ImportResult {
+  summary: string;
+  details: string[];
+  undoToken: string | null;
+  /** Offers to move an unencrypted password export to the Trash. */
+  trashToken: string | null;
+}
 
 /** Commands the main process asks the shell UI to perform (usually from a menu). */
 export type UiCommand =
@@ -536,6 +625,8 @@ export type UiCommand =
   | { type: 'show-bookmarks' }
   | { type: 'show-tasks' }
   /** Edit › Undo while the shell has focus: text first, then the trail. */
-  | { type: 'undo' }
+  /** `trail` goes straight to the trail, whatever field the shell has focused. */
+  | { type: 'undo'; trail?: boolean }
   | { type: 'filter-trail' }
-  | { type: 'toggle-ai-panel' };
+  | { type: 'toggle-ai-panel' }
+  | { type: 'redo'; trail?: boolean };

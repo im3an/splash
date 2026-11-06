@@ -1,5 +1,6 @@
-import { useState, type ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { Brand } from '../components/Brand';
+import { api } from '../splash-api';
 import { SectionIcon, type SectionIconName } from './SectionIcon';
 import { useWorkspaceTheme } from '../hooks/use-workspace-theme';
 import { useInterfacePreferences } from '../hooks/use-interface-preferences';
@@ -13,6 +14,12 @@ import {
   ShortcutSettings,
   WorkspaceSettings,
 } from './sections';
+import { ExtensionSettings } from './ExtensionSettings';
+import { SettingsNavigation } from './navigation';
+import { PasswordSettings } from './PasswordSettings';
+import { TransferSettings } from './TransferSettings';
+import { WaymarksSettings } from './Waymarks';
+import { WAYMARKS_NAME } from '../../shared/waymarks';
 
 const SECTIONS: {
   id: SectionIconName;
@@ -22,6 +29,8 @@ const SECTIONS: {
   body: ComponentType;
 }[] = [
   { id: 'general', label: 'General', body: GeneralSettings },
+  { id: 'waymarks', label: WAYMARKS_NAME, body: WaymarksSettings },
+  { id: 'extensions', label: 'Extensions', body: ExtensionSettings },
   {
     id: 'appearance',
     label: 'Appearance',
@@ -45,6 +54,18 @@ const SECTIONS: {
     body: PrivacySettings,
   },
   {
+    id: 'passwords',
+    label: 'Passwords',
+    title: 'Passwords and autofill',
+    body: PasswordSettings,
+  },
+  {
+    id: 'transfer',
+    label: 'Import and Export',
+    title: 'Import and export',
+    body: TransferSettings,
+  },
+  {
     id: 'downloads',
     label: 'Downloads',
     body: DownloadSettings,
@@ -62,6 +83,15 @@ export function SettingsApp() {
   useWorkspaceTheme();
   useInterfacePreferences();
   const [active, setActive] = useState<SectionIconName>(SECTIONS[0]!.id);
+  // "Manage Extensions…" and the like open Settings on a section.
+  useEffect(() => {
+    const show = (section: string | null) => {
+      const found = SECTIONS.find((candidate) => candidate.id === section);
+      if (found) setActive(found.id);
+    };
+    void api().takeSettingsSection().then(show);
+    return api().onSettingsSection(show);
+  }, []);
   const section =
     SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0]!;
   const Body = section.body;
@@ -100,7 +130,9 @@ export function SettingsApp() {
           <h1 className="text-display font-semibold tracking-[-0.01em]">
             {section.title ?? section.label}
           </h1>
-          <Body />
+          <SettingsNavigation.Provider value={setActive}>
+            <Body />
+          </SettingsNavigation.Provider>
         </div>
       </main>
     </div>

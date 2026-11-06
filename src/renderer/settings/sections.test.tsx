@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import type { SplashApi } from '../../shared/api';
 import { DEFAULT_PREFERENCES } from '../../shared/preferences';
 import { useShell } from '../stores/shell-store';
-import { PrivacySettings } from './sections';
+import { PageSettings, PrivacySettings } from './sections';
 
 function stubApi() {
   const splash = {
@@ -35,6 +35,26 @@ function stubApi() {
   window.splash = splash as unknown as SplashApi;
   return splash;
 }
+
+describe('PageSettings', () => {
+  it('offers Automatic, Off and the languages, and saves the choice', () => {
+    useShell.setState({ preferences: DEFAULT_PREFERENCES });
+    const splash = stubApi();
+    render(<PageSettings />);
+    const select = screen.getByRole<HTMLSelectElement>('combobox', {
+      name: 'Check spelling',
+    });
+    expect(select.value).toBe('automatic');
+    expect([...select.options].slice(0, 2).map((o) => o.text)).toEqual([
+      'Automatic',
+      'Off',
+    ]);
+    fireEvent.change(select, { target: { value: 'de' } });
+    expect(splash.updatePreferences).toHaveBeenCalledWith({
+      spellingLanguage: 'de',
+    });
+  });
+});
 
 describe('PrivacySettings', () => {
   beforeEach(() => {

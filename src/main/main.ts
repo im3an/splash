@@ -1,18 +1,35 @@
 import { authenticationTarget } from './windows/auth-window';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   app,
   BrowserWindow,
   dialog,
+  Menu,
   nativeTheme,
+  safeStorage,
   session,
+  shell,
+  systemPreferences,
   webContents,
+  type BaseWindow,
+  type Rectangle,
+  type Session,
   type WebContents,
 } from 'electron';
 import { eventChannels } from '../shared/api';
 import type { TaskList } from '../shared/types';
+import { Transfer } from './transfer/transfer';
+import { bridgeFormAssist } from './vault/electron-form-assist';
+import { FormAssist } from './vault/form-assist';
+import { generatePassword, Vault, type Cipher } from './vault/vault';
+import { AutofillMenu } from './windows/autofill-window';
+import { isHelperGone } from './extensions/native-helper';
+import {
+  openPrivateProfile,
+  type PrivateProfile,
+} from './browser/private-profile';
 import { buildTaskList, type LivePage } from './browser/task-list';
 import { keepOpenedFiles } from './browser/opened-files';
 import {
@@ -25,18 +42,28 @@ import {
 import { BrowsingDataCleaner } from './privacy/browsing-data';
 import { CookieViewer, type CookieJar } from './privacy/cookies';
 import { QuitClear } from './privacy/quit-clear';
-import type { ContentBlocking } from './privacy/content-blocker';
-import { enableContentBlocking } from './privacy/electron-content-blocker';
+import {
+  enableContentBlocking,
+  type ContentBlockingHost,
+} from './privacy/electron-content-blocker';
 import { createSiteRules } from './privacy/electron-site-rules';
 import { SettingsWindow } from './windows/settings-window';
 import { registerIpc } from './ipc/register-ipc';
 import { installApplicationMenu } from './menus/application-menu';
+import { dockMenuTemplate } from './menus/dock-menu';
 import {
   configureAppSession,
   configureWebSession,
   hardenAllWebContents,
   WEB_PARTITION,
 } from './security/web-security';
+import {
+  CertificateExceptions,
+  hasCertificateException,
+  type CertificateStore,
+} from './security/certificate-exceptions';
+import { requiresValidHttps } from './security/strict-https';
+import { canContinuePastCertificateError } from '../shared/certificate-errors';
 import { chooseClientCertificate } from './security/client-certificates';
 import { createThreatList } from './security/electron-threat-list';
 import type { ThreatList } from './security/threat-list';
@@ -44,12 +71,13 @@ import { SchemaTooNewError } from './storage/migrations';
 import { openTrailStore, SqliteTrailStore } from './storage/sqlite-trail-store';
 import type { TrailStore } from './storage/trail-store';
 import { SessionPersister } from './storage/session-persister';
-import { TrailWindow } from './windows/browser-window';
+import { TrailWindow, visibleBounds } from './windows/browser-window';
 import { registerShellScheme, serveShell } from './windows/shell-url';
 import { ExtensionHost } from './extensions/extension-host';
 import { SharedTrails } from './browser/browser-controller';
 import { contentsForPage, pageHandleFor } from './browser/electron-page-host';
 import { PreferencesService } from './preferences';
+import { keepSpelling } from './spelling';
 import type { DownloadManager } from './downloads/download-manager';
 import { createDownloadManager } from './downloads/electron-downloads';
 
@@ -72,7 +100,13 @@ let cookies: CookieViewer;
 let threats: ThreatList;
 let quitClear: QuitClear | null = null;
 let quitClearDone = false;
-let blocker: ContentBlocking;
+let blocker: ContentBlockingHost;
+let vault: Vault;
+let transfer: Transfer;
+let formAssist: FormAssist;
+let autofillMenu: AutofillMenu;
+/** Private windows open now, which share one throwaway profile. */
+let privateProfile: PrivateProfile | null = null;
 let extensions: ExtensionHost | null = null;
 let settings: SettingsWindow | null = null;
 /** Links macOS handed over before a window was ready. */
@@ -82,12 +116,60 @@ const pendingFiles: string[] = [];
 let quitApproved = false;
 let quitPending = false;
 
-function openSettings(): void {
+/** Development builds run unattended by way of these; an installed app ignores them. */
+const qaSkipsDeviceAuth =
+  !app.isPackaged && process.env.SPLASH_QA_SKIP_DEVICE_AUTH === '1';
+
+/**
+ * Saved secrets are sealed with a key the Keychain holds. A test build must not
+ * use the real item, which belongs to the installed app and would prompt.
+ */
+const cipher: Cipher = qaSkipsDeviceAuth
+  ? {
+      available: () => true,
+      seal: (text) => Buffer.from(`qa:${text}`),
+      open: (sealed) => Buffer.from(sealed).toString().slice(3),
+    }
+  : {
+      available: () => safeStorage.isEncryptionAvailable(),
+      seal: (text) => safeStorage.encryptString(text),
+      open: (sealed) => safeStorage.decryptString(Buffer.from(sealed)),
+    };
+
+/** Touch ID, or a plain question on a Mac that can't offer it right now. */
+async function authorize(reason: string): Promise<boolean> {
+  if (qaSkipsDeviceAuth) return true;
+  if (systemPreferences.canPromptTouchID()) {
+    try {
+      await systemPreferences.promptTouchID(reason);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const { response } = await dialog.showMessageBox({
+    type: 'warning',
+    message: `Allow Splash to ${reason}?`,
+    detail:
+      'Touch ID isn’t available right now, so anyone at this Mac can answer.',
+    buttons: ['Cancel', 'Allow'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+  return response === 1;
+}
+
+function openSettings(section?: string): void {
   if (settings && !settings.window.isDestroyed()) {
     settings.focus();
+    if (section) settings.showSection(section);
     return;
   }
   settings = new SettingsWindow({
+    vault,
+    transfer,
+    authorize,
     store,
     preferences,
     downloads,
@@ -95,8 +177,10 @@ function openSettings(): void {
     blocker,
     cookies,
     threats,
-    browserWindow: () => currentWindow(),
+    extensions: () => extensions,
+    browserWindow: () => regularWindow(),
   });
+  if (section) settings.showSection(section);
   settings.window.on('closed', () => {
     settings = null;
   });
@@ -105,7 +189,7 @@ function openSettings(): void {
 /** Opens a web link from another app as a new page. */
 function openExternalUrl(url: string): void {
   if (!isNavigableUrl(url)) return;
-  const trailWindow = currentWindow() ?? openWindow();
+  const trailWindow = regularWindow() ?? openWindow();
   trailWindow.controller.createPage({ url });
   if (trailWindow.window.isMinimized()) trailWindow.window.restore();
   trailWindow.window.focus();
@@ -123,14 +207,31 @@ function openLocalFile(file: string): void {
     return;
   }
   allowLocalFile(url);
-  const trailWindow = currentWindow() ?? openWindow();
+  const trailWindow = regularWindow() ?? openWindow();
   trailWindow.controller.createPage({ url });
   if (trailWindow.window.isMinimized()) trailWindow.window.restore();
   trailWindow.window.focus();
 }
 
+/** Files dragged from the Finder onto a window open there, as new pages. */
+function openDroppedFiles(trailWindow: TrailWindow, files: string[]): void {
+  for (const file of files) {
+    const url = localFileUrl(file);
+    if (!url) {
+      trailWindow.notify({
+        kind: 'cannot-open-file',
+        filename: path.basename(file),
+      });
+      continue;
+    }
+    allowLocalFile(url, { remember: !trailWindow.isPrivate });
+    trailWindow.controller.createPage({ url });
+  }
+}
+
 async function chooseFiles(): Promise<void> {
-  const parent = currentWindow()?.window;
+  const target = currentWindow();
+  const parent = target?.window;
   const options = {
     title: 'Open File',
     filters: [OPENABLE_FILE_FILTER],
@@ -143,7 +244,9 @@ async function chooseFiles(): Promise<void> {
     const { canceled, filePaths } = parent
       ? await dialog.showOpenDialog(parent, options)
       : await dialog.showOpenDialog(options);
-    if (!canceled) filePaths.forEach(openLocalFile);
+    if (canceled) return;
+    if (target) openDroppedFiles(target, filePaths);
+    else filePaths.forEach(openLocalFile);
   } catch (error) {
     dialog.showErrorBox('The file couldn’t be opened', String(error));
   }
@@ -208,11 +311,30 @@ function refreshMenu(): void {
   installApplicationMenu({
     currentWindow,
     openWindow,
-    openSettings,
+    openSettings: () => openSettings(),
+    openImport: () => openSettings('transfer'),
+    openPrivateWindow,
     chooseFiles: () => void chooseFiles(),
-    store,
+    // The History menu lists what the window in front has been to.
+    store: currentWindow()?.store ?? store,
     preferences,
   });
+  // A click in the Dock menu doesn't bring the app forward by itself.
+  app.dock?.setMenu(
+    Menu.buildFromTemplate(
+      dockMenuTemplate({
+        store,
+        newWindow: () => {
+          openWindow();
+          app.focus({ steal: true });
+        },
+        openPage: (url) => {
+          openExternalUrl(url);
+          app.focus({ steal: true });
+        },
+      }),
+    ),
+  );
 }
 
 /** What every window has running, as the task manager shows it. */
@@ -259,18 +381,43 @@ function listTasks(): TaskList {
   );
 }
 
-function openWindow(show?: { pageId: string } | { url: string }): TrailWindow {
+/** What every browser window is told, whichever profile it's in. */
+function windowActions(trailWindow: () => TrailWindow) {
+  return {
+    onWorkspacesChanged: refreshMenu,
+    openSettings: () => openSettings(),
+    openSettingsSection: openSettings,
+    openPrivateWindow,
+    chooseFiles: () => void chooseFiles(),
+    openFiles: (files: string[]) => openDroppedFiles(trailWindow(), files),
+    answerCredentialPrompt: (
+      id: string,
+      answer: 'save' | 'never' | 'dismiss',
+    ) => formAssist.answer(id, answer),
+    listTasks,
+  };
+}
+
+function openWindow(
+  show?: { pageId: string } | { url: string },
+  at?: Rectangle,
+): TrailWindow {
   const beside = currentWindow()?.window.getNormalBounds();
-  const trailWindow = new TrailWindow({
+  const trailWindow: TrailWindow = new TrailWindow({
+    certificates,
+    webSession: session.fromPartition(WEB_PARTITION),
+    isPrivate: false,
     trails,
     saves: {
       schedule: () => persister.schedule(),
       flush: () => persister.flush(),
       problem: () => saveProblem,
     },
-    ...(beside
-      ? { bounds: { ...beside, x: beside.x + 28, y: beside.y + 28 } }
-      : {}),
+    ...(at
+      ? { bounds: at }
+      : beside
+        ? { bounds: { ...beside, x: beside.x + 28, y: beside.y + 28 } }
+        : {}),
     ...(show ? { show } : {}),
     openPageInNewWindow: (pageId) => void openWindow({ pageId }),
     store,
@@ -279,22 +426,138 @@ function openWindow(show?: { pageId: string } | { url: string }): TrailWindow {
     blocker,
     cookies,
     extensions,
-    onWorkspacesChanged: refreshMenu,
-    openSettings,
-    listTasks,
+    ...windowActions(() => trailWindow),
     onSnapshot: (snapshot) => settings?.send(eventChannels.snapshot, snapshot),
   });
+  trackWindow(trailWindow);
+  return trailWindow;
+}
+
+/** Opens a window whose pages leave nothing behind when the last one closes. */
+function openPrivateWindow(show?: { pageId: string }): TrailWindow {
+  const profile = (privateProfile ??= openPrivateProfile({
+    store,
+    preferences,
+    threats,
+    blocker,
+    onDownloads: () => {
+      for (const open of windows) if (open.isPrivate) open.sendDownloads();
+    },
+  }));
+  const isFirst = profile.windows === 0;
+  profile.windows++;
+  const beside = currentWindow()?.window.getNormalBounds();
+  const trailWindow: TrailWindow = new TrailWindow({
+    certificates,
+    webSession: profile.session,
+    isPrivate: true,
+    trails: profile.trails,
+    saves: { schedule() {}, flush: () => true, problem: () => null },
+    ...(beside
+      ? { bounds: { ...beside, x: beside.x + 28, y: beside.y + 28 } }
+      : {}),
+    ...(show ? { show } : {}),
+    openPageInNewWindow: (pageId) => void openPrivateWindow({ pageId }),
+    store: profile.store,
+    preferences,
+    downloads: profile.downloads,
+    blocker,
+    cookies: profile.cookies,
+    extensions: null,
+    ...windowActions(() => trailWindow),
+  });
+  if (isFirst) profile.nameWorkspace(trailWindow.controller);
+  trailWindow.window.on('closed', () => {
+    profile.windows--;
+    if (profile.windows > 0) return;
+    if (privateProfile === profile) privateProfile = null;
+    void profile.discard();
+  });
+  trackWindow(trailWindow);
+  return trailWindow;
+}
+
+/** The window for what comes from outside a window; never a private one. */
+function regularWindow(): TrailWindow | null {
+  const current = currentWindow();
+  if (current && !current.isPrivate) return current;
+  for (const trailWindow of windows) {
+    if (!trailWindow.isPrivate) return trailWindow;
+  }
+  return null;
+}
+
+function regularWindowCount(): number {
+  return [...windows].filter((trailWindow) => !trailWindow.isPrivate).length;
+}
+
+const OPEN_WINDOWS_KEY = 'windows.open';
+
+interface OpenWindow {
+  bounds: Rectangle;
+  pageId: string | null;
+}
+
+/** Where each window is and what it shows, so a restart can bring them back. */
+function rememberOpenWindows(): void {
+  const lead = trails.lead;
+  const open: OpenWindow[] = [...windows]
+    .filter((trailWindow) => !trailWindow.isPrivate)
+    .sort(
+      (a, b) => Number(b.controller === lead) - Number(a.controller === lead),
+    )
+    .map((trailWindow) => ({
+      bounds: trailWindow.window.getNormalBounds(),
+      pageId: trailWindow.controller.activePageId,
+    }));
+  try {
+    store.setPreference(OPEN_WINDOWS_KEY, JSON.stringify(open));
+  } catch (error) {
+    console.error('Could not save which windows are open', error);
+  }
+}
+
+function savedOpenWindows(): OpenWindow[] {
+  try {
+    const saved: unknown = JSON.parse(
+      store.getPreference(OPEN_WINDOWS_KEY) ?? '[]',
+    );
+    return Array.isArray(saved) ? (saved as OpenWindow[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The first window, then any others that were open when Splash last quit. */
+function openStartupWindows(): TrailWindow {
+  const saved =
+    preferences.get().startup === 'restore' ? savedOpenWindows() : [];
+  const fits = (entry?: OpenWindow) =>
+    entry?.bounds ? (visibleBounds(entry.bounds) ?? undefined) : undefined;
+  const first = openWindow(undefined, fits(saved[0]));
+  for (const entry of saved.slice(1)) {
+    if (entry?.pageId && first.controller.hasPage(entry.pageId)) {
+      openWindow({ pageId: entry.pageId }, fits(entry));
+    }
+  }
+  return first;
+}
+
+function trackWindow(trailWindow: TrailWindow): void {
   windows.add(trailWindow);
+  trailWindow.window.on('close', () => {
+    if (!trailWindow.isPrivate && !quitApproved) rememberOpenWindows();
+  });
   // The Workspaces menu is built for one window, so rebuild it whenever
   // which window it should act on changes. A fresh start sends no snapshot,
   // and a closed window must not be left behind in the menu.
   trailWindow.window.on('focus', refreshMenu);
   trailWindow.window.on('closed', () => {
     windows.delete(trailWindow);
+    if (!trailWindow.isPrivate && !quitApproved) rememberOpenWindows();
     refreshMenu();
   });
   refreshMenu();
-  return trailWindow;
 }
 
 /** The window showing a page, with the page's id. */
@@ -315,7 +578,7 @@ function windowOfContents(
 function createExtensionHost(): ExtensionHost {
   return new ExtensionHost(session.fromPartition(WEB_PARTITION), {
     openPage: (url, active) => {
-      const trailWindow = currentWindow() ?? openWindow();
+      const trailWindow = regularWindow() ?? openWindow();
       const pageId = trailWindow.controller.createPage({
         url,
         activate: active,
@@ -342,6 +605,16 @@ function createExtensionHost(): ExtensionHost {
   });
 }
 
+const certificates = new CertificateExceptions();
+
+/** Where a session's certificate choices live; none for anything but pages. */
+function certificateStores(from?: Session): CertificateStore[] {
+  const open = privateProfile ? [privateProfile.store] : [];
+  if (!from) return [...open, store];
+  if (from === session.fromPartition(WEB_PARTITION)) return [store];
+  return from === privateProfile?.session ? [...open, store] : [];
+}
+
 function currentWindow(): TrailWindow | null {
   const focused = BrowserWindow.getFocusedWindow();
   for (const trailWindow of windows) {
@@ -351,7 +624,21 @@ function currentWindow(): TrailWindow | null {
 }
 
 // A bug in one handler must not end in Electron's raw error dialog.
+let lastHelperNotice = 0;
 process.on('uncaughtException', (error) => {
+  // A password manager's helper app quit, or never really started. The library
+  // that talks to it can't catch this itself, and it isn't a fault in Splash.
+  if (isHelperGone(error)) {
+    console.warn('An extension’s native helper ended');
+    if (Date.now() - lastHelperNotice > 60_000) {
+      lastHelperNotice = Date.now();
+      currentWindow()?.notify({
+        kind: 'helper-ended',
+        extension: 'An extension',
+      });
+    }
+    return;
+  }
   console.error('Unexpected error in the main process', error);
 });
 process.on('unhandledRejection', (reason) => {
@@ -364,7 +651,7 @@ if (!app.requestSingleInstanceLock()) {
   hardenAllWebContents();
 
   app.on('second-instance', () => {
-    const trailWindow = currentWindow() ?? openWindow();
+    const trailWindow = regularWindow() ?? openWindow();
     if (trailWindow.window.isMinimized()) trailWindow.window.restore();
     trailWindow.window.focus();
   });
@@ -382,6 +669,30 @@ if (!app.requestSingleInstanceLock()) {
     if (app.isReady() && windows.size > 0) openLocalFile(file);
     else pendingFiles.push(file);
   });
+
+  // A certificate Chromium won't trust is refused, unless the user already
+  // chose to use the site with exactly this one.
+  app.on(
+    'certificate-error',
+    (event, contents, url, error, certificate, callback) => {
+      const stores = certificateStores(contents.session);
+      if (stores.length === 0 || !canContinuePastCertificateError(error)) {
+        return;
+      }
+      event.preventDefault();
+      const { fingerprint } = certificate;
+      if (certificates.decide(stores, url, error, fingerprint)) {
+        callback(true);
+        return;
+      }
+      void requiresValidHttps(contents.session, new URL(url).hostname)
+        .catch(() => true)
+        .then((strict) => {
+          certificates.refuse(url, fingerprint, strict);
+          callback(false);
+        });
+    },
+  );
 
   // Electron would otherwise send the first certificate that fits, unasked.
   app.on(
@@ -415,6 +726,7 @@ if (!app.requestSingleInstanceLock()) {
   registerIpc((sender) => {
     const auth = authenticationTarget(sender);
     if (auth) return auth;
+    if (autofillMenu?.owns(sender)) return autofillMenu.ipc;
     for (const trailWindow of windows) {
       if (trailWindow.window.webContents === sender) return trailWindow.ipc;
     }
@@ -441,7 +753,7 @@ if (!app.requestSingleInstanceLock()) {
     persister = new SessionPersister({
       store,
       exportSession: () => trails.lead!.exportSession(),
-      isIdle: () => windows.size === 0,
+      isIdle: () => regularWindowCount() === 0,
       onError: (error) => {
         console.error('Could not save the session', error);
         saveProblem = error instanceof Error ? error.message : String(error);
@@ -459,6 +771,11 @@ if (!app.requestSingleInstanceLock()) {
     serveShell(session.defaultSession);
     configureWebSession(session.fromPartition(WEB_PARTITION), store);
     preferences = new PreferencesService(store);
+    keepSpelling(
+      preferences,
+      session.fromPartition(WEB_PARTITION),
+      systemPreferences,
+    );
     nativeTheme.themeSource = preferences.get().theme;
     threats = createThreatList(preferences);
     const siteRules = createSiteRules(
@@ -478,12 +795,81 @@ if (!app.requestSingleInstanceLock()) {
       store,
       preferences,
     );
+    vault = new Vault({
+      store,
+      cipher,
+      createId: randomUUID,
+      now: Date.now,
+    });
+    transfer = new Transfer({
+      // A test build can be pointed at made-up browser profiles.
+      home:
+        (!app.isPackaged && process.env.SPLASH_QA_HOME) || app.getPath('home'),
+      scratch: app.getPath('temp'),
+      store,
+      preferences,
+      vault,
+      createId: randomUUID,
+      trash: (file) => shell.trashItem(file),
+    });
+    let menuPlace: { parent: BaseWindow; anchor: Rectangle } | null = null;
+    autofillMenu = new AutofillMenu({
+      choose: (id) => formAssist.choose(id),
+      lost: () => formAssist.dismiss(),
+    });
+    formAssist = new FormAssist({
+      vault,
+      enabled: () => preferences.get().passwordAutofill,
+      neverOffers: (origin) =>
+        store.getPermission(origin, 'save-passwords') === false,
+      neverOffer: (origin) =>
+        store.setPermission(origin, 'save-passwords', false),
+      authorize,
+      certificateException: (address) =>
+        certificateStores().some((from) =>
+          hasCertificateException(from, address),
+        ),
+      generatePassword: () => generatePassword((size) => randomBytes(size)),
+      openManager: () => openSettings('passwords'),
+      showMenu: (items) => {
+        if (menuPlace) {
+          autofillMenu.show(menuPlace.parent, menuPlace.anchor, items);
+        }
+      },
+      hideMenu: () => autofillMenu.hide(),
+      createId: randomUUID,
+    });
+    bridgeFormAssist({
+      assist: formAssist,
+      accepts: (from: Session) => {
+        if (from === session.fromPartition(WEB_PARTITION)) {
+          return { canSave: true };
+        }
+        return from === privateProfile?.session ? { canSave: false } : null;
+      },
+      prompt: (prompt) => {
+        const front = currentWindow();
+        for (const trailWindow of windows) {
+          // A popup's offer belongs to no page, so it goes where the user is.
+          if (prompt === null || prompt.pageId || trailWindow === front) {
+            trailWindow.sendCredentialPrompt(prompt);
+          }
+        }
+      },
+      notify: (notice) => currentWindow()?.notify(notice),
+      setAnchor: (parent, anchor) => {
+        menuPlace = { parent, anchor };
+      },
+      key: (key) => autofillMenu.key(key),
+    });
     // Progress events are frequent; tell the shell at most every 200 ms.
     let downloadsTimer: ReturnType<typeof setTimeout> | null = null;
     downloads.onChange(() => {
       downloadsTimer ??= setTimeout(() => {
         downloadsTimer = null;
-        for (const trailWindow of windows) trailWindow.sendDownloads();
+        for (const trailWindow of windows) {
+          if (!trailWindow.isPrivate) trailWindow.sendDownloads();
+        }
         settings?.send(eventChannels.downloads, downloads.list());
         app.dock?.setBadge(
           downloads.activeCount > 0 ? String(downloads.activeCount) : '',
@@ -506,9 +892,10 @@ if (!app.requestSingleInstanceLock()) {
             'serviceWorkers',
             'webSQL',
           ],
-          excludeOrigins: webSession.extensions
-            .getAllExtensions()
-            .map((extension) => `chrome-extension://${extension.id}`),
+          // Turned off isn't removed: its settings wait for it to come back.
+          excludeOrigins: (extensions?.knownIds() ?? []).map(
+            (id) => `chrome-extension://${id}`,
+          ),
         });
         await webSession.clearStorageData({
           storages: ['shadercache', 'cachestorage'],
@@ -518,24 +905,29 @@ if (!app.requestSingleInstanceLock()) {
       clearCache: () => webSession.clearCache(),
       clearDownloadList: () => downloads.clearFinished(),
       forgetClosedPages: () => {
+        // The menus list recent pages, and those may just have been cleared.
+        refreshMenu();
         // On launch or quit no window is open, and only the saved copy exists.
-        if (windows.size === 0) {
+        if (regularWindowCount() === 0) {
           trails.lead?.forgetClosed();
           forgetSavedClosedPages();
           return;
         }
-        for (const trailWindow of windows)
-          trailWindow.controller.forgetClosed();
+        for (const trailWindow of windows) {
+          if (!trailWindow.isPrivate) trailWindow.controller.forgetClosed();
+        }
         // A file that's no longer on any page leaves no trace of its path.
         forgetLocalFiles(
-          [...windows].flatMap((trailWindow) =>
-            trailWindow.controller
-              .exportSession()
-              .pages.flatMap((page) => [
-                ...(page.url ? [page.url] : []),
-                ...(page.history?.entries.map((entry) => entry.url) ?? []),
-              ]),
-          ),
+          [...windows]
+            .filter((trailWindow) => !trailWindow.isPrivate)
+            .flatMap((trailWindow) =>
+              trailWindow.controller
+                .exportSession()
+                .pages.flatMap((page) => [
+                  ...(page.url ? [page.url] : []),
+                  ...(page.history?.entries.map((entry) => entry.url) ?? []),
+                ]),
+            ),
         );
       },
       now: Date.now,
@@ -562,13 +954,16 @@ if (!app.requestSingleInstanceLock()) {
     refreshMenu();
     try {
       extensions = createExtensionHost();
+      extensions.onChange(() =>
+        settings?.send(eventChannels.extensions, extensions?.list() ?? []),
+      );
       // Before the first window, so restored pages open with uBlock Origin
       // already running.
       await extensions.loadBundled();
     } catch (error) {
       console.error('Extensions are unavailable', error);
     }
-    const firstWindow = openWindow();
+    const firstWindow = openStartupWindows();
     const recoveryWarning = preferences.recoveryWarning();
     const notice =
       startup.notice ??
@@ -595,8 +990,12 @@ if (!app.requestSingleInstanceLock()) {
     for (const url of pendingUrls.splice(0)) openExternalUrl(url);
     for (const file of pendingFiles.splice(0)) openLocalFile(file);
 
-    app.on('activate', () => {
-      if (windows.size === 0) openWindow();
+    // Clicking the Dock with nothing open brings a window back. With only
+    // private windows open, it's a regular window that's missing.
+    app.on('activate', (_event, hasVisibleWindows) => {
+      if (windows.size === 0 || (!hasVisibleWindows && !regularWindow())) {
+        openWindow();
+      }
     });
   });
 
@@ -612,6 +1011,7 @@ if (!app.requestSingleInstanceLock()) {
           return;
         }
       }
+      rememberOpenWindows();
       quitApproved = true;
       app.quit();
     })()

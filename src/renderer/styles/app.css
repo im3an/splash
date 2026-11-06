@@ -6,6 +6,7 @@
   --color-surface: var(--surface);
   --color-elevated: var(--elevated);
   --color-field: var(--field);
+  --color-field-hover: var(--field-hover);
   --color-field-focus: var(--field-focus);
   --color-hover: var(--hover);
   --color-pressed: var(--pressed);
@@ -240,8 +241,15 @@ body::before {
     background: var(--hover);
     color: var(--accent);
   }
+  /*
+   * Dim the icon as a whole, never with a see-through stroke colour: an icon
+   * is several strokes, and they'd darken each other where they cross.
+   */
   .icon-button:disabled {
-    color: var(--fg-disabled);
+    color: rgb(var(--ink));
+  }
+  .icon-button:disabled > svg {
+    opacity: var(--disabled-alpha);
   }
   /* Inside rows and fields, where 28px would crowd the line. */
   .icon-button-sm {
@@ -254,6 +262,20 @@ body::before {
    * Text buttons. Quiet for the way out (Block, Go back), raised for the
    * expected next step, primary for the one answer a bar is asking for.
    */
+  .private-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    height: 22px;
+    padding-inline: 8px;
+    margin-inline-end: var(--space-1);
+    border-radius: var(--radius-pill);
+    background: var(--row-hover);
+    color: var(--fg-muted);
+    font-size: var(--text-small);
+    font-weight: 500;
+    white-space: nowrap;
+  }
   .button {
     display: inline-flex;
     flex-shrink: 0;
@@ -327,7 +349,7 @@ body::before {
     width: 38px;
     height: 22px;
     border-radius: var(--radius-full);
-    background: var(--pressed);
+    background: var(--switch-off);
     transition: background-color var(--duration-fast) var(--ease-out);
   }
   .switch[aria-checked='true'] {
@@ -342,10 +364,13 @@ body::before {
     border-radius: var(--radius-full);
     background: var(--switch-knob);
     box-shadow: var(--shadow-row);
-    transition: translate var(--duration-fast) var(--ease-out);
+    transition:
+      translate var(--duration-fast) var(--ease-out),
+      background-color var(--duration-fast) var(--ease-out);
   }
   .switch[aria-checked='true'] > .switch-knob {
     translate: 16px 0;
+    background: var(--on-accent);
   }
 
   /* A bar between the toolbar and the page: a question, a warning, find. */
@@ -652,21 +677,17 @@ body::before {
    * colour sits is in src/shared/color.ts.
    */
   .color-canvas {
-    border-radius: var(--radius-panel);
-    background:
-      radial-gradient(
-          circle,
-          color-mix(in oklab, var(--fg) 20%, transparent) 0.9px,
-          transparent 1.3px
-        )
-        center / 7px 7px,
-      color-mix(in oklab, var(--fg) 4%, var(--elevated));
-    box-shadow: inset 0 0 0 1px var(--divider);
+    background: radial-gradient(
+        circle,
+        color-mix(in oklab, var(--fg) 20%, transparent) 0.9px,
+        transparent 1.3px
+      )
+      center / 7px 7px;
     cursor: crosshair;
   }
   .color-canvas-dot {
     box-shadow:
-      0 0 0 4px var(--wheel-handle-ring),
+      0 0 0 3px var(--wheel-handle-ring),
       var(--shadow-wheel-handle);
     cursor: grab;
     transition:
@@ -682,8 +703,8 @@ body::before {
   }
   .color-canvas-dot:focus-visible {
     box-shadow:
-      0 0 0 4px var(--wheel-handle-ring),
-      0 0 0 6px var(--focus-ring),
+      0 0 0 3px var(--wheel-handle-ring),
+      0 0 0 5px var(--focus-ring),
       var(--shadow-wheel-handle);
   }
 
@@ -1018,6 +1039,19 @@ details[open] > .sidebar-section-content {
 }
 .lucide:is([width='20'], [width='24']) {
   stroke-width: var(--icon-stroke-large);
+}
+.lucide[width='16'] {
+  stroke-width: var(--icon-stroke-md);
+}
+/*
+ * The icon grid's main lines fall on whole device pixels at 2x, so a 3-pixel
+ * stroke straddles them and leaves soft half-covered edges. A quarter point
+ * moves those edges onto the pixel grid.
+ */
+@media (min-resolution: 2dppx) {
+  .icon-button > .lucide[width='16'] {
+    translate: 0.25px 0.25px;
+  }
 }
 
 /*
@@ -1547,6 +1581,66 @@ button.sidebar-row,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/*
+ * A group's mark: a quiet folder or an emoji, bare like a favicon. It sits
+ * over the room the row's main button leaves for it, 3px out on each side,
+ * so a click here changes it without folding the group.
+ */
+.group-card-mark {
+  --group-mark-at: calc(var(--lead) - var(--group-pad) - 3px);
+  position: absolute;
+  inset-block: 0;
+  left: var(--group-mark-at);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-block: auto;
+  color: var(--fg-subtle);
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    scale var(--duration-fast) var(--ease-out);
+}
+.group-card-mark:hover,
+.group-card-mark[aria-expanded='true'] {
+  color: var(--fg-muted);
+}
+.group-card-mark:active {
+  scale: 0.92;
+}
+.group-icon-picker {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  width: 228px;
+  max-width: calc(100vw - 12px);
+  max-height: calc(100vh - 12px);
+  padding: 6px;
+  overflow-y: auto;
+  border-radius: var(--radius-content);
+  background: var(--elevated);
+  box-shadow: var(--shadow-panel);
+  outline: none;
+}
+.group-icon-choice {
+  display: grid;
+  place-items: center;
+  height: 30px;
+  border-radius: var(--radius-inner);
+  font-size: var(--type-title);
+  transition: scale var(--duration-fast) var(--ease-out);
+}
+.group-icon-choice:hover {
+  scale: 1.2;
+}
+.group-icon-choice:active {
+  scale: 0.92;
+}
+/* No fill on the choices: the current one is only outlined. */
+.group-icon-choice[aria-checked='true'] {
+  box-shadow: inset 0 0 0 1px var(--border-hover);
+}
 .group-card-chevron {
   flex-shrink: 0;
   color: var(--fg-subtle);
@@ -1635,6 +1729,8 @@ button.sidebar-row,
 :root[data-trail='minimal'] .group-card,
 :root[data-trail='minimal'] .group-card[data-open='true'] {
   --group-pad: 0px;
+  --group-row: var(--row-height);
+  margin-block: 4px;
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -1646,7 +1742,14 @@ button.sidebar-row,
 }
 :root[data-trail='minimal'] .group-card-name {
   font-size: var(--type-lead);
-  font-weight: 400;
+  font-weight: 600;
+}
+:root[data-trail='minimal'] .group-card-mark {
+  --group-mark-at: 27px;
+}
+/* Lines up with the favicons of the pages that would sit here. */
+:root[data-trail='minimal'] .group-card-empty {
+  padding-left: 46px;
 }
 
 /* A site's first letter, where it has no icon. */
@@ -1857,65 +1960,6 @@ button.sidebar-row,
   animation: none;
 }
 
-/*
- * The workspace editor (WorkspaceEditor.tsx), a sidebar panel after Arc's
- * "Create a Space": each part sits in its own soft panel, and the window
- * frame itself previews the theme.
- */
-.sheet-panel {
-  border-radius: var(--radius-panel);
-  background: var(--field);
-}
-.sheet-panel:has(> input:focus-visible) {
-  box-shadow: var(--shadow-focus);
-}
-
-/* The icon on a fan of three cards, the front one in the accent. */
-.workspace-cards {
-  position: relative;
-  width: 132px;
-  height: 78px;
-}
-.workspace-card {
-  position: absolute;
-  top: 4px;
-  left: calc(50% - 28px);
-  display: grid;
-  place-items: center;
-  width: 56px;
-  height: 70px;
-  border-radius: var(--radius-card);
-  background: var(--elevated);
-  color: var(--accent);
-  box-shadow: var(--shadow-outline), var(--shadow-card);
-  transition:
-    translate var(--duration-slow) var(--ease-spring),
-    rotate var(--duration-slow) var(--ease-spring);
-}
-.workspace-card[data-card='left'] {
-  translate: -34px 6px;
-  rotate: -9deg;
-}
-.workspace-card[data-card='right'] {
-  translate: 34px 6px;
-  rotate: 9deg;
-}
-.workspace-card:not([data-card='front']) > * {
-  opacity: 0.45;
-}
-.workspace-card[data-card='front'] {
-  z-index: 1;
-  top: 0;
-}
-.workspace-cards:hover .workspace-card[data-card='left'] {
-  translate: -40px 8px;
-  rotate: -12deg;
-}
-.workspace-cards:hover .workspace-card[data-card='right'] {
-  translate: 40px 8px;
-  rotate: 12deg;
-}
-
 .symbol-choice {
   display: grid;
   place-items: center;
@@ -1937,33 +1981,14 @@ button.sidebar-row,
   color: var(--accent);
 }
 
-/*
- * The theme presets (WorkspaceEditor.tsx): nine dots to a page that snap
- * as it scrolls, each the gradient's colours flat. The outline keeps pale
- * ones visible; the padding keeps a chosen one's ring from being clipped.
- */
-.theme-row {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: calc((100% - 8 * 6px) / 9);
-  gap: 6px;
-  padding: 5px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-padding-inline: 5px;
-  scrollbar-width: none;
-}
+/* The theme choices in the workspace editor. The outline keeps pale ones visible. */
 .theme-swatch {
-  width: 100%;
-  aspect-ratio: 1;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-full);
   box-shadow: var(--shadow-outline);
   outline-offset: 2px;
   transition: scale var(--duration-fast) var(--ease-out);
-}
-/* Pages snap whole: only the first of every nine is a snap point. */
-.theme-swatch:nth-child(9n + 1) {
-  scroll-snap-align: start;
 }
 .theme-swatch:hover {
   scale: 1.08;
@@ -1973,48 +1998,40 @@ button.sidebar-row,
 }
 
 /*
- * The grain dial (GrainDial.tsx), after Arc's: a ring of dots lit up to the
- * value around a silver knob whose face shows the grain, and a white pill
- * outside the ring where it points.
+ * A plain slider, in the Settings toggles' accent and white thumb. `--value`
+ * (0-1) sets how far the fill runs, up to the middle of the thumb.
  */
-.grain-dial-dot {
-  position: absolute;
-  width: 4px;
+.range-input {
+  --thumb: 14px;
+  appearance: none;
+  height: 20px;
+  background: none;
+  cursor: pointer;
+}
+.range-input::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: var(--radius-full);
-  background: color-mix(in oklab, var(--fg) 18%, transparent);
-  transition: background-color var(--duration-fast) var(--ease-out);
+  background: linear-gradient(
+    to right,
+    var(--accent) calc(var(--thumb) / 2 + var(--value) * (100% - var(--thumb))),
+    var(--hairline) 0
+  );
 }
-.grain-dial-dot[data-lit] {
-  background: var(--fg-subtle);
-}
-.grain-dial-knob {
-  position: absolute;
-  inset: 15px;
-  border-radius: var(--radius-full);
-  background-color: var(--dial-knob);
-  box-shadow: var(--shadow-outline), var(--shadow-wheel-handle);
-  transition: box-shadow var(--duration-fast) var(--ease-out);
-}
-.grain-dial-marker {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  transition: rotate var(--duration-fast) var(--ease-out);
-}
-.grain-dial-marker::after {
-  content: '';
-  position: absolute;
-  top: -3px;
-  left: calc(50% - 3px);
-  width: 6px;
-  height: 13px;
+.range-input::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--thumb);
+  height: var(--thumb);
+  margin-top: -5px;
   border-radius: var(--radius-full);
   background: var(--wheel-handle-ring);
   box-shadow: var(--shadow-wheel-handle);
+  transition: box-shadow var(--duration-fast) var(--ease-out);
 }
-.grain-dial:focus-visible .grain-dial-knob {
-  box-shadow: var(--shadow-outline), var(--shadow-focus);
+.range-input:focus-visible {
+  outline: none;
+}
+.range-input:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--shadow-focus);
 }
 
 /* The workspace circles: five at most, fading out where more are hidden. */
@@ -2041,17 +2058,15 @@ button.sidebar-row,
 }
 
 /*
- * Sidebar icons rest dim and brighten on hover; no plate behind them.
+ * Sidebar icons match the toolbar's at rest and brighten on hover, with no
+ * plate behind them.
  */
-aside .icon-button {
-  color: color-mix(in srgb, var(--fg-subtle) 65%, transparent);
-}
 aside .icon-button:hover:not(:disabled),
 aside .icon-button:active:not(:disabled) {
   background: none;
-  color: var(--fg-muted);
+  color: var(--fg);
 }
 aside .icon-button[aria-pressed='true'] {
   background: none;
-  color: var(--fg-muted);
+  color: var(--fg);
 }

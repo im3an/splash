@@ -1,5 +1,9 @@
 import path from 'node:path';
 import {
+  hasCertificateException,
+  type CertificateExceptions,
+} from '../security/certificate-exceptions';
+import {
   app,
   dialog,
   BrowserWindow,
@@ -10,21 +14,24 @@ import {
   net,
   shell,
   screen,
-  session,
   type Rectangle,
+  type Session,
 } from 'electron';
 import { eventChannels } from '../../shared/api';
 import { DEFAULT_APPEARANCE, frameColor } from '../../shared/appearance';
 import type { Preferences } from '../../shared/preferences';
+import type { CredentialPrompt } from '../../shared/vault';
 import {
   builtInEngine,
   fillSearchUrl,
   keywordSearch,
 } from '../../shared/search';
 import { formatPageLink, type CopyFormat } from '../../shared/page-link';
+import { pagesBelow } from '../../shared/pages-below';
 import type {
   BrowserSnapshot,
   ContentInsets,
+  SettingsSection,
   Notice,
   PageId,
   PermissionDecision,
@@ -41,7 +48,7 @@ import {
   type SharedTrails,
 } from '../browser/browser-controller';
 import { buildPaletteItems, searchSuggestionItems } from '../browser/palette';
-import { clipboardAddressInput } from '../browser/url';
+import { allowLocalFile, clipboardAddressInput } from '../browser/url';
 import { SearchSuggestions } from '../browser/search-suggestions';
 import { pageWebPreferences } from '../browser/page-preferences';
 import { rememberZoom, zoomFor } from '../browser/site-zoom';
@@ -51,8 +58,11 @@ import {
   createElectronPageHostFactory,
   pageHandleFor,
 } from '../browser/electron-page-host';
+import { togglePictureInPicture } from '../browser/picture-in-picture';
+import { exportBookmarks, exportTrail } from '../transfer/transfer-dialogs';
 import { requestExternalOpen } from '../security/external-apps';
 import { contentBounds } from '../browser/layout';
+import { wwwSibling } from '../security/https-only';
 import { savePage } from '../browser/save-page';
 import { OfflineRetry } from '../browser/offline-retry';
 import { isSameDocument, shellUrl } from './shell-url';
@@ -66,7 +76,6 @@ import {
   webOrigin,
 } from '../security/permissions';
 import { dangerousSiteKey } from '../security/threat-list';
-import { WEB_PARTITION } from '../security/web-security';
 import { AiPanel } from '../ai/ai-panel';
 import type { HistoryMatch, TrailStore } from '../storage/trail-store';
 import type { PreferencesService } from '../preferences';
@@ -98,6 +107,20 @@ export interface SessionSaves {
 }
 
 export interface TrailWindowOptions {
+  certificates: CertificateExceptions;
+  /** Where this window's pages keep their cookies and storage. */
+  webSession: Session;
+  /** Nothing outlives its windows: no saved session, history or new logins. */
+  isPrivate: boolean;
+  openSettingsSection(section: SettingsSection): void;
+  openPrivateWindow(): void;
+  chooseFiles(): void;
+  /** Files dragged from the Finder onto this window. */
+  openFiles(paths: string[]): void;
+  answerCredentialPrompt(
+    id: string,
+    answer: 'save' | 'never' | 'dismiss',
+  ): void;
   store: TrailStore;
   preferences: PreferencesService;
   downloads: DownloadManager;
@@ -108,7 +131,7 @@ export interface TrailWindowOptions {
    * changes, or the active page's pin or mute, so the menu bar can follow.
    */
   onWorkspacesChanged(): void;
-  openSettings(): void;
+  openSettings(section?: string): void;
   /** What's running in every window, for the task manager. */
   listTasks(): TaskList;
   /** The trails every window shows. */
@@ -132,7 +155,15 @@ function savedBounds(store: TrailStore): Rectangle | null {
   try {
     const value = store.getPreference(BOUNDS_KEY);
     if (!value) return null;
-    const bounds = JSON.parse(value) as Rectangle;
+    return visibleBounds(JSON.parse(value) as Rectangle);
+  } catch {
+    return null;
+  }
+}
+
+/** A saved position, if it still fits on a connected display. */
+export function visibleBounds(bounds: Rectangle): Rectangle | null {
+  try {
     if (
       ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)
     ) {
@@ -152,6 +183,16 @@ function savedBounds(store: TrailStore): Rectangle | null {
 
 /** What the window is called in the Window menu and Mission Control. */
 function windowTitle(
+  page:
+    | { customTitle: string | null; title: string; url: string | null }
+    | undefined,
+  isPrivate: boolean,
+): string {
+  const title = pageTitle(page);
+  return isPrivate ? `${title} (Private)` : title;
+}
+
+function pageTitle(
   page:
     | { customTitle: string | null; title: string; url: string | null }
     | undefined,
@@ -195,6 +236,8 @@ export class TrailWindow {
   private insets: ContentInsets | null = null;
   /** The light or dark the workspace editor is showing, while it's open. */
   private previewMode: WorkspaceMode | null = null;
+  /** A toast with Undo or Redo is showing, so ⌘Z and ⇧⌘Z mean the trail. */
+  trailUndoOffered = false;
   /** An assistant beside the page, signed in like any other page. */
   private readonly aiPanel: AiPanel;
   private workspaceKey = '';
@@ -206,6 +249,20 @@ export class TrailWindow {
   /** The contents extensions were last told are in front. */
   private extensionContentsId: number | null = null;
   /** Reloads "You're offline" pages when the connection returns. */
+  /** The store this window reads, which a private window keeps in memory. */
+  get store(): TrailStore {
+    return this.options.store;
+  }
+
+  get isPrivate(): boolean {
+    return this.options.isPrivate;
+  }
+
+  /** Shows or withdraws the offer to keep a login, if it's this window's. */
+  sendCredentialPrompt(prompt: CredentialPrompt | null): void {
+    this.send(eventChannels.credentialPrompt, prompt);
+  }
+
   private readonly offline = new OfflineRetry({
     isOnline: () => net.isOnline(),
     retry: (pageId) => {
@@ -245,13 +302,17 @@ export class TrailWindow {
       focusWindow: () => this.window.focus(),
       createHost: createElectronPageHostFactory({
         window: this.window,
-        session: session.fromPartition(WEB_PARTITION),
+        session: options.webSession,
         preload: path.join(__dirname, 'page-preload.cjs'),
+        allowFile: (address) =>
+          allowLocalFile(address, { remember: !options.isPrivate }),
+        openDroppedFiles: (paths) => options.openFiles(paths),
         isSoundBlocked: (origin) =>
           this.safely(() => store.getPermission(origin, 'sound')) === false,
         webPreferences: () => pageWebPreferences(options.preferences.get()),
         zoomFor: (address) => zoomFor(options.preferences.get(), address),
         rememberZoom: (address, percent) => {
+          if (options.isPrivate) return;
           const siteZoom = rememberZoom(
             options.preferences.get(),
             address,
@@ -263,9 +324,16 @@ export class TrailWindow {
           this.safely(() => store.getPermission(origin, 'popups')) ?? null,
         httpsOnly: () => options.preferences.get().httpsOnly,
         plainHttpAllowed: (address) =>
-          this.safely(() =>
-            store.getPermission(new URL(address).origin, 'insecure'),
-          ) === true,
+          this.safely(() => {
+            const { origin } = new URL(address);
+            return (
+              store.getPermission(origin, 'insecure') === true ||
+              store.getPermission(wwwSibling(origin), 'insecure') === true
+            );
+          }) === true,
+        certificateException: (address) =>
+          this.safely(() => hasCertificateException(store, address)) === true,
+        certificateLocked: (address) => options.certificates.locked(address),
         onContentsCreated: (contents) =>
           options.extensions?.addPage(contents, this.window),
         onContentsMoved: (contents, window) =>
@@ -300,7 +368,7 @@ export class TrailWindow {
           ? snapshot.pages[snapshot.activePageId]
           : undefined;
         if (!this.window.isDestroyed()) {
-          this.window.setTitle(windowTitle(active));
+          this.window.setTitle(windowTitle(active, options.isPrivate));
         }
         // The menu names toggles and enables Back, Forward, Close Branch
         // and the History menu's lists by these.
@@ -312,6 +380,7 @@ export class TrailWindow {
           active?.canGoForward,
           active?.childIds.length,
           active?.url,
+          active && pagesBelow(snapshot, active.id).length,
           snapshot.lastClosed?.serial,
         ]);
         if (key !== this.workspaceKey) {
@@ -336,6 +405,9 @@ export class TrailWindow {
         const key = dangerousSiteKey(address);
         if (key) this.safely(() => store.setPermission(key, 'dangerous', true));
       },
+      allowCertificate: (address) => {
+        this.safely(() => options.certificates.accept(store, address));
+      },
       newPageUrl: () => {
         const { newPage, homepage } = options.preferences.get();
         return newPage === 'homepage' ? homepage : null;
@@ -351,7 +423,7 @@ export class TrailWindow {
 
     this.aiPanel = new AiPanel({
       window: this.window,
-      session: session.fromPartition(WEB_PARTITION),
+      session: options.webSession,
       openPage: (link) => this.controller.createPage({ input: link }),
       onState: (state) => this.send(eventChannels.aiPanel, state),
     });
@@ -364,7 +436,7 @@ export class TrailWindow {
         if (options.preferences.get().startup === 'new-page')
           this.controller.startWithNewPage();
       }
-      this.adoptSavedGroups(store);
+      if (!options.isPrivate) this.adoptSavedGroups(store);
     }
     if (options.show && 'pageId' in options.show) {
       this.controller.activatePage(options.show.pageId);
@@ -386,6 +458,20 @@ export class TrailWindow {
           return this.controller.snapshot();
         },
         'storage:status': () => this.storageStatus(),
+        'window:info': () => ({ isPrivate: options.isPrivate }),
+        'window:new-private': () => {
+          options.openPrivateWindow();
+        },
+        'file:choose': () => options.chooseFiles(),
+        'file:open-dropped': ({ paths }) => options.openFiles(paths),
+        'app:open-settings-section': ({ section }) =>
+          options.openSettingsSection(section),
+        'credential:respond': ({ id, answer }) =>
+          options.answerCredentialPrompt(id, answer),
+        'transfer:export-bookmarks': () => this.saveBookmarks(),
+        'transfer:export-trail': () => this.saveTrail(),
+        'page:picture-in-picture': ({ pageId }) =>
+          this.togglePictureInPicture(pageId),
         'page:create': ({ input }) => this.controller.createPage({ input }),
         'page:activate': ({ pageId }) => this.controller.activatePage(pageId),
         'page:close': ({ pageId, unpin }) =>
@@ -399,6 +485,8 @@ export class TrailWindow {
           this.controller.continueOverHttp(pageId),
         'page:continue-to-dangerous-site': ({ pageId }) =>
           this.controller.continueToDangerousSite(pageId),
+        'page:continue-past-certificate': ({ pageId }) =>
+          this.controller.continuePastCertificate(pageId),
         'page:stop': ({ pageId }) => this.controller.stop(pageId),
         'page:set-collapsed': ({ pageId, collapsed }) =>
           this.controller.setCollapsed(pageId, collapsed),
@@ -408,6 +496,11 @@ export class TrailWindow {
           this.controller.closeBranch(pageId),
         'page:close-others': ({ pageId }) =>
           this.controller.closeOtherPages(pageId),
+        'page:close-below': ({ pageId }) =>
+          this.controller.closePagesBelow(pageId),
+        'page:view-source': ({ pageId }) => this.controller.viewSource(pageId),
+        'page:toggle-devtools': ({ pageId }) =>
+          this.controller.toggleDevTools(pageId),
         'page:print': ({ pageId }) => this.controller.print(pageId),
         'page:save-as': ({ pageId }) => {
           const contents = contentsForPage(pageId);
@@ -421,6 +514,11 @@ export class TrailWindow {
             return this.controller.deleteWorkspace(workspaceId);
         },
         'page:reopen-closed': () => this.controller.reopenClosed(),
+        'page:reopen-closed-item': ({ serial }) =>
+          this.controller.reopenClosed(serial),
+        'page:recently-closed': () => this.controller.recentlyClosed(),
+        'page:undo-close': ({ serial }) => this.controller.undoClose(serial),
+        'page:close-again': ({ serial }) => this.controller.closeAgain(serial),
         'page:move': ({ pageId, parentId, afterId }) =>
           this.controller.movePage(pageId, parentId, afterId),
         'page:return': ({ pageId, origin }) =>
@@ -435,7 +533,11 @@ export class TrailWindow {
           this.controller.renameGroup(groupId, name),
         'group:set-collapsed': ({ groupId, collapsed }) =>
           this.controller.setGroupCollapsed(groupId, collapsed),
+        'group:set-icon': ({ groupId, icon }) =>
+          this.controller.setGroupIcon(groupId, icon),
         'group:delete': ({ groupId }) => this.controller.deleteGroup(groupId),
+        'group:delete-with-pages': ({ groupId }) =>
+          this.controller.deleteGroupWithPages(groupId),
         'page:set-group': ({ pageId, groupId }) =>
           this.controller.setPageGroup(pageId, groupId),
         'app:open-settings': () => this.options.openSettings(),
@@ -495,8 +597,7 @@ export class TrailWindow {
             (permission === 'javascript' || permission === 'images') &&
             decision === 'block'
           ) {
-            void session
-              .fromPartition(WEB_PARTITION)
+            void options.webSession
               .clearData({ dataTypes: ['serviceWorkers'], origins: [origin] })
               .catch((error: unknown) =>
                 console.error('Could not clear service workers', error),
@@ -531,11 +632,7 @@ export class TrailWindow {
         'history:restore': ({ entry }) => {
           store.restoreHistory([entry]);
         },
-        'extensions:manage': () => {
-          if (!this.options.extensions)
-            throw new Error('Extensions are unavailable');
-          return this.options.extensions.manage(this.window);
-        },
+        'extensions:manage': () => this.options.openSettings('extensions'),
         'page:share': ({ pageId }) => {
           const page = this.controller.snapshot().pages[pageId];
           if (page?.url && /^https?:/.test(page.url)) {
@@ -586,6 +683,7 @@ export class TrailWindow {
               hasChildren: active.childIds.length > 0,
               hasNote: active.note !== null,
               hasOthers: Object.keys(snapshot.pages).length > 1,
+              hasBelow: pagesBelow(snapshot, active.id).length > 0,
               inSplit:
                 snapshot.split?.leftId === active.id ||
                 snapshot.split?.rightId === active.id,
@@ -624,6 +722,9 @@ export class TrailWindow {
         'view:focus-page': () => this.controller.focusActivePage(),
         'view:set-overlay': ({ active }) =>
           this.controller.setOverlayActive(active),
+        'view:set-trail-undo-offered': ({ offered }) => {
+          this.trailUndoOffered = offered;
+        },
         'workspace:preview-mode': ({ mode }) => {
           this.previewMode = mode;
           this.applyAppearance();
@@ -773,6 +874,41 @@ export class TrailWindow {
     this.send(eventChannels.preferences, preferences);
   }
 
+  /** Floats the page's video above other windows, or brings it back. */
+  async togglePictureInPicture(pageId: PageId): Promise<void> {
+    const contents = contentsForPage(pageId);
+    const result = contents
+      ? await togglePictureInPicture(contents)
+      : ('none' as const);
+    if (result !== 'ok') {
+      this.notify({ kind: 'no-video', blocked: result === 'blocked' });
+    }
+  }
+
+  /** A failure to write a file is said out loud, not just logged. */
+  private async saved(
+    run: () => Promise<string | null>,
+  ): Promise<string | null> {
+    try {
+      const filename = await run();
+      if (filename) this.notify({ kind: 'exported', filename });
+      return filename;
+    } catch (error) {
+      dialog.showErrorBox('The file couldn’t be saved', String(error));
+      return null;
+    }
+  }
+
+  saveBookmarks(): Promise<string | null> {
+    return this.saved(() =>
+      exportBookmarks(this.window, this.options.preferences),
+    );
+  }
+
+  saveTrail(): Promise<string | null> {
+    return this.saved(() => exportTrail(this.window, this.controller));
+  }
+
   /** Confirms something in the shell, without taking focus from the page. */
   /** Copies a page's title and address, and says what was copied. */
   async copyPageAs(pageId: PageId, format: CopyFormat): Promise<void> {
@@ -811,6 +947,11 @@ export class TrailWindow {
 
   sendUiCommand(command: UiCommand): void {
     this.window.webContents.focus();
+    this.send(eventChannels.uiCommand, command);
+  }
+
+  /** A trail command, leaving focus where it is. */
+  sendToTrail(command: UiCommand): void {
     this.send(eventChannels.uiCommand, command);
   }
 
@@ -854,7 +995,11 @@ export class TrailWindow {
     return {
       origin,
       host: new URL(origin).host,
-      security: origin.startsWith('https:') ? 'secure' : 'insecure',
+      security:
+        origin.startsWith('https:') &&
+        !this.safely(() => hasCertificateException(store, origin))
+          ? 'secure'
+          : 'insecure',
       blockedCount: this.options.blocker.blockedOn(pageId),
       // A secure site has no plain HTTP address to allow.
       permissions: SITE_PERMISSIONS.filter(
@@ -878,7 +1023,13 @@ export class TrailWindow {
   /** What applies on a site where the user hasn't decided. */
   private undecided(permission: SitePermission): PermissionDecision {
     // Sound plays unless the user turned it off; ads follow the setting.
-    if (permission === 'sound') return 'allow';
+    if (
+      permission === 'sound' ||
+      permission === 'save-passwords' ||
+      permission === 'picture-in-picture'
+    ) {
+      return 'allow';
+    }
     if (permission === 'ads') {
       return this.options.preferences.get().blockAds ? 'block' : 'allow';
     }

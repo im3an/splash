@@ -1,7 +1,8 @@
 import { canBranchLink, droppedLink } from '../shared/branch-click';
-import { ipcRenderer } from 'electron';
+import { ipcRenderer, webUtils } from 'electron';
 import {
   BRANCH_LINK,
+  FILE_DROPPED,
   FORM_EDITED,
   FRAME_GESTURE,
   LINK_ACTIVATED,
@@ -128,10 +129,33 @@ function acceptsLink(event: DragEvent): boolean {
   );
 }
 
+/** A file dragged in from the Finder: same rules, in the top frame only. */
+function acceptsFile(event: DragEvent): boolean {
+  if (!event.isTrusted || event.defaultPrevented || draggingFromHere) {
+    return false;
+  }
+  if (window !== window.top) return false;
+  if (!event.dataTransfer?.types.includes('Files')) return false;
+  const target = event.target;
+  return !(
+    target instanceof Element &&
+    target.closest('input, textarea, [contenteditable]')
+  );
+}
+
 window.addEventListener('dragover', (event) => {
-  if (acceptsLink(event)) event.preventDefault();
+  if (acceptsLink(event) || acceptsFile(event)) event.preventDefault();
 });
 window.addEventListener('drop', (event) => {
+  if (acceptsFile(event)) {
+    event.preventDefault();
+    const paths = [...event.dataTransfer!.files]
+      .map((file) => webUtils.getPathForFile(file))
+      .filter(Boolean)
+      .slice(0, 50);
+    if (paths.length > 0) ipcRenderer.send(FILE_DROPPED, paths);
+    return;
+  }
   if (!acceptsLink(event)) return;
   event.preventDefault();
   const href = droppedLink(event.dataTransfer!.getData('text/uri-list'));

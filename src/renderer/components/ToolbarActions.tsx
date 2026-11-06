@@ -24,6 +24,7 @@ import { useAiPanel } from '../stores/ai-store';
 import { useOverlay } from '../stores/overlay-store';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { ExtensionActions } from './ExtensionActions';
+import { PrivateChip } from './PrivateChip';
 import { SplitButton } from './Toolbar';
 import { DownloadsButton } from './DownloadsButton';
 
@@ -146,6 +147,7 @@ export function ToolbarActions() {
         });
       }}
     >
+      <PrivateChip />
       {actions.map((action) => {
         if (action === 'extensions') return <ExtensionActions key={action} />;
         if (action === 'split') return <SplitButton key={action} compact />;
@@ -165,7 +167,7 @@ export function ToolbarActions() {
               }
               onClick={() => void api().goHome()}
             >
-              <House size={15} />
+              <House size={16} />
             </button>
           );
         return (
@@ -212,12 +214,12 @@ export function ToolbarActions() {
           >
             {action === 'bookmark' ? (
               <Star
-                size={15}
+                size={16}
                 fill={saved ? 'currentColor' : 'none'}
                 className={saved ? 'text-accent' : ''}
               />
             ) : (
-              <Share size={15} />
+              <Share size={16} />
             )}
           </button>
         );
@@ -231,7 +233,7 @@ export function ToolbarActions() {
         title={aiOpen ? 'Close AI panel (⇧⌘A)' : 'Ask AI (⇧⌘A)'}
         onClick={() => useAiPanel.getState().toggle()}
       >
-        <Sparkles size={15} />
+        <Sparkles size={16} />
       </button>
       <button
         className="icon-button"
@@ -250,7 +252,7 @@ export function ToolbarActions() {
           });
         }}
       >
-        <Settings2 size={14} />
+        <Settings2 size={16} />
       </button>
       {menu && menuReady && (
         <ContextMenu

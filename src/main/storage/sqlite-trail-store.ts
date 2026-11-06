@@ -4,6 +4,7 @@ import { DEFAULT_APPEARANCE } from '../../shared/appearance';
 import { workspaceAppearanceSchema } from '../../shared/ipc';
 import type {
   DownloadSummary,
+  GroupIcon,
   PageGroup,
   PageId,
   SitePermission,
@@ -27,6 +28,7 @@ import type {
   StoredPage,
   StoredSession,
   StoredWorkspace,
+  VaultRow,
   TrailStore,
 } from './trail-store';
 
@@ -110,6 +112,15 @@ function parseAppearance(value: string | null): WorkspaceAppearance {
   }
 }
 
+/** A group's saved mark; one this version can't draw is dropped. */
+function parseGroupIcon(value: unknown): GroupIcon | null {
+  const icon = value as Partial<{ kind: string; value: string }>;
+  if (icon?.kind === 'emoji' && typeof icon.value === 'string' && icon.value) {
+    return { kind: 'emoji', value: icon.value.slice(0, 16) };
+  }
+  return null;
+}
+
 /** A workspace's saved groups; anything malformed is dropped. */
 function parseGroups(value: string | null): PageGroup[] {
   if (!value) return [];
@@ -118,15 +129,18 @@ function parseGroups(value: string | null): PageGroup[] {
     if (!Array.isArray(parsed)) return [];
     return parsed.flatMap((item): PageGroup[] => {
       const group = item as Partial<PageGroup> | null;
-      return typeof group?.id === 'string' && typeof group.name === 'string'
-        ? [
-            {
-              id: group.id,
-              name: group.name.slice(0, 100),
-              collapsed: group.collapsed === true,
-            },
-          ]
-        : [];
+      if (typeof group?.id !== 'string' || typeof group.name !== 'string') {
+        return [];
+      }
+      const icon = parseGroupIcon(group.icon);
+      return [
+        {
+          id: group.id,
+          name: group.name.slice(0, 100),
+          collapsed: group.collapsed === true,
+          ...(icon ? { icon } : {}),
+        },
+      ];
     });
   } catch {
     return [];
@@ -145,6 +159,28 @@ function parseSplit(value: string | null): SplitView | null {
   } catch {
     return null;
   }
+}
+
+interface VaultRecord {
+  id: string;
+  kind: VaultRow['kind'];
+  origin: string | null;
+  secret: Uint8Array;
+  created_at: number;
+  updated_at: number;
+  last_used_at: number | null;
+}
+
+function vaultRow(record: VaultRecord): VaultRow {
+  return {
+    id: record.id,
+    kind: record.kind,
+    origin: record.origin,
+    secret: record.secret,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at,
+    lastUsedAt: record.last_used_at,
+  };
 }
 
 function escapeLike(value: string): string {
@@ -526,6 +562,100 @@ export class SqliteTrailStore implements TrailStore {
         .run(since);
     });
     return removed;
+  }
+
+  importHistory(rows: HistoryRow[]): string[] {
+    const known = this.db.prepare('SELECT 1 FROM history WHERE url = ?');
+    const upsert = this.db.prepare(
+      `INSERT INTO history (url, title, visit_count, last_visited_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (url) DO UPDATE SET
+         title = CASE WHEN history.title = '' THEN excluded.title ELSE history.title END,
+         visit_count = max(history.visit_count, excluded.visit_count),
+         last_visited_at = max(history.last_visited_at, excluded.last_visited_at)`,
+    );
+    const added: string[] = [];
+    this.transaction(() => {
+      for (const row of rows) {
+        if (!known.get(row.url)) added.push(row.url);
+        upsert.run(row.url, row.title, row.visitCount, row.lastVisitedAt);
+      }
+    });
+    return added;
+  }
+
+  forgetHistory(urls: string[]): void {
+    const forget = this.db.prepare('DELETE FROM history WHERE url = ?');
+    this.transaction(() => {
+      for (const url of urls) forget.run(url);
+    });
+  }
+
+  listVault(kind: VaultRow['kind']): VaultRow[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT id, kind, origin, secret, created_at, updated_at, last_used_at
+           FROM vault WHERE kind = ? ORDER BY coalesce(origin, ''), created_at`,
+        )
+        .all(kind) as unknown as VaultRecord[]
+    ).map(vaultRow);
+  }
+
+  getVaultRow(id: string): VaultRow | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, kind, origin, secret, created_at, updated_at, last_used_at
+         FROM vault WHERE id = ?`,
+      )
+      .get(id) as unknown as VaultRecord | undefined;
+    return row ? vaultRow(row) : null;
+  }
+
+  putVaultRow(row: VaultRow): void {
+    this.putVaultRows([row]);
+  }
+
+  putVaultRows(rows: VaultRow[]): void {
+    const put = this.db.prepare(
+      `INSERT INTO vault (id, kind, origin, secret, created_at, updated_at, last_used_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET
+         origin = excluded.origin,
+         secret = excluded.secret,
+         updated_at = excluded.updated_at,
+         last_used_at = excluded.last_used_at`,
+    );
+    this.transaction(() => {
+      for (const row of rows) {
+        put.run(
+          row.id,
+          row.kind,
+          row.origin,
+          row.secret,
+          row.createdAt,
+          row.updatedAt,
+          row.lastUsedAt,
+        );
+      }
+    });
+  }
+
+  deleteVaultRow(id: string): void {
+    this.deleteVaultRows([id]);
+  }
+
+  deleteVaultRows(ids: string[]): void {
+    const remove = this.db.prepare('DELETE FROM vault WHERE id = ?');
+    this.transaction(() => {
+      for (const id of ids) remove.run(id);
+    });
+  }
+
+  touchVaultRow(id: string, at: number): void {
+    this.db
+      .prepare('UPDATE vault SET last_used_at = ? WHERE id = ?')
+      .run(at, id);
   }
 
   restoreHistory(rows: HistoryRow[]): void {

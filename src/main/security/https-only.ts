@@ -52,8 +52,56 @@ export function httpsUpgradeFor(
   if (!enabled) return null;
   const secure = secureUpgradeOf(url);
   if (!secure) return null;
-  return allowsPlainHttp(new URL(url).origin) === true ? null : secure;
+  const { origin } = new URL(url);
+  // A site that sends `http://a` to `http://www.a` is one site to the person
+  // who just agreed to use it, so it doesn't ask again for the other name.
+  return allowsPlainHttp(origin) === true ||
+    allowsPlainHttp(wwwSibling(origin)) === true
+    ? null
+    : secure;
 }
+
+/** The same origin with `www.` added, or taken away. */
+export function wwwSibling(origin: string): string {
+  const url = new URL(origin);
+  url.hostname = url.hostname.startsWith('www.')
+    ? url.hostname.slice(4)
+    : `www.${url.hostname}`;
+  return url.origin;
+}
+
+/** Plain addresses a popup already failed to reach over HTTPS. */
+const plainPopupAddresses = new Set<string>();
+/** Secure addresses being tried for a popup, and what it actually asked for. */
+const popupAttempts = new Map<string, string>();
+
+/** Whether a popup's request for this plain address should try HTTPS first. */
+export function wantsSecurePopup(url: string): boolean {
+  return !plainPopupAddresses.has(url);
+}
+
+export function popupUpgraded(plain: string, secure: string): void {
+  popupAttempts.set(secure, plain);
+}
+
+/**
+ * A popup failed to load `secure`. If that was HTTPS-only mode's own try, this
+ * is the address to go to instead: a popup has nowhere to ask, and its title
+ * already says "Not secure".
+ */
+export function popupFallback(secure: string, code: number): string | null {
+  const plain = popupAttempts.get(secure);
+  if (!plain || !fallsBackToHttp(code)) return null;
+  popupAttempts.delete(secure);
+  plainPopupAddresses.add(plain);
+  return plain;
+}
+
+/**
+ * A secure address that doesn't answer at all can keep a page waiting for
+ * minutes, so after this long Splash stops and offers the HTTP one instead.
+ */
+export const SECURE_ATTEMPT_LIMIT_MS = 15_000;
 
 const SCHEME = /^[a-z][a-z\d+.-]*:\/\//i;
 
@@ -126,6 +174,19 @@ export class SecureAttempt {
 
   committed(): void {
     this.end();
+  }
+
+  /** The secure address answered, but with an error of its own: offer HTTP. */
+  answeredWithError(status: number): string | null {
+    if (status < 400) return null;
+    const { plain } = this;
+    this.end();
+    return plain;
+  }
+
+  /** Whether a try at HTTPS is under way. */
+  get active(): boolean {
+    return this.plain !== null;
   }
 
   /** The address to offer after a failed load, if HTTP could help. */

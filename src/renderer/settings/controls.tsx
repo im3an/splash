@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { SegmentedControl } from '../components/SegmentedControl';
 
 /** A titled group of settings. */
@@ -73,6 +74,27 @@ export function Choice<T extends string | number>({
       value={value}
       onChange={onChange}
     />
+  );
+}
+
+/**
+ * A dropdown, always the same width so a section's left edges line up. The
+ * value and chevron sit the same distance from their edges; the list that
+ * opens is still the system's own.
+ */
+export function Select(props: ComponentProps<'select'>) {
+  return (
+    <span className="relative inline-flex w-42 shrink-0">
+      <select
+        {...props}
+        className="h-7 w-full appearance-none truncate rounded-control bg-field pr-6 pl-2.5 text-small text-fg transition-colors duration-fast hover:bg-field-hover"
+      />
+      <ChevronDown
+        size={14}
+        aria-hidden
+        className="pointer-events-none absolute top-1/2 right-1.5 -translate-y-1/2 text-fg-subtle"
+      />
+    </span>
   );
 }
 

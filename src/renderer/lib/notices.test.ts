@@ -29,6 +29,15 @@ describe('undoMessage', () => {
       }),
     ).toBe('Deleted workspace “Work”.');
   });
+
+  it('describes a deleted group, with or without pages', () => {
+    expect(
+      undoMessage({ kind: 'group', label: 'Trip', pageCount: 3, serial: 1 }),
+    ).toBe('Deleted group “Trip” and its 3 pages.');
+    expect(
+      undoMessage({ kind: 'group', label: 'Trip', pageCount: 0, serial: 1 }),
+    ).toBe('Deleted group “Trip”.');
+  });
 });
 
 describe('noticeMessage', () => {
@@ -52,6 +61,7 @@ describe('noticeMessage', () => {
       workspaceId: 'w',
       workspaceName: 'Research',
       origin: { workspaceId: 'h', parentId: null, index: 0, wasActive: false },
+      index: 3,
     } as const;
     expect(noticeMessage({ ...moved, pageCount: 1 })).toBe(
       'Moved “Docs” to Research.',
@@ -63,6 +73,7 @@ describe('noticeMessage', () => {
 
   it('confirms pinning and explains a pinned page that stayed', () => {
     const origin = { parentId: null, index: 2 };
+    const at = { parentId: null, index: 0 };
     expect(
       noticeMessage({
         kind: 'pinned',
@@ -70,6 +81,7 @@ describe('noticeMessage', () => {
         label: 'Inbox',
         pinned: true,
         origin,
+        at,
       }),
     ).toBe('Pinned “Inbox” to the top of the trail.');
     expect(
@@ -79,6 +91,7 @@ describe('noticeMessage', () => {
         label: 'Inbox',
         pinned: false,
         origin,
+        at,
       }),
     ).toBe('Unpinned “Inbox”.');
     expect(

@@ -14,7 +14,7 @@ Contrast, measured from the token values (WCAG ratio, small text needs 4.5):
 | --------- | ----------- | ------------ | ------------- | ------------ | ------------- | -------------- |
 | fg        | 14.4        | 13.7         | 12.3          | 14.6         | 15.8          | 16.7           |
 | fg-muted  | 7.6         | 7.2          | 6.5           | 6.9          | 7.5           | 7.9            |
-| fg-subtle | 6.1         | 5.8          | 5.2           | 5.5          | 6.0           | 6.3            |
+| fg-subtle | 6.6         | 6.3          | 5.6           | 5.5          | 6.0           | 6.3            |
 | danger    | 6.4         | 6.1          | 5.5           | 5.3          | 5.7           | 6.0            |
 | accent    | 7.2         | 6.8          | 6.1           | 4.3          | 4.7           | 4.9            |
 
@@ -28,7 +28,7 @@ System UI font stack (SF Pro on macOS). Caption 11px, small 12px, body 13px, lea
 
 ## Materials and effects
 
-Surfaces are flat colour. Only the command palette is translucent: it floats over the page it was opened from, and the blur keeps that page in view behind the results. An unfolded saved group is a thin pane of glass over the workspace's frame, with a hairline edge; folded, it's a plain row. Bookmarks unfold as a branch of ordinary trail rows with no pane or box of their own, and a wavy line in the guide colour sets them apart from the pages below. The workspace frame's gradient and grain are workspace identity. The workspace editor previews its theme on the real window frame and its light or dark across the app while it's open; the grain dial's face shows the grain it sets. Swatches show a theme's colours flat. Nothing else gets glow, sheen, shine or sphere shading. Swatches show their colour flat, with a hairline outline.
+Surfaces are flat colour. Only the command palette is translucent: it floats over the page it was opened from, and that page shows faintly through its blur. The panel stays 92% opaque, because any more glass lets a page of the opposite brightness take its secondary text below 4.5:1. An unfolded saved group is a thin pane of glass over the workspace's frame, with a hairline edge; folded, it's a plain row. Bookmarks unfold as a branch of ordinary trail rows with no pane or box of their own, and a wavy line in the guide colour sets them apart from the pages below. The workspace frame's gradient and grain are workspace identity. The workspace editor previews its theme on the real window frame and its light or dark across the app while it's open; the grain dial's face shows the grain it sets. Swatches show a theme's colours flat. Nothing else gets glow, sheen, shine or sphere shading. Swatches show their colour flat, with a hairline outline.
 
 ## Shape and layout
 
@@ -36,7 +36,7 @@ Radii: mark 3px, inner 5px, row 6px, control 7px, pill/content 10px. Window gutt
 
 ## Interaction vocabulary
 
-Native buttons, switches and segmented choices. Share segmented controls between workspace customization and settings. Inactive controls stay quiet; selected controls have a clear surface or mark; keyboard focus remains visible.
+Native buttons, switches and segmented choices. Share segmented controls between workspace customization and settings. Inactive controls stay quiet; selected controls have a clear surface or mark; keyboard focus remains visible. A switch is the exception to quiet: its off track stays solid enough to reach 3:1 against its card and its knob, because the track is the only thing that shows it's a control. A dropdown is the shared `Select`: one width, so a section's left edges line up, with its value and chevron inset evenly. Anything else that opens a list, like the workspace name, keeps its chevron in the row beside the label, so the hover surface stays even around both.
 
 One selection language: the current item in any list or sidebar (the trail, Settings sections) takes the row-hover surface and full-strength text over muted siblings. The accent never marks navigation selection. It means "on" or "yours": switches, the primary action, a chosen swatch or symbol, workspace identity, the current page's guide line and focus rings. Primary actions are reserved for the next meaningful step. Use page, trail, branch and workspace consistently.
 

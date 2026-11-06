@@ -56,15 +56,10 @@ export function WorkspaceButton() {
       onClick={() => void api().showWorkspaceMenu()}
       onDoubleClick={() => setRenaming(true)}
       title="Workspaces (⌃1–9 to switch)"
-      className="group relative flex h-6 max-w-full shrink-0 items-center justify-center rounded-control px-5 text-small font-semibold text-fg-muted transition-colors duration-fast hover:bg-row-hover hover:text-fg"
+      className="flex h-6 max-w-full shrink-0 items-center gap-0.5 rounded-control pr-1.5 pl-2 text-small font-semibold text-fg-muted transition-colors duration-fast hover:bg-row-hover hover:text-fg"
     >
-      <span className="min-w-0">
-        <span className="block truncate">{workspace.name}</span>
-      </span>
-      <ChevronDown
-        size={12}
-        className="absolute top-1/2 right-1.5 -translate-y-1/2 text-fg-subtle opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-visible:opacity-100"
-      />
+      <span className="min-w-0 truncate">{workspace.name}</span>
+      <ChevronDown size={12} aria-hidden className="shrink-0 text-fg-subtle" />
     </button>
   );
 }

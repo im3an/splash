@@ -1,12 +1,15 @@
 import { useState, type FormEvent } from 'react';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Signpost, Trash2 } from 'lucide-react';
 import type { Preferences } from '../../shared/preferences';
 import {
   normalizeShortcut,
   shortcutProblem,
+  withoutShortcut,
   type SearchShortcut,
 } from '../../shared/search';
+import { WAYMARKS_NAME } from '../../shared/waymarks';
 import { Button, Section } from './controls';
+import { useSettingsNavigation } from './navigation';
 
 type Draft = Pick<SearchShortcut, 'name' | 'keyword' | 'url'>;
 const EMPTY: Draft = { name: '', keyword: '', url: '' };
@@ -28,6 +31,7 @@ export function SearchShortcuts({
   const shortcuts = preferences.searchShortcuts;
   // `new` for the empty form at the foot of the list, or a row's id.
   const [editing, setEditing] = useState<string | null>(null);
+  const go = useSettingsNavigation();
   const [removed, setRemoved] = useState<{
     name: string;
     undo: Partial<Preferences>;
@@ -47,7 +51,6 @@ export function SearchShortcuts({
   };
 
   const remove = (shortcut: SearchShortcut) => {
-    const wasDefault = preferences.searchEngine === shortcut.id;
     setRemoved({
       name: shortcut.name,
       undo: {
@@ -55,11 +58,7 @@ export function SearchShortcuts({
         searchEngine: preferences.searchEngine,
       },
     });
-    update({
-      searchShortcuts: shortcuts.filter((item) => item.id !== shortcut.id),
-      // The default can't be left pointing at nothing.
-      ...(wasDefault ? { searchEngine: 'duckduckgo' } : {}),
-    });
+    update(withoutShortcut(preferences, shortcut.id));
     setEditing(null);
   };
 
@@ -144,31 +143,40 @@ export function SearchShortcuts({
           ) : (
             <span />
           )}
-          <Button
-            onClick={() => {
-              setRemoved(null);
-              setEditing('new');
-            }}
-          >
-            <Plus size={13} />
-            Add shortcut
-          </Button>
+          <div className="flex shrink-0 gap-2">
+            <Button onClick={() => go('waymarks')}>
+              <Signpost size={13} />
+              Browse {WAYMARKS_NAME}
+            </Button>
+            <Button
+              onClick={() => {
+                setRemoved(null);
+                setEditing('new');
+              }}
+            >
+              <Plus size={13} />
+              Add shortcut
+            </Button>
+          </div>
         </div>
       )}
     </Section>
   );
 }
 
-function ShortcutForm({
+export function ShortcutForm({
   initial,
   others,
   onSave,
   onCancel,
+  checkNow = false,
 }: {
   initial: Draft;
   others: readonly SearchShortcut[];
   onSave(draft: Draft): void;
   onCancel(): void;
+  /** Say what's wrong straight away, for a form that opens because of it. */
+  checkNow?: boolean;
 }) {
   const [draft, setDraft] = useState<Draft>({
     name: initial.name,
@@ -176,7 +184,7 @@ function ShortcutForm({
     url: initial.url,
   });
   // Problems wait for the first Save, so an empty form isn't scolded.
-  const [tried, setTried] = useState(false);
+  const [tried, setTried] = useState(checkNow);
   const problem = shortcutProblem(draft, others);
 
   const submit = (event: FormEvent) => {

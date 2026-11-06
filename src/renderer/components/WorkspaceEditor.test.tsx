@@ -160,8 +160,8 @@ describe('theme', () => {
       target: { value: '0.8' },
     });
     const grain = screen.getByRole('slider', { name: 'Grain' });
-    expect(grain.getAttribute('aria-valuenow')).toBe('0');
-    fireEvent.keyDown(grain, { key: 'End' });
+    expect((grain as HTMLInputElement).value).toBe('0');
+    fireEvent.change(grain, { target: { value: '1' } });
     expect(saved(splash)).toMatchObject({ intensity: 0.8, grain: 1 });
   });
 });
@@ -174,6 +174,12 @@ describe('light or dark', () => {
     unmount();
     expect(splash.previewWorkspaceMode).toHaveBeenLastCalledWith(null);
   });
+});
+
+it("saves a look whose grain falls between the slider's steps", () => {
+  const { splash } = open();
+  fireEvent.click(screen.getByRole('radio', { name: 'Dusk' }));
+  expect(saved(splash).gradient).toBe('dusk');
 });
 
 describe('colour canvas', () => {

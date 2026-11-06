@@ -9,6 +9,7 @@ import type {
   ClosedSummary,
   MoveOrigin,
   Notice,
+  GroupIcon,
   PageGroup,
   PageId,
   PageSnapshot,
@@ -22,6 +23,7 @@ import type {
 import type { StoredPage, StoredSession } from '../storage/trail-store';
 import type {
   ClosedPage,
+  ClosedGroup,
   ClosedRecord,
   ClosedWorkspace,
 } from './closed-records';
@@ -34,10 +36,25 @@ import type {
 } from './page-host';
 import { splitBounds } from './layout';
 import { TrailTree } from './trail-tree';
-import { typedPlainAddress } from '../security/https-only';
-import { isPageUrl, resolveAddressInput, searchUrl } from './url';
+import { secureUpgradeOf, typedPlainAddress } from '../security/https-only';
+import { canContinuePastCertificate } from '../../shared/certificate-errors';
+import { pagesBelow, type TrailShape } from '../../shared/pages-below';
+import {
+  isNavigableUrl,
+  isPageUrl,
+  resolveAddressInput,
+  searchUrl,
+} from './url';
 import { stepZoom } from './zoom';
 import type { SearchSettings } from '../../shared/search';
+
+/** What a close took away, kept once undone so it can be redone. */
+interface UndoneClose {
+  kind: ClosedSummary['kind'];
+  workspaceId: WorkspaceId;
+  groupId: string | null;
+  pageIds: PageId[];
+}
 
 interface Workspace {
   id: WorkspaceId;
@@ -133,6 +150,8 @@ export interface BrowserControllerOptions {
   allowPlainHttp?(url: string): void;
   /** The user chose to visit a site reported as dangerous. */
   allowDangerousSite?(url: string): void;
+  /** The user chose to use this site despite the certificate it showed. */
+  allowCertificate?(url: string): void;
   /** What a page opened with no address loads, if anything. */
   newPageUrl?: () => string | null;
   /** Something happened that the shell should confirm (a move, a copy). */
@@ -277,6 +296,9 @@ export class BrowserController {
   private get closingIds() {
     return this.trails.closingIds;
   }
+  private readonly undoneCloses = new Map<number, UndoneClose>();
+  private redoingClose = false;
+
   private get closed() {
     return this.trails.closed;
   }
@@ -528,24 +550,77 @@ export class BrowserController {
     // Whole branches only: a kept page's parent is always kept too.
     const closing = tree.order().filter((pageId) => !keep.has(pageId));
     if (closing.length === 0) return;
+    return this.guardRemoval(closing, () =>
+      this.closeBranchesNow(workspace, closing, id, id),
+    );
+  }
+
+  /**
+   * Closes every page after this one in the sidebar, except pinned pages. One
+   * reopen brings them all back. If the page on screen goes, this one shows.
+   */
+  closePagesBelow(id: PageId): void | Promise<void> {
+    if (!this.pages.has(id) || this.closingIds.has(id)) return;
+    const workspace = this.workspaceOf(id);
+    const closing = pagesBelow(this.trailShape(workspace), id);
+    if (closing.length === 0) return;
     return this.guardRemoval(closing, () => {
-      // Found before removing any: a removed page's children leave the tree too.
-      const tops = closing.filter((pageId) => {
-        const parentId = tree.get(pageId)?.parentId ?? null;
-        return parentId === null || keep.has(parentId);
-      });
-      this.remember(workspace, closing, []);
-      for (const pageId of tops) tree.removeBranch(pageId);
-      for (const pageId of closing) this.release(pageId);
-      this.afterRemoval(workspace, id);
+      const active = this.viewOf(workspace).activePageId;
+      const successor =
+        active !== null && closing.includes(active) ? id : active;
+      this.closeBranchesNow(workspace, closing, successor, id);
     });
+  }
+
+  private trailShape(workspace: Workspace): TrailShape {
+    const { tree } = workspace;
+    return {
+      rootIds: tree.rootIds,
+      pages: Object.fromEntries(
+        tree.order().map((pageId) => [
+          pageId,
+          {
+            parentId: tree.get(pageId)?.parentId ?? null,
+            childIds: tree.get(pageId)?.childIds ?? [],
+            isPinned: this.require(pageId).pinned,
+          },
+        ]),
+      ),
+    };
+  }
+
+  /** Removes whole branches: a kept page's parent must be kept too. */
+  private closeBranchesNow(
+    workspace: Workspace,
+    closing: PageId[],
+    successor: PageId | null,
+    heir: PageId | null,
+  ): void {
+    const { tree } = workspace;
+    const closed = new Set(closing);
+    // Found before removing any: a removed page's children leave the tree too.
+    const tops = closing.filter((pageId) => {
+      const parentId = tree.get(pageId)?.parentId ?? null;
+      return parentId === null || !closed.has(parentId);
+    });
+    const activeBefore = this.viewOf(workspace).activePageId;
+    this.remember(workspace, closing, []);
+    const record = this.closed.at(-1);
+    if (record) record.activeBefore = activeBefore;
+    for (const pageId of tops) tree.removeBranch(pageId);
+    for (const pageId of closing) this.release(pageId);
+    this.afterRemoval(workspace, successor, heir);
   }
 
   /**
    * Puts the most recently closed page, branch or workspace back where it
-   * was. Returns the page that becomes active, if any.
+   * was. Returns the page that becomes active, if any. Undo also goes back to
+   * the page that was on screen; picking an entry from a list shows that entry.
    */
-  reopenClosed(serial?: number): PageId | null {
+  reopenClosed(
+    serial?: number,
+    { restoreActive = serial === undefined } = {},
+  ): PageId | null {
     const index =
       serial === undefined
         ? this.closed.length - 1
@@ -565,6 +640,11 @@ export class BrowserController {
     }
     workspace ??= this.workspace;
     const { tree } = workspace;
+    // Back before its pages, so they can file themselves in it.
+    const deleted = record.group;
+    if (deleted && !workspace.groups.some((g) => g.id === deleted.group.id)) {
+      workspace.groups.splice(deleted.index, 0, { ...deleted.group });
+    }
     for (const closed of record.pages) {
       const parentId =
         closed.parentId !== null && tree.has(closed.parentId)
@@ -596,7 +676,13 @@ export class BrowserController {
         },
       });
     }
+    if (deleted) this.settleRoots(workspace);
     const root = record.pages[0];
+    // An empty group has no page to go back to; the current one stays.
+    if (deleted && !root) {
+      this.changed();
+      return this.viewOf(workspace).activePageId;
+    }
     if (root && !record.workspace) {
       // Children that were promoted when the page closed go back under it,
       // unless they have been moved somewhere else since.
@@ -606,8 +692,10 @@ export class BrowserController {
           tree.move(childId, root.id, Number.MAX_SAFE_INTEGER);
         }
       }
-      this.activatePage(root.id);
-      return root.id;
+      const before = restoreActive ? record.activeBefore : null;
+      const shown = before && tree.has(before) ? before : root.id;
+      this.activatePage(shown);
+      return shown;
     }
     const remembered = record.workspace?.activePageId ?? null;
     const view = this.viewOf(workspace);
@@ -617,6 +705,109 @@ export class BrowserController {
         : (tree.rootIds[0] ?? null);
     this.switchWorkspace(workspace.id);
     return view.activePageId;
+  }
+
+  /**
+   * Undoes one particular close, and remembers what it closed so `closeAgain`
+   * can redo it. False if it was already undone some other way.
+   */
+  undoClose(serial: number): boolean {
+    const record = this.closed.find((item) => item.summary.serial === serial);
+    if (!record) return false;
+    this.undoneCloses.set(serial, {
+      kind: record.summary.kind,
+      workspaceId: record.workspaceId,
+      groupId: record.group?.group.id ?? null,
+      pageIds: record.pages.map((page) => page.id),
+    });
+    this.reopenClosed(serial, { restoreActive: true });
+    return true;
+  }
+
+  /**
+   * Redoes a close taken back by `undoClose`, asking each page first as any
+   * close does. Returns the serial of the new close, for undoing it in turn,
+   * or null if nothing closed: the pages have gone, or one chose to stay.
+   */
+  async closeAgain(serial: number): Promise<number | null> {
+    const undone = this.undoneCloses.get(serial);
+    const plan = undone && this.closeAgainPlan(undone);
+    if (!plan) return null;
+    let next: number | null = null;
+    await this.guardRemoval(plan.closing, () => {
+      // The shell confirms a redo itself, so it mustn't offer a new undo too.
+      this.redoingClose = true;
+      try {
+        plan.commit();
+      } finally {
+        this.redoingClose = false;
+      }
+      next = this.closed.at(-1)?.summary.serial ?? null;
+    });
+    if (next !== null) this.undoneCloses.delete(serial);
+    return next;
+  }
+
+  /** How to close again what was reopened, as it stands now. */
+  private closeAgainPlan({
+    kind,
+    workspaceId,
+    groupId,
+    pageIds,
+  }: UndoneClose): { closing: PageId[]; commit(): void } | null {
+    const workspace = this.workspaces.get(workspaceId);
+    if (!workspace) return null;
+    const { tree } = workspace;
+    if (kind === 'workspace') {
+      if (this.workspaces.size === 1) return null;
+      return {
+        closing: tree.order(),
+        commit: () => this.deleteWorkspaceNow(workspaceId),
+      };
+    }
+    if (kind === 'group') {
+      if (!groupId || !workspace.groups.some((g) => g.id === groupId))
+        return null;
+      return {
+        closing: this.groupBranches(workspace, groupId).closing,
+        commit: () => this.deleteGroupWithPagesNow(groupId),
+      };
+    }
+    const present = pageIds.filter((id) => tree.has(id));
+    if (present.length === 0) return null;
+    const [only] = present;
+    if (pageIds.length === 1 && only) {
+      // Its children step up again, as they did the first time.
+      return {
+        closing: [only],
+        commit: () => this.closePageNow(only, true),
+      };
+    }
+    // Pages opened under them since go too: a kept page needs its parent.
+    const tops = present.filter((id) => {
+      const parentId = tree.get(id)?.parentId ?? null;
+      return parentId === null || !present.includes(parentId);
+    });
+    const closing = tree
+      .order()
+      .filter((id) => tops.some((top) => tree.isWithin(id, top)));
+    return {
+      closing,
+      commit: () => {
+        const order = tree.order();
+        const at = order.findIndex((id) => closing.includes(id));
+        const stays = (id: PageId) => !closing.includes(id);
+        // The page just after them, or else the nearest above.
+        const heir =
+          order.slice(at).find(stays) ??
+          order.slice(0, at).findLast(stays) ??
+          null;
+        const active = this.viewOf(workspace).activePageId;
+        const successor =
+          active !== null && closing.includes(active) ? heir : active;
+        this.closeBranchesNow(workspace, closing, successor, heir);
+      },
+    };
   }
 
   /** What can be reopened, most recently closed first. */
@@ -709,6 +900,7 @@ export class BrowserController {
         label: nameOf(page.customTitle, page.state),
         pinned,
         origin: was,
+        at: { parentId: node.parentId, index: tree.indexOf(id) },
       });
     }
     this.changed();
@@ -745,6 +937,14 @@ export class BrowserController {
     this.changed();
   }
 
+  /** Gives a group its own mark, or back to a folder with `null`. */
+  setGroupIcon(groupId: string, icon: GroupIcon | null): void {
+    const { group } = this.requireGroup(groupId);
+    if (icon) group.icon = icon;
+    else delete group.icon;
+    this.changed();
+  }
+
   /** Dissolves a group; its pages stay where they are, no longer filed. */
   deleteGroup(groupId: string): void {
     const { workspace } = this.requireGroup(groupId);
@@ -755,6 +955,50 @@ export class BrowserController {
     }
     this.settleRoots(workspace);
     this.changed();
+  }
+
+  /**
+   * Removes a group and closes every page in it, branches included. One
+   * reopen brings back the group and its pages together.
+   */
+  deleteGroupWithPages(groupId: string): void | Promise<void> {
+    const { workspace } = this.requireGroup(groupId);
+    return this.guardRemoval(
+      this.groupBranches(workspace, groupId).closing,
+      () => this.deleteGroupWithPagesNow(groupId),
+    );
+  }
+
+  private deleteGroupWithPagesNow(groupId: string): void {
+    const { workspace, group } = this.requireGroup(groupId);
+    const { tree } = workspace;
+    const { tops, closing } = this.groupBranches(workspace, groupId);
+    this.remember(workspace, closing, [], null, {
+      group: { ...group },
+      index: workspace.groups.indexOf(group),
+    });
+    // The page after the group takes over, or the one before it at the end.
+    const roots = tree.rootIds;
+    const after = roots.findIndex((id) => tops.includes(id));
+    const others = roots.filter((id) => !tops.includes(id));
+    const heir = others[after] ?? others.at(-1) ?? null;
+    const active = this.viewOf(workspace).activePageId;
+    const successor =
+      active !== null && closing.includes(active) ? heir : active;
+    for (const id of tops) tree.removeBranch(id);
+    for (const id of closing) this.release(id);
+    workspace.groups = workspace.groups.filter((item) => item !== group);
+    this.settleRoots(workspace);
+    this.afterRemoval(workspace, successor, heir);
+  }
+
+  /** A group's top-level pages, and those with everything beneath them. */
+  private groupBranches(workspace: Workspace, groupId: string) {
+    const { tree } = workspace;
+    const tops = tree.rootIds.filter(
+      (id) => this.require(id).groupId === groupId,
+    );
+    return { tops, closing: tops.flatMap((id) => tree.branch(id)) };
   }
 
   /**
@@ -968,6 +1212,26 @@ export class BrowserController {
    * The user read the warning and wants the site anyway, now and next time.
    * Only the shell can ask, and only from that warning.
    */
+  continuePastCertificate(id: PageId): void {
+    const { error } = this.require(id).state;
+    if (!error || !canContinuePastCertificate(error.code)) return;
+    if (error.certificateLocked) return;
+    // After a failed upgrade the warning holds the plain address.
+    const address =
+      error.kind === 'no-secure-connection'
+        ? secureUpgradeOf(error.url)
+        : error.kind === 'load-failed'
+          ? error.url
+          : null;
+    if (!address) return;
+    this.options.allowCertificate?.(address);
+    this.load(id, address);
+  }
+
+  /**
+   * The user read the warning and wants the site anyway, now and next time.
+   * Only the shell can ask, and only from that warning.
+   */
   continueToDangerousSite(id: PageId): void {
     const { error } = this.require(id).state;
     if (error?.kind !== 'dangerous-site') return;
@@ -1051,6 +1315,13 @@ export class BrowserController {
 
   stop(id: PageId): void {
     this.require(id).host?.stop();
+  }
+
+  /** Opens a web page's source as its child; null if it has none to show. */
+  viewSource(id: PageId): PageId | null {
+    const { url } = this.require(id).state;
+    if (!url || !isNavigableUrl(url)) return null;
+    return this.createPage({ parentId: id, url: `view-source:${url}` });
   }
 
   toggleDevTools(id: PageId): void {
@@ -1400,6 +1671,7 @@ export class BrowserController {
       workspaceId: target.id,
       workspaceName: target.name,
       origin,
+      index: target.tree.indexOf(id),
     });
   }
 
@@ -1973,6 +2245,7 @@ export class BrowserController {
     ids: PageId[],
     promotedChildIds: PageId[],
     deletedWorkspace: ClosedWorkspace | null = null,
+    deletedGroup?: ClosedGroup,
   ): void {
     const pages = ids.map((id): ClosedPage => {
       const node = workspace.tree.get(id);
@@ -1992,20 +2265,26 @@ export class BrowserController {
       };
     });
     const [first] = pages;
-    if (!first && !deletedWorkspace) return;
-    const label = deletedWorkspace
-      ? deletedWorkspace.name
-      : nameOf(first!.customTitle, first!.state);
+    if (!first && !deletedWorkspace && !deletedGroup) return;
+    const label =
+      deletedWorkspace?.name ??
+      deletedGroup?.group.name ??
+      nameOf(first!.customTitle, first!.state);
+    // A deleted workspace or group is named, not shown by its first page.
+    const shown = deletedWorkspace || deletedGroup ? undefined : first?.state;
     this.closed.push({
       workspaceId: workspace.id,
       workspace: deletedWorkspace,
+      ...(deletedGroup ? { group: deletedGroup } : {}),
       pages,
       promotedChildIds,
       summary: {
-        kind: deletedWorkspace ? 'workspace' : 'pages',
+        kind: deletedWorkspace ? 'workspace' : deletedGroup ? 'group' : 'pages',
         label,
         pageCount: pages.length,
         serial: ++this.closedSerial,
+        ...(shown ? { url: shown.url, faviconUrl: shown.faviconUrl } : {}),
+        ...(this.redoingClose ? { redone: true } : {}),
       },
     });
     if (this.closed.length > MAX_CLOSED_RECORDS) this.closed.shift();

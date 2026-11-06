@@ -5,6 +5,7 @@ import { usePageMenu } from '../stores/page-menu-store';
 import { useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 import { sampleSnapshot } from '../test-fixtures';
+import { redoLast } from '../lib/trail-undo';
 import { TrailTree } from './TrailTree';
 
 function stubApi() {
@@ -177,8 +178,10 @@ describe('TrailTree', () => {
     await act(async () => fireEvent.keyDown(field, { key: 'Enter' }));
     const toast = useToast.getState().toast!;
     expect(toast.message).toBe('Renamed to “New”.');
-    toast.actions[0]!.run();
+    await act(async () => void (await toast.actions[0]!.run()));
     expect(splash.renamePage).toHaveBeenLastCalledWith('c', 'Old');
+    await act(() => redoLast());
+    expect(splash.renamePage).toHaveBeenLastCalledWith('c', 'New');
   });
 
   it('walks the trail from the keyboard without opening pages', () => {
@@ -206,6 +209,22 @@ describe('TrailTree', () => {
 
     fireEvent.keyDown(row('b'), { key: 'Enter' });
     expect(splash.activatePage).toHaveBeenCalledWith('b');
+  });
+
+  it('keeps only the current row and its actions in the tab order', () => {
+    stubApi();
+    useShell.setState({ snapshot: sampleSnapshot(), renamingPageId: null });
+    render(<TrailTree />);
+    const actions = (name: string) =>
+      screen.getByRole('button', { name: `Actions for ${name}` });
+    expect(actions('a').tabIndex).toBe(0);
+    expect(actions('b').tabIndex).toBe(-1);
+
+    const first = screen.getByRole('treeitem', { name: 'a' });
+    first.focus();
+    fireEvent.keyDown(first, { key: 'ArrowDown' });
+    expect(actions('b').tabIndex).toBe(0);
+    expect(actions('a').tabIndex).toBe(-1);
   });
 
   it('shows custom names instead of titles', () => {
@@ -296,6 +315,38 @@ describe('the Minimal trail style', () => {
     expect(row('b').style.paddingLeft).toBe('22px');
     expect(row('d').style.marginLeft).toBe('0px');
     expect(row('d').style.paddingLeft).toBe('38px');
+  });
+
+  it('sets a folder’s pages one step in from the folder', () => {
+    stubApi();
+    useShell.setState({
+      snapshot: {
+        ...sampleSnapshot({ a: { groupId: 'g1' } }),
+        groups: [{ id: 'g1', name: 'Folder', collapsed: false }],
+      },
+      preferences: { trailStyle: 'minimal', showBranchLines: true } as never,
+    });
+    render(<TrailTree />);
+    expect(row('a').style.paddingLeft).toBe('22px');
+    expect(row('b').style.paddingLeft).toBe('38px');
+    expect(row('d').style.paddingLeft).toBe('54px');
+    expect(row('a').style.marginLeft).toBe('0px');
+    // Outside the folder, nothing moves.
+    expect(row('e').style.paddingLeft).toBe('6px');
+  });
+
+  it('leaves a group’s pages at the pane’s edge in the Branches style', () => {
+    stubApi();
+    useShell.setState({
+      snapshot: {
+        ...sampleSnapshot({ a: { groupId: 'g1' } }),
+        groups: [{ id: 'g1', name: 'Folder', collapsed: false }],
+      },
+      preferences: { trailStyle: 'branches', showBranchLines: true } as never,
+    });
+    render(<TrailTree />);
+    expect(row('a').style.marginLeft).toBe('0px');
+    expect(row('a').style.paddingLeft).toBe('6px');
   });
 
   it('draws a pinned page like any other row', () => {

@@ -96,15 +96,14 @@ the user:
    opens and F2 renames. Tab returns to the row last focused. ⌥⌘arrows move
    the focused page up, down, in and out.
 5. ~~**Undo is partial.**~~ Done: every trail change that offers Undo in its
-   toast can also be undone with ⌘Z while the shell has focus. There is no
-   redo for trail edits.
+   toast can also be undone with ⌘Z and redone with ⇧⌘Z, from a page too while
+   the toast shows.
 6. ~~**Offline doesn't recover.**~~ Done: "You're offline" pages reload by
    themselves once the Mac is back online.
 7. ~~**Menus don't reflect state.**~~ Done: Back, Forward, Close Branch,
    Print and Copy Page Address are disabled when they can't apply.
 8. ~~**Downloads are hard to reach.**~~ Done: View › Downloads (⌥⌘L) opens
-   the list at any time. The palette's "Show downloads" doesn't show the
-   shortcut yet.
+   the list at any time, and the palette's "Show downloads" shows the shortcut.
 9. ~~**History can only be reached by search.**~~ Done: History › Show All
    History (⌘Y), the palette and the sidebar's foot show History in the
    sidebar, widened, in place of the trail: search, reopen or remove sites,
@@ -135,8 +134,8 @@ newer or corrupt database.
 
 These brainstorm items aren't sorted into any phase yet:
 
-- **Recently closed list** outside the History menu.
-- **Close pages below** in the page menu. (Close Other Pages is done.)
+- ~~**Recently closed list** outside the History menu.~~ Done: in the History panel.
+- ~~**Close pages below** in the page menu.~~ Done.
 
 ## Later, after beta
 

@@ -6,13 +6,18 @@ vault. 1Password wasn't tested.
 
 ## Summary
 
+- **Update, 6 November 2026.** Splash now gives extensions `chrome.sidePanel` (opened as
+  a page) and keeps toolbar icons in name order, and a helper that ends gets a notice
+  rather than an `EPIPE` error. The tables below are the earlier results; none of this
+  has been rerun with Bitwarden or iCloud Passwords themselves. Splash also has its own
+  password manager now.
 - **Bitwarden loads and runs**, up to its sign-in screen. Everything checked before
   sign-in works. Autofill itself is still untested.
 - **iCloud Passwords doesn't work.** The extension loads, but Apple's helper app on
   the Mac ends immediately, so there's no connection to the passwords.
-- **Installing is the bigger gap.** Bitwarden went in as an unpacked folder from its
-  GitHub release. There's no Web Store install, and an unpacked copy doesn't update
-  by itself.
+- **Installing was the bigger gap.** Bitwarden went in as an unpacked folder from its
+  GitHub release, and an unpacked copy doesn't update by itself. Splash has since
+  gained Chrome Web Store install, which hasn't been tried with Bitwarden yet.
 
 ## Bitwarden 2026.10.2
 
@@ -76,3 +81,10 @@ electron-chrome-extensions library supplies some of them anyway. `sidePanel` and
   to first.
 - Other sessions' builds share the checkout's `.vite` folder and can break a launch
   there. Testing from a separate worktree avoided that.
+- The window opened for signing in to Bitwarden closed by itself about 2.5 minutes
+  after launch on 5 November, with no crash in its log. The cause isn't proven.
+  Other sessions restarting their own dev Splash are known to quit every Electron
+  instance, and that fits. It could also be something Bitwarden's pop-out did: just
+  before, a `popup/index.html?uilocation=…` page and a second shell window existed.
+  Worth watching for in the next test, because in a daily browser that would be a
+  bug rather than a test accident.

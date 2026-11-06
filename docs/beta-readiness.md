@@ -30,7 +30,8 @@ Browsing
   app, and remember the answer per site. With no app for a link, Splash says
   so.
 - **⌘Z undoes trail changes**: closes, moves, renames, moves to another
-  workspace and Close Other Pages. In a text field ⌘Z still undoes typing.
+  workspace and Close Other Pages, and ⇧⌘Z redoes them. With focus in a page they
+  work while the toast shows. In a text field both keys still edit the typing.
 - **Filter the trail** (⌥⌘F): matching pages and their ancestors, matches
   marked, Return opens the first match, Escape clears, and an empty result
   offers "Search everywhere ⌘K".
@@ -81,7 +82,7 @@ Fixes found while testing this pass
 | A branch close is canceled      | Branch remains in the trail                 | Declined page stays live; approved views can restore from history |
 | A page can't load               | Named error page with Try again             | Address kept; offline pages retry when back online                |
 | A link wants another app        | Prompt naming the app; Open / Don't open    | Choice remembered per site; no app: a notice                      |
-| Any trail change                | Toast with Undo                             | ⌘Z undoes it while the shell has focus                            |
+| Any trail change                | Toast with Undo                             | ⌘Z undoes it, from a page too while the toast shows               |
 | A preference write fails        | Failure message; no success broadcast       | Previous settings remain authoritative                            |
 | Saved preferences are damaged   | Recovery notice on startup                  | Valid fields/library recovered; raw original backed up            |
 | The database needs an upgrade   | None                                        | Copy kept as `splash.db.pre-v<N>` beside it                       |
@@ -130,8 +131,9 @@ What was run, and what it showed:
 Not verified, and why:
 
 - **⌘Z through the Edit menu.** Menu accelerators can't be driven over the
-  DevTools protocol. The undo stack and the shell's handler are unit-tested;
-  pressing ⌘Z by hand is part of the test list below.
+  DevTools protocol, so real key presses were sent to a test copy from outside
+  it, with focus in a page and in a page's field. Pressing ⌘Z by hand is still part
+  of the test list below.
 - **Drags with the real mouse.** Rows were dragged with DOM pointer events in
   the packaged app. Synthetic OS mouse input didn't start a drag while the
   real cursor was over the window.
@@ -185,7 +187,6 @@ expected.
 
 ## Remaining bugs and limitations
 
-- Trail edits have no redo.
 - Custom accents from the colour wheel aren't checked for contrast.
 - Light-theme accents reach 3.3–6.7 : 1 on the tinted frames, enough for
   icons and monograms (3 : 1) but not for small text; accent is never used
@@ -194,7 +195,6 @@ expected.
   preload'" at startup. The library falls back, and Splash registers its own
   preload; it's noise, not a failure.
 - Picture in picture from the context menu is missing.
-- Close pages below (in the page menu) is not implemented.
 
 ## Distribution and device gates
 
@@ -204,8 +204,11 @@ expected.
   device/call-site pass in the installed application.
 - Real mouse side buttons, three-finger navigation, and a genuinely hung
   third-party renderer need hardware/manual verification.
-- Browser import, password management, cross-device sync and Chrome Web Store
-  installation are not provided by this beta.
+- Browser import, password management and cross-device sync are not provided by
+  this beta.
+- Chrome Web Store downloads are checked against their CRX3 signatures before
+  unpacking, but installed files aren't re-checked afterwards. Removing an
+  extension leaves its stored data in the profile.
 - Closing recovery does not guarantee restoration of unsaved web content after
   a renderer crash, system crash or force quit.
 

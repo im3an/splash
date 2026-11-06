@@ -9,12 +9,12 @@ import {
   Columns2,
   Copy,
   CornerDownRight,
-  Folder,
   FolderHeart,
   FolderInput,
   Hash,
   Layers,
   Link,
+  ListEnd,
   ListMinus,
   ListX,
   Moon,
@@ -28,10 +28,12 @@ import {
   Ungroup,
   X,
 } from 'lucide-react';
+import { pagesBelow } from '../../shared/pages-below';
 import type { BrowserSnapshot, PageId } from '../../shared/types';
 import { bookmarkBranch, branchLinks } from '../lib/bookmarks';
 import { bookmarkPage, collectionNotice } from '../lib/collections';
 import { showBookmarks } from '../stores/bookmarks-view-store';
+import { GroupMark } from './GroupIconPicker';
 import { useGroupRename } from './SavedGroups';
 import { pageLabel } from '../lib/format';
 import { noticeToast } from '../lib/notices';
@@ -41,7 +43,6 @@ import { usePageMenu } from '../stores/page-menu-store';
 import { useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
-import { WorkspaceIcon } from './WorkspaceIcon';
 
 const ICON = { size: 14 } as const;
 
@@ -68,6 +69,7 @@ export function pageMenuEntries(
   const shell = useShell.getState();
   const url = page.url;
   const hasChildren = page.childIds.length > 0;
+  const below = pagesBelow(snapshot, pageId).length;
   const branchWebPages = hasChildren ? branchLinks(snapshot, pageId).length : 0;
   const activeId = snapshot.activePageId;
   const current = pageId === activeId;
@@ -164,7 +166,7 @@ export function pageMenuEntries(
           (group): MenuEntry => ({
             kind: 'action',
             label: group.name,
-            icon: <Folder {...ICON} />,
+            icon: <GroupMark group={group} size={ICON.size} />,
             disabled: page.groupId === group.id,
             run: () => void splash.setPageGroup(pageId, group.id),
           }),
@@ -269,13 +271,7 @@ export function pageMenuEntries(
       entries: otherWorkspaces.map((workspace) => ({
         kind: 'action',
         label: workspace.name,
-        icon: (
-          <WorkspaceIcon
-            icon={workspace.appearance.icon}
-            name={workspace.name}
-            size={13}
-          />
-        ),
+        icon: <Layers {...ICON} />,
         run: () => void splash.movePageToWorkspace(pageId, workspace.id),
       })),
     },
@@ -366,6 +362,12 @@ export function pageMenuEntries(
         shortcut: key('⌥⌘W'),
         run: () => void splash.closeBranch(pageId),
       },
+    below > 0 && {
+      kind: 'action',
+      label: below === 1 ? 'Close Page Below' : `Close ${below} Pages Below`,
+      icon: <ListEnd {...ICON} />,
+      run: () => void splash.closePagesBelow(pageId),
+    },
     Object.keys(snapshot.pages).length > 1 && {
       kind: 'action',
       label: 'Close Other Pages',

@@ -14,6 +14,7 @@ import {
   collectionBranch,
   collectionNotice,
   newFolder,
+  changeLibrary,
   updateLibrary,
   webLink,
 } from './collections';
@@ -475,8 +476,12 @@ export async function moveBookmarks(
       {
         label: 'Undo',
         icon: 'undo',
-        run: () =>
-          void updateLibrary((items) => undoMove(items, before, selection)),
+        run: () => changeLibrary((items) => undoMove(items, before, selection)),
+        redo: () =>
+          changeLibrary((items) => {
+            before = items;
+            return moveItems(items, selection, targetId);
+          }),
       },
     ],
   });
@@ -505,7 +510,13 @@ export async function deleteBookmarks(selection: BookmarkItems) {
       {
         label: 'Undo',
         icon: 'undo',
-        run: () => void updateLibrary((items) => restoreItems(items, taken)),
+        run: () => changeLibrary((items) => restoreItems(items, taken)),
+        redo: () =>
+          changeLibrary((items) => {
+            const result = removeItems(items, selection);
+            taken = result.removed;
+            return result.items;
+          }),
       },
     ],
   });
@@ -537,10 +548,15 @@ export async function bookmarkBranch(
   }
   const id = crypto.randomUUID();
   const label = name.trim().slice(0, 100) || 'Branch';
-  const saved = await updateLibrary((items) => [
-    ...items,
-    { id, name: label, kind: 'folder', parentId: null, collapsed: true, links },
-  ]);
+  const folder: SavedCollection = {
+    id,
+    name: label,
+    kind: 'folder',
+    parentId: null,
+    collapsed: true,
+    links,
+  };
+  const saved = await updateLibrary((items) => [...items, folder]);
   if (!saved) return;
   useToast.getState().show({
     message: `Bookmarked ${plural(links.length, 'page')} in ${label}`,
@@ -551,7 +567,8 @@ export async function bookmarkBranch(
         label: 'Undo',
         icon: 'undo',
         run: () =>
-          void updateLibrary((items) => items.filter((item) => item.id !== id)),
+          changeLibrary((items) => items.filter((item) => item.id !== id)),
+        redo: () => changeLibrary((items) => [...items, folder]),
       },
       { label: 'Show', run: () => show(id) },
     ],

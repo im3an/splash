@@ -78,6 +78,18 @@ export interface PermissionRecord {
   granted: boolean;
 }
 
+/** A saved login, address or card, sealed by `Vault`. */
+export interface VaultRow {
+  id: string;
+  kind: 'login' | 'address' | 'card';
+  /** The site a login belongs to; `null` for the others. */
+  origin: string | null;
+  secret: Uint8Array;
+  createdAt: number;
+  updatedAt: number;
+  lastUsedAt: number | null;
+}
+
 export interface TrailStore {
   loadSession(): StoredSession | null;
   saveSession(session: StoredSession): void;
@@ -115,6 +127,21 @@ export interface TrailStore {
   deleteHistory(since: number): HistoryRow[];
   /** Puts deleted history back (undo). */
   restoreHistory(rows: HistoryRow[]): void;
+  /**
+   * Adds another browser's history. Importing the same thing twice changes
+   * nothing. Returns the addresses that weren't in the history before.
+   */
+  importHistory(rows: HistoryRow[]): string[];
+  /** Forgets these addresses (undoing an import). */
+  forgetHistory(urls: string[]): void;
+  listVault(kind: VaultRow['kind']): VaultRow[];
+  getVaultRow(id: string): VaultRow | null;
+  /** Adds the row, or replaces the one with its id. */
+  putVaultRow(row: VaultRow): void;
+  putVaultRows(rows: VaultRow[]): void;
+  deleteVaultRow(id: string): void;
+  deleteVaultRows(ids: string[]): void;
+  touchVaultRow(id: string, at: number): void;
   loadDownloads(): DownloadSummary[];
   saveDownload(download: DownloadSummary): void;
   deleteDownload(id: string): void;

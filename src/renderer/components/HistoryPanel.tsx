@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useLayoutEffect, useRef } from 'react';
 import { useHistoryView } from '../stores/history-view-store';
-import { CircleAlert, History, Search, X } from 'lucide-react';
-import type { HistoryEntry } from '../../shared/types';
+import { CircleAlert, Folder, History, Layers, Search, X } from 'lucide-react';
+import type { ClosedSummary, HistoryEntry } from '../../shared/types';
 import { displayUrl, hostOf } from '../lib/format';
 import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';
@@ -10,6 +10,8 @@ import { PanelState } from './PanelState';
 import { SiteIcon } from './Favicon';
 
 const LIMIT = 300;
+/** Enough to find what just went; the History menu lists the same ones. */
+const CLOSED_ROWS = 8;
 const DAY = 24 * 60 * 60 * 1000;
 
 /** "Today", "Yesterday", "Monday", or a date further back. */
@@ -36,6 +38,26 @@ function timeLabel(at: number): string {
   });
 }
 
+function pagesLabel(count: number): string {
+  return `${count} ${count === 1 ? 'page' : 'pages'}`;
+}
+
+/** What a closed row brings back; records from older versions have no address. */
+function closedDetail(closed: ClosedSummary): string {
+  if (closed.kind !== 'pages') {
+    const kind = closed.kind === 'workspace' ? 'Workspace' : 'Group';
+    return closed.pageCount > 0
+      ? `${kind} with ${pagesLabel(closed.pageCount)}`
+      : kind;
+  }
+  if (!closed.url) {
+    return closed.pageCount > 1 ? pagesLabel(closed.pageCount) : 'Empty page';
+  }
+  return closed.pageCount > 1
+    ? `${hostOf(closed.url)} and ${closed.pageCount - 1} more`
+    : displayUrl(closed.url);
+}
+
 /** Reuse known site icons for older visits that did not record one. */
 function useSiteIcons(entries: HistoryEntry[] | null): Map<string, string> {
   const pages = useShell((state) => state.snapshot?.pages);
@@ -58,7 +80,7 @@ function useSiteIcons(entries: HistoryEntry[] | null): Map<string, string> {
 /** Every site visited, newest first, grouped by day, searchable. */
 export function HistoryPanel() {
   const query = useHistoryView((state) => state.query);
-  const selected = useHistoryView((state) => state.selected);
+  const storedSelection = useHistoryView((state) => state.selected);
   const removed = useHistoryView((state) => state.removed);
   const listRef = useRef<HTMLDivElement>(null);
   const setQuery = (query: string) =>
@@ -76,6 +98,13 @@ export function HistoryPanel() {
   const [retry, setRetry] = useState(0);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [closed, setClosed] = useState<ClosedSummary[]>([]);
+  const [closedRetry, setClosedRetry] = useState(0);
+  // Anything closed or reopened, in this window or another, changes one of these.
+  const closedChange = useShell(
+    (state) =>
+      `${state.snapshot?.lastClosed?.serial}:${Object.keys(state.snapshot?.pages ?? {}).length}`,
+  );
 
   useLayoutEffect(() => {
     if (listRef.current && !loading)
@@ -94,9 +123,6 @@ export function HistoryPanel() {
           .then((result) => {
             if (!current) return;
             setEntries(result);
-            setSelected((index) =>
-              Math.min(index, Math.max(0, result.length - 1)),
-            );
             setLoading(false);
           })
           .catch(() => {
@@ -114,6 +140,22 @@ export function HistoryPanel() {
     };
   }, [query, retry]);
 
+  useEffect(() => {
+    let current = true;
+    void api()
+      .recentlyClosed()
+      .then((list) => {
+        if (current) setClosed(list);
+      })
+      // History still works without this list, so it just doesn't show.
+      .catch(() => {
+        if (current) setClosed([]);
+      });
+    return () => {
+      current = false;
+    };
+  }, [closedChange, closedRetry]);
+
   // The panel stays, so several entries can be opened in turn.
   const open = async (entry: HistoryEntry) => {
     if (loading) return;
@@ -124,6 +166,19 @@ export function HistoryPanel() {
     } catch {
       setActionError('Couldn’t open this page. Try again.');
     }
+  };
+
+  const reopen = async (item: ClosedSummary) => {
+    setActionError(null);
+    try {
+      const page = await api().reopenClosedItem(item.serial);
+      // An empty group comes back with no page to show.
+      if (page === null && item.pageCount > 0) throw new Error('Not found');
+      api().focusPage();
+    } catch {
+      setActionError(`Couldn’t reopen “${item.label}”. Try again.`);
+    }
+    setClosedRetry((value) => value + 1);
   };
 
   const remove = async (entry: HistoryEntry) => {
@@ -161,11 +216,17 @@ export function HistoryPanel() {
   };
 
   const list = entries ?? [];
+  // Closed rows come first and share the keyboard selection with history.
+  const closedRows = query ? [] : closed.slice(0, CLOSED_ROWS);
+  const firstEntry = closedRows.length;
+  const total = firstEntry + list.length;
+  const selected = Math.max(0, Math.min(storedSelection, total - 1));
   const groups: {
     label: string;
     items: { entry: HistoryEntry; index: number }[];
   }[] = [];
-  list.forEach((entry, index) => {
+  list.forEach((entry, position) => {
+    const index = firstEntry + position;
     const label = dayLabel(entry.lastVisitedAt);
     const group = groups.at(-1);
     if (group?.label === label) group.items.push({ entry, index });
@@ -181,21 +242,23 @@ export function HistoryPanel() {
       }
     } else if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setSelected((index) => Math.max(0, Math.min(index + 1, list.length - 1)));
+      setSelected(Math.max(0, Math.min(selected + 1, total - 1)));
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
-      setSelected((index) => Math.max(index - 1, 0));
+      setSelected(Math.max(selected - 1, 0));
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      const entry = list[selected];
-      if (entry) void open(entry);
+      const item = closedRows[selected];
+      const entry = list[selected - firstEntry];
+      if (item) void reopen(item);
+      else if (entry) void open(entry);
     } else if (
       event.key === 'Backspace' &&
       (event.metaKey || event.shiftKey) &&
-      list[selected]
+      list[selected - firstEntry]
     ) {
       event.preventDefault();
-      void remove(list[selected]);
+      void remove(list[selected - firstEntry]!);
     }
   };
 
@@ -237,10 +300,10 @@ export function HistoryPanel() {
           placeholder="Search history"
           aria-label="Search history"
           role="combobox"
-          aria-expanded={list.length > 0}
+          aria-expanded={total > 0}
           aria-controls="history-results"
           aria-activedescendant={
-            !loading && list.length > 0 ? `history-${selected}` : undefined
+            !loading && total > 0 ? `history-${selected}` : undefined
           }
           autoCapitalize="off"
           autoCorrect="off"
@@ -269,7 +332,7 @@ export function HistoryPanel() {
           onAction={() => setRetry((value) => value + 1)}
           error
         />
-      ) : entries === null || (loading && list.length === 0) ? (
+      ) : entries === null || (loading && total === 0) ? (
         <div
           className="flex-1 space-y-4 px-2.5 py-4"
           role="status"
@@ -287,7 +350,7 @@ export function HistoryPanel() {
           ))}
           <span className="sr-only">Loading history…</span>
         </div>
-      ) : list.length === 0 ? (
+      ) : total === 0 ? (
         <PanelState
           icon={query ? Search : History}
           title={query ? 'No matching pages' : 'Pick up where you left off'}
@@ -313,6 +376,52 @@ export function HistoryPanel() {
           aria-busy={loading}
           className={`min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2 ${loading ? 'pointer-events-none opacity-60' : ''}`}
         >
+          {closedRows.length > 0 && (
+            <div role="group" aria-label="Recently closed">
+              <h3 className="sticky top-0 z-10 bg-frame px-2.5 pt-3 pb-1 text-caption font-medium text-fg-subtle">
+                Recently closed
+              </h3>
+              <div className="flex flex-col gap-px">
+                {closedRows.map((item, index) => (
+                  <div
+                    key={item.serial}
+                    id={`history-${index}`}
+                    role="option"
+                    aria-selected={index === selected}
+                    title="Reopen"
+                    onClick={() => void reopen(item)}
+                    onMouseMove={() => setSelected(index)}
+                    data-selected={index === selected}
+                    className="group relative flex cursor-default items-center gap-2 rounded-row py-1.5 pr-1.5 pl-2.5 transition-colors duration-fast data-[selected=true]:bg-row-hover"
+                  >
+                    <span className="grid size-4 shrink-0 place-items-center text-fg-subtle">
+                      {item.kind === 'workspace' ? (
+                        <Layers size={14} aria-hidden />
+                      ) : item.kind === 'group' ? (
+                        <Folder size={14} aria-hidden />
+                      ) : (
+                        <SiteIcon
+                          url={
+                            item.faviconUrl ??
+                            (item.url ? icons.get(hostOf(item.url)) : undefined)
+                          }
+                          site={item.url ?? undefined}
+                        />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-fg">
+                        {item.label}
+                      </span>
+                      <span className="block truncate text-small leading-copy text-fg-subtle">
+                        {closedDetail(item)}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {groups.map((group) => (
             <div key={group.label} role="group" aria-label={group.label}>
               <h3 className="sticky top-0 z-10 bg-frame px-2.5 pt-3 pb-1 text-caption font-medium text-fg-subtle">

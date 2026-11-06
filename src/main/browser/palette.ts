@@ -19,7 +19,7 @@ import {
   suggestedHistory,
   type InlineCompletion,
 } from './history-ranking';
-import { resolveAddressInput, searchUrl } from './url';
+import { isNavigableUrl, resolveAddressInput, searchUrl } from './url';
 import { DEFAULT_PREFERENCES } from '../../shared/preferences';
 import {
   defaultEngine,
@@ -38,6 +38,8 @@ export interface ActivePageFacts {
   hasNote: boolean;
   /** Other pages share its workspace. */
   hasOthers?: boolean;
+  /** Close Pages Below would close something. */
+  hasBelow?: boolean;
   /** It's one side of the split view on screen. */
   inSplit?: boolean;
 }
@@ -54,6 +56,8 @@ interface CommandDefinition {
     | 'address'
     | 'children'
     | 'others'
+    | 'below'
+    | 'source'
     | 'split'
     | 'workspaces'
     | 'closed'
@@ -78,6 +82,50 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     shortcut: '⌘D',
     needs: 'page',
     suggested: true,
+  },
+  {
+    command: 'open-file',
+    title: 'Open file',
+    keywords: 'local pdf image html document',
+    shortcut: '⌘O',
+  },
+  {
+    command: 'new-private-window',
+    title: 'New private window',
+    keywords: 'incognito',
+    shortcut: '⇧⌘N',
+  },
+  {
+    command: 'manage-passwords',
+    title: 'Passwords and autofill',
+    keywords: 'logins addresses cards credit manage',
+    shortcut: null,
+  },
+  {
+    command: 'import-data',
+    title: 'Import bookmarks and history',
+    keywords: 'chrome safari firefox brave edge arc passwords',
+    shortcut: null,
+  },
+  {
+    command: 'export-bookmarks',
+    title: 'Export bookmarks',
+    keywords: 'save backup html',
+    shortcut: null,
+  },
+  {
+    command: 'export-trail',
+    title: 'Export trail as Markdown',
+    keywords: 'save outline share',
+    shortcut: null,
+    needs: 'page',
+  },
+  {
+    command: 'picture-in-picture',
+    title: 'Picture in picture',
+    keywords: 'video float pip',
+    shortcut: '⌥⌘P',
+    needs: 'page',
   },
   {
     command: 'reopen-closed',
@@ -120,6 +168,13 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     keywords: 'remove rest tidy clean up',
     shortcut: null,
     needs: 'others',
+  },
+  {
+    command: 'close-below',
+    title: 'Close pages below',
+    keywords: 'remove rest under after tidy clean up',
+    shortcut: null,
+    needs: 'below',
   },
   {
     command: 'go-back',
@@ -330,6 +385,32 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     shortcut: '⌘S',
   },
   {
+    command: 'filter-pages',
+    title: 'Filter pages',
+    keywords: 'search find narrow trail sidebar',
+    shortcut: '⌥⌘F',
+  },
+  {
+    command: 'toggle-ai-panel',
+    title: 'Toggle AI panel',
+    keywords: 'assistant chat ask hide show',
+    shortcut: '⇧⌘A',
+  },
+  {
+    command: 'view-source',
+    title: 'View page source',
+    keywords: 'html code developer',
+    shortcut: '⌥⌘U',
+    needs: 'source',
+  },
+  {
+    command: 'dev-tools',
+    title: 'Developer tools',
+    keywords: 'inspect inspector console debug web',
+    shortcut: '⌥⌘I',
+    needs: 'address',
+  },
+  {
     command: 'open-settings',
     title: 'Settings',
     keywords: 'preferences options',
@@ -510,6 +591,10 @@ function applies(
       return (input.workspaces?.length ?? 1) > 1;
     case 'others':
       return page?.hasOthers === true;
+    case 'below':
+      return page?.hasBelow === true;
+    case 'source':
+      return page?.url != null && isNavigableUrl(page.url);
     case 'split':
       return page?.inSplit === true;
     case 'page':

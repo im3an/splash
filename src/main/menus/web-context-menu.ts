@@ -9,6 +9,8 @@ import { isNavigableUrl } from '../browser/url';
 
 export interface WebContextMenuActions {
   openChild(url: string, options: { background: boolean }): void;
+  /** Floats the page's video above other windows, or brings it back. */
+  pictureInPicture(): void;
   back(): void;
   forward(): void;
   reload(): void;
@@ -136,6 +138,32 @@ export function webContextMenu(
     );
   }
 
+  if (params.mediaType === 'video') {
+    const source = isNavigableUrl(params.srcURL) ? params.srcURL : null;
+    items.push(
+      { label: 'Picture in Picture', click: actions.pictureInPicture },
+      ...(source
+        ? [
+            {
+              label: 'Open Video as Child Page',
+              click: () => actions.openChild(source, { background: false }),
+            },
+            {
+              label: 'Download Video',
+              click: () => contents.downloadURL(source),
+            },
+            {
+              label: 'Copy Video Address',
+              click: () => {
+                clipboard.writeText(source);
+                actions.copied('link', null);
+              },
+            },
+          ]
+        : []),
+      { type: 'separator' as const },
+    );
+  }
   if (params.isEditable) {
     items.push(
       {

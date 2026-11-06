@@ -111,9 +111,19 @@ function announceOpenedFiles(): void {
   openedFilesChanged?.([...openedFiles].map((path) => `file://${path}`));
 }
 
-export function allowLocalFile(value: string): void {
+const unrememberedFiles = new Set<string>();
+
+export function allowLocalFile(
+  value: string,
+  { remember = true }: { remember?: boolean } = {},
+): void {
   const path = localFilePath(value);
   if (path === null || openedFiles.has(path)) return;
+  // A private window's files leave no trace once Splash quits.
+  if (!remember) {
+    unrememberedFiles.add(path);
+    return;
+  }
   openedFiles.add(path);
   announceOpenedFiles();
 }
@@ -134,7 +144,9 @@ export function watchOpenedFiles(listener: (urls: string[]) => void): void {
 
 function isOpenedFile(value: string): boolean {
   const path = localFilePath(value);
-  return path !== null && openedFiles.has(path);
+  return (
+    path !== null && (openedFiles.has(path) || unrememberedFiles.has(path))
+  );
 }
 
 /**

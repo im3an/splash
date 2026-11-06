@@ -4,6 +4,7 @@ import { bookmarkBranch, setBookmarksBar } from './bookmarks';
 import { pageLabel } from './format';
 import { noticeToast } from './notices';
 import { api } from '../splash-api';
+import { useAiPanel } from '../stores/ai-store';
 import { showBookmarks } from '../stores/bookmarks-view-store';
 import { useOverlay } from '../stores/overlay-store';
 import {
@@ -54,6 +55,11 @@ async function performPaletteItem(
       overlay.close();
       return shell.setSidebarPanel('tasks');
     }
+    if (item.command === 'filter-pages') {
+      // Closed first: closing puts focus back, and the field should keep it.
+      overlay.close();
+      return shell.openTrailFilter();
+    }
   }
 
   switch (item.kind) {
@@ -88,6 +94,21 @@ async function performPaletteItem(
           if (active) await splash.createChildPage(active.id);
           else await splash.createPage();
           return void openLocation();
+        case 'open-file':
+          return void splash.chooseFiles();
+        case 'new-private-window':
+          return void splash.newPrivateWindow();
+        case 'manage-passwords':
+          return void splash.openSettingsSection('passwords');
+        case 'import-data':
+          return void splash.openSettingsSection('transfer');
+        case 'export-bookmarks':
+          return void splash.exportBookmarks();
+        case 'export-trail':
+          return void splash.exportTrail();
+        case 'picture-in-picture':
+          if (active) await splash.togglePictureInPicture(active.id);
+          return;
         case 'reopen-closed':
           await splash.reopenClosed();
           return;
@@ -146,6 +167,17 @@ async function performPaletteItem(
         case 'close-others':
           if (active) await splash.closeOtherPages(active.id);
           return;
+        case 'close-below':
+          if (active) await splash.closePagesBelow(active.id);
+          return;
+        case 'view-source':
+          if (active) await splash.viewSource(active.id);
+          return;
+        case 'dev-tools':
+          if (active) await splash.toggleDevTools(active.id);
+          return;
+        case 'toggle-ai-panel':
+          return useAiPanel.getState().toggle();
         case 'toggle-bookmarks-bar':
           return setBookmarksBar(!shell.preferences?.bookmarksBar);
         case 'bookmark-branch':

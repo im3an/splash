@@ -99,7 +99,7 @@ export function Sidebar() {
             title="New page (⌘T)"
             className="icon-button shrink-0"
           >
-            <Plus size={17} />
+            <Plus size={16} />
           </button>
           <button
             type="button"
@@ -108,7 +108,7 @@ export function Sidebar() {
             title="Hide sidebar (⌘S)"
             onClick={toggleSidebar}
           >
-            <PanelLeft size={15} />
+            <PanelLeft size={16} />
           </button>
         </div>
 

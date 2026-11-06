@@ -34,6 +34,9 @@ export interface SearchShortcut {
   url: string;
 }
 
+/** Room for the whole Waymarks catalog and a person's own on top. */
+export const MAX_SEARCH_SHORTCUTS = 500;
+
 /** The part of the preferences that decides where a search goes. */
 export interface SearchSettings {
   /** A built-in engine's id or a shortcut's. */
@@ -155,6 +158,18 @@ export function scopedInput(shortcut: SearchShortcut, text: string): string {
 /** Where a shortcut's site lives: the page `!yt` alone goes to. */
 export function shortcutOrigin(shortcut: SearchShortcut): string {
   return new URL(fillSearchUrl(shortcut.url, '')).origin;
+}
+
+/** The change that removes a shortcut; the default can't point at nothing. */
+export function withoutShortcut(
+  search: SearchSettings,
+  id: string,
+): { searchShortcuts: SearchShortcut[]; searchEngine: string } {
+  return {
+    searchShortcuts: search.searchShortcuts.filter((item) => item.id !== id),
+    searchEngine:
+      search.searchEngine === id ? 'duckduckgo' : search.searchEngine,
+  };
 }
 
 /** Keywords can't start with `!`, which marks one as a command. */

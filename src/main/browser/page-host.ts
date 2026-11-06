@@ -29,6 +29,8 @@ export interface PageRuntimeState {
   isUnresponsive: boolean;
   /** Edited documents are kept awake; this does not claim a save status. */
   hasFormEdits?: boolean;
+  /** On a site the user chose to use despite its certificate. */
+  certificateException?: boolean;
 }
 
 export interface HistoryEntry {

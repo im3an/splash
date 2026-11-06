@@ -1,5 +1,6 @@
 import type {
   ClosedSummary,
+  PageGroup,
   PageId,
   WorkspaceAppearance,
   WorkspaceId,
@@ -38,14 +39,24 @@ export interface ClosedWorkspace {
   index: number;
 }
 
+export interface ClosedGroup {
+  group: PageGroup;
+  /** Position among the workspace's groups. */
+  index: number;
+}
+
 export interface ClosedRecord {
   workspaceId: WorkspaceId;
   /** Set when a whole workspace was deleted rather than pages closed. */
   workspace: ClosedWorkspace | null;
+  /** Set when a group went with its pages. Missing in older records. */
+  group?: ClosedGroup;
   /** The closed page first, then (for a branch) its descendants in order. */
   pages: ClosedPage[];
   /** Children promoted when only the page itself was closed. */
   promotedChildIds: PageId[];
+  /** On screen when many pages closed at once, for undo to go back to. */
+  activeBefore?: PageId | null;
   summary: ClosedSummary;
 }
 

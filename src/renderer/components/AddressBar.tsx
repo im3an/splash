@@ -69,7 +69,11 @@ export function AddressBar({
   const pill = variant === 'sidebar';
   const full = summary && url ? urlParts(url) : null;
   // A page that never connected has no security state worth showing.
-  const security = page?.error ? 'none' : securityOf(url);
+  const security = page?.error
+    ? 'none'
+    : page?.certificateException
+      ? 'insecure'
+      : securityOf(url);
   const blocked = page?.blockedPermissions ?? [];
   const defaultZoom = useShell(
     (state) => state.preferences?.defaultZoom ?? 100,

@@ -14,6 +14,29 @@ import { useShell } from '../stores/shell-store';
 const DARK = '(prefers-color-scheme: dark)';
 
 let lastImage: string | undefined;
+let lastLook: { scope: string; source: string } | undefined;
+
+/**
+ * Whether this is the look already showing being tuned, rather than a new
+ * one. Moving the intensity or a custom colour changes the gradient on every
+ * tick of a drag, and each tick must land at once, with no fade. So must the
+ * first touch of the colour canvas, which turns any look into a custom one.
+ */
+function isTuning(
+  appearance: WorkspaceAppearance,
+  workspaceId: string | undefined,
+  dark: boolean,
+): boolean {
+  const scope = `${workspaceId}/${dark}`;
+  const source = appearance.colors
+    ? 'custom'
+    : (appearance.gradient ?? 'plain');
+  const tuning =
+    scope === lastLook?.scope &&
+    (source === lastLook.source || source === 'custom');
+  lastLook = { scope, source };
+  return tuning;
+}
 
 function usePrefersDark(): boolean {
   const [dark, setDark] = useState(() => matchMedia(DARK).matches);
@@ -68,12 +91,16 @@ export function useWorkspaceTheme(): void {
         (workspace) => workspace.id === state.snapshot?.activeWorkspaceId,
       )?.appearance,
   );
+  const workspaceId = useShell((state) => state.snapshot?.activeWorkspaceId);
   const dark = usePrefersDark();
 
   useEffect(() => {
     if (!appearance) return;
     const root = document.documentElement;
     const variables = themeVariables(appearance, dark);
+    const tuning = isTuning(appearance, workspaceId, dark);
+    // Tuning follows the pointer: colours snap, or they'd trail the gradient.
+    if (tuning) root.dataset.themeMotion = 'false';
     for (const [name, value] of Object.entries(variables)) {
       root.style.setProperty(name, value);
     }
@@ -82,7 +109,8 @@ export function useWorkspaceTheme(): void {
     const image = variables['--frame-image'];
     if (image !== lastImage) {
       lastImage = image;
-      root.dataset.frameSwap = root.dataset.frameSwap === 'a' ? 'b' : 'a';
+      if (!tuning)
+        root.dataset.frameSwap = root.dataset.frameSwap === 'a' ? 'b' : 'a';
     }
     // From the next frame on, changes crossfade (see app.css).
     const frame = requestAnimationFrame(() => {
@@ -93,5 +121,5 @@ export function useWorkspaceTheme(): void {
       for (const name of Object.keys(variables))
         root.style.removeProperty(name);
     };
-  }, [appearance, dark]);
+  }, [appearance, workspaceId, dark]);
 }

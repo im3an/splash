@@ -1,11 +1,12 @@
-import { useRef, type MouseEvent, type ReactNode } from 'react';
+import { useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import {
   ChevronRight,
   Copy,
-  Folder,
   MoreHorizontal,
   Pencil,
   Plus,
+  Smile,
+  Trash2,
   Ungroup,
 } from 'lucide-react';
 import type { PageGroup } from '../../shared/types';
@@ -15,6 +16,7 @@ import { api } from '../splash-api';
 import { openLocation } from '../stores/shell-store';
 import { selectMinimalTrail, useShell } from '../stores/shell-store';
 import type { MenuEntry } from './ContextMenu';
+import { GroupIconPicker, GroupMark } from './GroupIconPicker';
 import { Reveal } from './Reveal';
 import { useGroupRename } from './SavedGroups';
 
@@ -39,14 +41,24 @@ export function TrailGroup({
   const minimal = useShell(selectMinimalTrail);
   const open = !group.collapsed;
   const pages = `${count} ${count === 1 ? 'page' : 'pages'}`;
+  const [picking, setPicking] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const markRef = useRef<HTMLButtonElement>(null);
   const onMenu = (event: MouseEvent<HTMLElement>, anchored?: boolean) =>
-    menu.show(event, groupEntries(group), anchored);
+    menu.show(
+      event,
+      groupEntries(group, count, () => setPicking(true)),
+      anchored,
+    );
+  // Branches shows no mark until the group has been given one.
+  const marked = minimal || group.icon !== undefined;
 
   return (
     <div className="group-card" data-open={open} data-group-id={group.id}>
       <div
+        ref={rowRef}
         className="sidebar-row group"
-        data-menu-open={menu.openOn?.dataset.group === group.id}
+        data-menu-open={picking || menu.openOn?.dataset.group === group.id}
         onContextMenu={(event) => onMenu(event)}
         onDoubleClick={(event) => {
           event.preventDefault();
@@ -78,16 +90,12 @@ export function TrailGroup({
                     className="group-card-chevron"
                   />
                 </span>
-                <Folder
-                  size={16}
-                  fill="currentColor"
-                  aria-hidden
-                  className="shrink-0 text-fg-subtle"
-                />
+                <span className="size-4 shrink-0" aria-hidden />
                 <span className="group-card-name">{group.name}</span>
               </>
             ) : (
               <>
+                {marked && <span className="size-4 shrink-0" aria-hidden />}
                 <span className="group-card-name">{group.name}</span>
                 <ChevronRight
                   size={12}
@@ -97,6 +105,22 @@ export function TrailGroup({
                 {!open && <span className="sidebar-row-count">{count}</span>}
               </>
             )}
+          </button>
+        )}
+        {!renaming && marked && (
+          // Beside the row's main button rather than in it, over the room
+          // it leaves: a click here changes the icon without folding.
+          <button
+            ref={markRef}
+            type="button"
+            aria-label={`Change icon for ${group.name}`}
+            aria-expanded={picking}
+            title="Change Icon"
+            onClick={() => setPicking((was) => !was)}
+            onDoubleClick={(event) => event.stopPropagation()}
+            className="group-card-mark"
+          >
+            <GroupMark group={group} />
           </button>
         )}
         {!renaming && (
@@ -123,6 +147,13 @@ export function TrailGroup({
         </div>
       </Reveal>
       {menu.element}
+      {picking && (markRef.current ?? rowRef.current) && (
+        <GroupIconPicker
+          group={group}
+          anchor={(markRef.current ?? rowRef.current)!}
+          onClose={() => setPicking(false)}
+        />
+      )}
     </div>
   );
 }
@@ -158,7 +189,11 @@ function GroupNameField({ group }: { group: PageGroup }) {
   );
 }
 
-function groupEntries(group: PageGroup): MenuEntry[] {
+function groupEntries(
+  group: PageGroup,
+  count: number,
+  changeIcon: () => void,
+): MenuEntry[] {
   const snapshot = useShell.getState().snapshot;
   const members = (snapshot?.rootIds ?? []).filter(
     (id) => snapshot?.pages[id]?.groupId === group.id,
@@ -182,6 +217,12 @@ function groupEntries(group: PageGroup): MenuEntry[] {
     },
     {
       kind: 'action',
+      label: 'Change Icon…',
+      icon: <Smile {...ICON} />,
+      run: changeIcon,
+    },
+    {
+      kind: 'action',
       label: 'Copy Links',
       icon: <Copy {...ICON} />,
       disabled: members.length === 0,
@@ -197,11 +238,25 @@ function groupEntries(group: PageGroup): MenuEntry[] {
       },
     },
     { kind: 'separator' },
+    // With nothing inside, keeping the pages and closing them are the same.
+    ...(count > 0
+      ? [
+          {
+            kind: 'action',
+            label: 'Ungroup',
+            icon: <Ungroup {...ICON} />,
+            run: () => void api().deleteGroup(group.id),
+          } satisfies MenuEntry,
+        ]
+      : []),
     {
       kind: 'action',
-      label: 'Ungroup',
-      icon: <Ungroup {...ICON} />,
-      run: () => void api().deleteGroup(group.id),
+      label:
+        count > 0
+          ? `Delete Group and ${count} ${count === 1 ? 'Page' : 'Pages'}`
+          : 'Delete Group',
+      icon: <Trash2 {...ICON} />,
+      run: () => void api().deleteGroupWithPages(group.id),
     },
   ];
 }

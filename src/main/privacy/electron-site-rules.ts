@@ -27,9 +27,37 @@ interface RequestDetails {
   referrer: string;
 }
 
+/** Each session's answer to a frame's question, behind Electron's one channel. */
+const answering = new Map<
+  Session,
+  (frameUrl: string, topUrl: string) => PageSettings
+>();
+let listening = false;
+
+function listenForFrames(): void {
+  if (listening) return;
+  listening = true;
+  // A frame waits for this answer, so it must always get one.
+  ipcMain.on(PAGE_SETTINGS, (event, frameUrl: unknown, isTop: unknown) => {
+    try {
+      const frame = typeof frameUrl === 'string' ? frameUrl : '';
+      // The top frame's own address: its navigation may not have reached
+      // this process yet, so the contents can still show the last page.
+      const top = isTop === true ? frame : event.sender.getURL();
+      event.returnValue =
+        answering.get(event.sender.session)?.(frame, top) ?? null;
+    } catch (error) {
+      console.error('Could not read page settings', error);
+      event.returnValue = null;
+    }
+  });
+}
+
 export interface SiteRules {
   /** Registers the hooks; the content blocker calls it alongside its own. */
   install(): void;
+  /** A private window's session is going away. */
+  uninstall(): void;
   /** Whether a page's address is reported as dangerous and not yet accepted. */
   isDangerous(url: string): boolean;
   /** What a response must have changed. Electron allows one listener for it. */
@@ -87,6 +115,9 @@ export function createSiteRules(
     blockCookies: isThirdParty(frameUrl, topUrl) && blocksThirdPartyOn(topUrl),
     blockAutoplay: blocks(topUrl, 'autoplay'),
     blockScripts: blocks(topUrl, 'javascript'),
+    formAssist:
+      preferences.get().passwordAutofill && webOrigin(frameUrl) !== null,
+    blockPictureInPicture: blocks(topUrl, 'picture-in-picture'),
     undecided: WEB_PERMISSION_NAMES.filter(
       ([permission]) => decision(frameUrl, permission) === null,
     ).map(([, name]) => name),
@@ -111,20 +142,11 @@ export function createSiteRules(
           callback({ requestHeaders });
         },
       );
-      // A frame waits for this answer, so it must always get one.
-      ipcMain.on(PAGE_SETTINGS, (event, frameUrl: unknown, isTop: unknown) => {
-        try {
-          const frame = typeof frameUrl === 'string' ? frameUrl : '';
-          // The top frame's own address: its navigation may not have reached
-          // this process yet, so the contents can still show the last page.
-          const top = isTop === true ? frame : event.sender.getURL();
-          event.returnValue =
-            event.sender.session === session ? settingsFor(frame, top) : null;
-        } catch (error) {
-          console.error('Could not read page settings', error);
-          event.returnValue = null;
-        }
-      });
+      answering.set(session, settingsFor);
+      listenForFrames();
+    },
+    uninstall() {
+      answering.delete(session);
     },
     forResponse(details) {
       const isDocument =

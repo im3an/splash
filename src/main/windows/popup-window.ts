@@ -6,6 +6,7 @@ import type {
 } from 'electron';
 import { isGestureInput, UserGestures } from '../browser/popup-policy';
 import { isPageUrl, mayOpenFromPage } from '../browser/url';
+import { popupFallback } from '../security/https-only';
 import { requestAuthentication } from './auth-window';
 
 /**
@@ -59,6 +60,11 @@ export function wirePopupWindow(
     if (!popup.isDestroyed()) popup.setTitle(popupTitle(contents.getURL()));
   };
   popup.on('page-title-updated', (event) => event.preventDefault());
+  contents.on('did-fail-load', (_event, code, _text, url, isMainFrame) => {
+    if (!isMainFrame) return;
+    const plain = popupFallback(url, code);
+    if (plain) void contents.loadURL(plain).catch(() => undefined);
+  });
   contents.on('did-navigate', showAddress);
   contents.on('did-navigate-in-page', showAddress);
   contents.on('input-event', (_event, input) => {

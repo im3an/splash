@@ -1,10 +1,10 @@
 import { create } from 'zustand';
-import { undoLast } from '../lib/trail-undo';
+import { redoLast, undoLast } from '../lib/trail-undo';
 import type { SplashApi } from '../../shared/api';
 import type { Preferences } from '../../shared/preferences';
 import { closedToast, noticeToast } from '../lib/notices';
 import { useOverlay } from './overlay-store';
-import { useToast } from './toast-store';
+import { confirmUndo, offersUndoHistory, useToast } from './toast-store';
 import type {
   BrowserSnapshot,
   PageId,
@@ -256,7 +256,8 @@ function watchClosed(): () => void {
       seenSerial = serial;
     } else if (closed && serial > seenSerial) {
       seenSerial = serial;
-      toasts.show(closedToast(closed));
+      // A redo is confirmed by what ran it, and is already in the history.
+      if (!closed.redone) toasts.show(closedToast(closed));
     }
   });
 }
@@ -284,7 +285,9 @@ export function connectShell(splash: SplashApi): () => void {
       case 'rename-workspace':
         return shell.setRenamingWorkspace(true);
       case 'undo':
-        return undoInShell();
+        return stepHistory('undo', splash, command.trail);
+      case 'redo':
+        return stepHistory('redo', splash, command.trail);
       case 'filter-trail':
         return shell.openTrailFilter();
       case 'find':
@@ -321,6 +324,13 @@ export function connectShell(splash: SplashApi): () => void {
     useToast.getState().show(noticeToast(notice)),
   );
   const unsubscribeClosed = watchClosed();
+  let undoOffered = false;
+  const unsubscribeToast = useToast.subscribe(({ toast }) => {
+    const offered = offersUndoHistory(toast);
+    if (offered === undoOffered) return;
+    undoOffered = offered;
+    splash.setTrailUndoOffered(offered);
+  });
   const unsubscribePreferences = splash.onPreferences((preferences) =>
     useShell.setState({ preferences }),
   );
@@ -339,17 +349,36 @@ export function connectShell(splash: SplashApi): () => void {
     unsubscribeCommands();
     unsubscribeNotices();
     unsubscribeClosed();
+    unsubscribeToast();
     unsubscribePreferences();
   };
 }
 
-/** Text being edited undoes its typing; otherwise the trail's last change. */
-function undoInShell(): void {
+function editingText(): boolean {
   const focused = document.activeElement;
-  const editing =
+  return (
     focused instanceof HTMLInputElement ||
     focused instanceof HTMLTextAreaElement ||
-    (focused instanceof HTMLElement && focused.isContentEditable);
-  if (editing) document.execCommand('undo');
-  else undoLast();
+    (focused instanceof HTMLElement && focused.isContentEditable)
+  );
+}
+
+/**
+ * Text being edited undoes its typing; otherwise the trail's last change. `trail`
+ * comes from a page, so focus goes back to the page on screen, since the one it
+ * was in may have just closed.
+ */
+function stepHistory(
+  step: 'undo' | 'redo',
+  splash: SplashApi,
+  trail = false,
+): void {
+  if (!trail && editingText()) {
+    document.execCommand(step);
+    return;
+  }
+  void (step === 'undo' ? undoLast() : redoLast()).then((result) => {
+    confirmUndo(result);
+    if (trail) splash.focusPage();
+  });
 }

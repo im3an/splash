@@ -24,6 +24,7 @@ import { Brand } from './Brand';
 import { PageState, PageStateActions } from './PanelState';
 import { AddressSuggestions } from './AddressSuggestions';
 import { CommandPalette } from './CommandPalette';
+import { canContinuePastCertificate } from '../../shared/certificate-errors';
 import { ErrorBoundary } from './ErrorBoundary';
 import { SiteInfoPopover } from './SiteInfoPopover';
 import { StartPage } from './StartPage';
@@ -367,15 +368,28 @@ function PageFailed({ page }: { page: PageSnapshot }) {
               Go back
             </button>
           )}
-          {error.kind === 'no-secure-connection' && (
-            <button
-              type="button"
-              onClick={() => void api().continueOverHttp(page.id)}
-              className="button button-lg"
-            >
-              Continue with HTTP
-            </button>
-          )}
+          {error.kind === 'no-secure-connection' &&
+            !error.certificateLocked && (
+              <button
+                type="button"
+                onClick={() => void api().continueOverHttp(page.id)}
+                className="button button-lg"
+              >
+                Continue with HTTP
+              </button>
+            )}
+          {canContinuePastCertificate(error.code) &&
+            !error.certificateLocked && (
+              <button
+                type="button"
+                onClick={() => void api().continuePastCertificate(page.id)}
+                className="button button-lg"
+              >
+                {error.kind === 'no-secure-connection'
+                  ? 'Continue with HTTPS anyway'
+                  : 'Continue anyway'}
+              </button>
+            )}
           <button
             type="button"
             onClick={() => void api().reload(page.id)}

@@ -1,4 +1,9 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import {
+  contextBridge,
+  ipcRenderer,
+  webUtils,
+  type IpcRendererEvent,
+} from 'electron';
 import { injectBrowserAction } from 'electron-chrome-extensions/browser-action';
 import {
   eventChannels,
@@ -33,7 +38,49 @@ function subscribe<T>(channel: string, listener: (value: T) => void) {
 }
 
 const api: SplashApi = {
+  listVault: () => invoke('vault:list'),
+  saveLogin: (fields) => invoke('vault:save-login', fields),
+  saveAddress: (fields, id) => invoke('vault:save-address', { id, fields }),
+  saveCard: (fields, id) => invoke('vault:save-card', { id, fields }),
+  deleteVaultItem: (id) => invoke('vault:delete', { id }),
+  undoVaultDelete: (token) => invoke('vault:undo', { token }),
+  revealPassword: (id) => invoke('vault:reveal', { id }),
+  copyPassword: (id) => invoke('vault:copy', { id }),
+  exportPasswords: () => invoke('vault:export'),
+  importSources: () => invoke('transfer:sources'),
+  importFrom: (id, what) => invoke('transfer:import', { id, ...what }),
+  importFile: () => invoke('transfer:import-file'),
+  undoImport: (token) => invoke('transfer:undo', { token }),
+  trashImportedFile: (token) => invoke('transfer:trash', { token }),
+  exportBookmarks: () => invoke('transfer:export-bookmarks'),
+  exportTrail: () => invoke('transfer:export-trail'),
+  currentAutofill: () => invoke('autofill:current'),
+  chooseAutofill: (id) => invoke('autofill:choose', { id }),
+  resizeAutofill: (height) => send('autofill:resize', { height }),
+  onAutofill: (listener) => subscribe(eventChannels.autofill, listener),
+  answerCredentialPrompt: (id, answer) =>
+    invoke('credential:respond', { id, answer }),
+  onCredentialPrompt: (listener) =>
+    subscribe(eventChannels.credentialPrompt, listener),
+  windowInfo: () => invoke('window:info'),
+  newPrivateWindow: () => invoke('window:new-private'),
+  chooseFiles: () => invoke('file:choose'),
+  openSettingsSection: (section) =>
+    invoke('app:open-settings-section', { section }),
+  togglePictureInPicture: (pageId) =>
+    invoke('page:picture-in-picture', { pageId }),
   manageExtensions: () => invoke('extensions:manage'),
+  listExtensions: () => invoke('extensions:list'),
+  onExtensions: (listener) => subscribe(eventChannels.extensions, listener),
+  setExtensionEnabled: (id, enabled) =>
+    invoke('extensions:set-enabled', { id, enabled }),
+  removeExtension: (id) => invoke('extensions:remove', { id }),
+  openWebStore: () => invoke('extensions:open-store'),
+  openExtensionPage: (url) => invoke('extensions:open-page', { url }),
+  loadUnpackedExtension: () => invoke('extensions:load-unpacked'),
+  takeSettingsSection: () => invoke('settings:take-section'),
+  onSettingsSection: (listener) =>
+    subscribe(eventChannels.settingsSection, listener),
   sharePage: (pageId) => invoke('page:share', { pageId }),
   copyPageAs: (pageId, format) => invoke('page:copy-as', { pageId, format }),
   pasteAndGo: () => invoke('page:paste-and-go'),
@@ -55,6 +102,8 @@ const api: SplashApi = {
   continueOverHttp: (pageId) => invoke('page:continue-over-http', { pageId }),
   continueToDangerousSite: (pageId) =>
     invoke('page:continue-to-dangerous-site', { pageId }),
+  continuePastCertificate: (pageId) =>
+    invoke('page:continue-past-certificate', { pageId }),
   stop: (pageId) => invoke('page:stop', { pageId }),
   setCollapsed: (pageId, collapsed) =>
     invoke('page:set-collapsed', { pageId, collapsed }),
@@ -62,11 +111,18 @@ const api: SplashApi = {
     invoke('page:create-child', { pageId, input }),
   closeBranch: (pageId) => invoke('page:close-branch', { pageId }),
   closeOtherPages: (pageId) => invoke('page:close-others', { pageId }),
+  closePagesBelow: (pageId) => invoke('page:close-below', { pageId }),
+  viewSource: (pageId) => invoke('page:view-source', { pageId }),
+  toggleDevTools: (pageId) => invoke('page:toggle-devtools', { pageId }),
   print: (pageId) => invoke('page:print', { pageId }),
   savePageAs: (pageId) => invoke('page:save-as', { pageId }),
   deleteWorkspaceFromShell: (workspaceId) =>
     invoke('workspace:delete', { workspaceId }),
   reopenClosed: () => invoke('page:reopen-closed'),
+  reopenClosedItem: (serial) => invoke('page:reopen-closed-item', { serial }),
+  recentlyClosed: () => invoke('page:recently-closed'),
+  undoClose: (serial) => invoke('page:undo-close', { serial }),
+  closeAgain: (serial) => invoke('page:close-again', { serial }),
   movePage: (pageId, parentId, afterId) =>
     invoke('page:move', { pageId, parentId, afterId }),
   returnPage: (pageId, origin) => invoke('page:return', { pageId, origin }),
@@ -76,7 +132,10 @@ const api: SplashApi = {
   renameGroup: (groupId, name) => invoke('group:rename', { groupId, name }),
   setGroupCollapsed: (groupId, collapsed) =>
     invoke('group:set-collapsed', { groupId, collapsed }),
+  setGroupIcon: (groupId, icon) => invoke('group:set-icon', { groupId, icon }),
   deleteGroup: (groupId) => invoke('group:delete', { groupId }),
+  deleteGroupWithPages: (groupId) =>
+    invoke('group:delete-with-pages', { groupId }),
   setPageGroup: (pageId, groupId) =>
     invoke('page:set-group', { pageId, groupId }),
   openSettings: () => invoke('app:open-settings'),
@@ -114,6 +173,8 @@ const api: SplashApi = {
   resetSite: (origin) => invoke('site:reset', { origin }),
   freezePage: () => invoke('view:freeze'),
   setOverlayActive: (active) => send('view:set-overlay', { active }),
+  setTrailUndoOffered: (offered) =>
+    send('view:set-trail-undo-offered', { offered }),
   previewWorkspaceMode: (mode) => send('workspace:preview-mode', { mode }),
   queryPalette: (query, scope, complete) =>
     invoke('palette:query', { query, scope, complete }),
@@ -164,6 +225,27 @@ const api: SplashApi = {
 };
 
 contextBridge.exposeInMainWorld('splash', api);
+
+/*
+ * A file dragged from the Finder onto the window opens as a page. It's handled
+ * here because only this side can learn where a dropped file is; the shell's
+ * own drop targets take links, and never see these. (Over a page, the page's
+ * preload does the same.)
+ */
+const dragsFiles = (event: DragEvent) =>
+  event.isTrusted && !!event.dataTransfer?.types.includes('Files');
+window.addEventListener('dragover', (event) => {
+  if (dragsFiles(event)) event.preventDefault();
+});
+window.addEventListener('drop', (event) => {
+  if (!dragsFiles(event)) return;
+  event.preventDefault();
+  const paths = [...(event.dataTransfer?.files ?? [])]
+    .map((file) => webUtils.getPathForFile(file))
+    .filter(Boolean)
+    .slice(0, 50);
+  if (paths.length > 0) void invoke('file:open-dropped', { paths });
+});
 
 // Defines <browser-action-list>, the toolbar buttons of extensions such as
 // uBlock Origin. Its clicks and popups are handled by the main process.

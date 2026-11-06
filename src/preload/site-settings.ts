@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { PAGE_SETTINGS, type PageSettings } from '../shared/page-bridge';
+import {
+  PAGE_SETTINGS,
+  PASSKEY_REQUESTED,
+  type PageSettings,
+} from '../shared/page-bridge';
 
 /*
  * Applies, before the page's own scripts run, the settings a request hook
@@ -185,6 +189,47 @@ function showNoscriptContent(): void {
   );
 }
 
+/** A site that isn't allowed to float a video finds it just isn't possible. */
+function refusePictureInPicture(): void {
+  HTMLVideoElement.prototype.requestPictureInPicture = () =>
+    Promise.reject(
+      new DOMException(
+        'Picture in picture is off for this site.',
+        'NotAllowedError',
+      ),
+    );
+  Object.defineProperty(Document.prototype, 'pictureInPictureEnabled', {
+    get: () => false,
+    configurable: true,
+  });
+}
+
+/**
+ * Nothing in Splash can answer a passkey request yet, and Chromium shows no
+ * prompt of its own, so the user would just see a page spinning. This reports
+ * requests the user is meant to answer; it changes nothing about them, so a
+ * security key or a password manager extension can still take them.
+ */
+function watchPasskeyRequests(report: () => void): void {
+  const { get, create } = CredentialsContainer.prototype;
+  const isForUser = (options?: CredentialRequestOptions) =>
+    !!options?.publicKey && options.mediation !== 'conditional';
+  CredentialsContainer.prototype.get = function (
+    this: CredentialsContainer,
+    options?: CredentialRequestOptions,
+  ) {
+    if (isForUser(options)) report();
+    return get.call(this, options);
+  };
+  CredentialsContainer.prototype.create = function (
+    this: CredentialsContainer,
+    options?: CredentialCreationOptions,
+  ) {
+    if (options?.publicKey) report();
+    return create.call(this, options);
+  };
+}
+
 function pageSettings(): PageSettings | null {
   if (location.protocol === 'chrome-extension:') return null;
   try {
@@ -200,7 +245,7 @@ function pageSettings(): PageSettings | null {
   }
 }
 
-const settings = pageSettings();
+export const settings = pageSettings();
 if (settings?.privacySignal) {
   contextBridge.executeInMainWorld({ func: announcePrivacySignal });
 }
@@ -212,6 +257,15 @@ if (settings?.blockAutoplay) {
   holdAutoplayAttribute();
 }
 if (settings?.blockScripts) showNoscriptContent();
+if (settings?.blockPictureInPicture) {
+  contextBridge.executeInMainWorld({ func: refusePictureInPicture });
+}
+if (settings && window.isSecureContext) {
+  contextBridge.executeInMainWorld({
+    func: watchPasskeyRequests,
+    args: [() => ipcRenderer.send(PASSKEY_REQUESTED)],
+  });
+}
 if (settings && settings.undecided.length > 0) {
   contextBridge.executeInMainWorld({
     func: reportUndecidedAsUnasked,

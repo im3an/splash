@@ -4,22 +4,32 @@ import {
   ArrowLeft,
   ArrowRight,
   ClipboardPaste,
+  CodeXml,
   Columns2,
   Copy,
   CornerDownRight,
   Download,
+  EyeOff,
   FileDown,
+  FileInput,
+  FileOutput,
+  FileText,
   FolderPlus,
   Globe,
   Hash,
   History,
   House,
+  KeyRound,
+  Layers,
   Link,
+  ListEnd,
+  ListFilter,
   ListMinus,
   ListX,
   Palette,
   PanelLeft,
   Pencil,
+  PictureInPicture2,
   Pin,
   PinOff,
   Plus,
@@ -30,7 +40,9 @@ import {
   Search,
   Settings,
   SlidersHorizontal,
+  Sparkles,
   Square,
+  SquareTerminal,
   Star,
   StickyNote,
   TextSearch,
@@ -50,10 +62,16 @@ import type {
   PaletteSection,
 } from '../../shared/types';
 import { highlightParts } from '../lib/highlight';
-import { WorkspaceIcon } from './WorkspaceIcon';
 import { SiteIcon } from './Favicon';
 
 const COMMAND_ICONS: Record<PaletteCommand, LucideIcon> = {
+  'open-file': FileText,
+  'new-private-window': EyeOff,
+  'manage-passwords': KeyRound,
+  'import-data': FileInput,
+  'export-bookmarks': FileOutput,
+  'export-trail': FileOutput,
+  'picture-in-picture': PictureInPicture2,
   'new-page': Plus,
   'new-child-page': CornerDownRight,
   'new-workspace': FolderPlus,
@@ -91,6 +109,11 @@ const COMMAND_ICONS: Record<PaletteCommand, LucideIcon> = {
   print: Printer,
   'save-page': FileDown,
   'close-others': ListMinus,
+  'close-below': ListEnd,
+  'view-source': CodeXml,
+  'dev-tools': SquareTerminal,
+  'filter-pages': ListFilter,
+  'toggle-ai-panel': Sparkles,
   'close-split': Square,
   'rename-workspace': Pencil,
   'delete-workspace': Trash2,
@@ -118,17 +141,9 @@ function ItemIcon({ item }: { item: PaletteItem }) {
     case 'workspace': {
       const { light, dark } = accentColors(item.appearance.accent);
       const style: CSSProperties = { color: `light-dark(${light}, ${dark})` };
+      // The same mark for all, in each workspace's own accent.
       return (
-        <span
-          className="grid size-4 shrink-0 place-items-center text-small font-medium"
-          style={style}
-        >
-          <WorkspaceIcon
-            icon={item.appearance.icon}
-            name={item.title}
-            size={14}
-          />
-        </span>
+        <Layers size={15} aria-hidden className="shrink-0" style={style} />
       );
     }
     case 'history':
@@ -290,7 +305,9 @@ export function PaletteList({
             <Highlighted text={item.title} query={query} />
           </span>
           {detail && (
-            <span className="truncate text-small text-fg-subtle">{detail}</span>
+            <span className="truncate text-small text-fg-subtle group-aria-selected/option:text-fg-muted">
+              {detail}
+            </span>
           )}
         </span>
         {shortcut && (

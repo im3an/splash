@@ -23,7 +23,7 @@ function savedFiles(saved: string | null): string[] {
 export function keepOpenedFiles(
   store: Pick<TrailStore, 'getPreference' | 'setPreference'>,
 ): void {
-  savedFiles(store.getPreference(KEY)).forEach(allowLocalFile);
+  savedFiles(store.getPreference(KEY)).forEach((url) => allowLocalFile(url));
   watchOpenedFiles((urls) => {
     try {
       store.setPreference(KEY, JSON.stringify(urls));

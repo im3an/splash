@@ -2,9 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   fallsBackToHttp,
   httpsUpgradeFor,
+  popupFallback,
+  popupUpgraded,
   secureUpgradeOf,
   SecureAttempt,
   typedPlainAddress,
+  wantsSecurePopup,
+  wwwSibling,
 } from './https-only';
 
 describe('secureUpgradeOf', () => {
@@ -190,5 +194,61 @@ describe('SecureAttempt', () => {
     attempt.begin(plain, secure);
     attempt.begin('http://www.example.com/', 'https://www.example.com/');
     expect(attempt.failed(-102)).toBe('http://www.example.com/');
+  });
+});
+
+describe('a site that moves between its two names', () => {
+  it('finds the other name, either way round, keeping the port', () => {
+    expect(wwwSibling('http://example.com')).toBe('http://www.example.com');
+    expect(wwwSibling('http://www.example.com')).toBe('http://example.com');
+    expect(wwwSibling('http://example.com:8080')).toBe(
+      'http://www.example.com:8080',
+    );
+  });
+
+  it('asks once: agreeing to one name covers the other', () => {
+    const agreedTo = (origin: string) => origin === 'http://example.com';
+    expect(httpsUpgradeFor('http://www.example.com/', true, agreedTo)).toBe(
+      null,
+    );
+  });
+
+  it('keeps asking for a different site', () => {
+    const agreedTo = (origin: string) => origin === 'http://example.com';
+    expect(httpsUpgradeFor('http://other.example.com/', true, agreedTo)).toBe(
+      'https://other.example.com/',
+    );
+  });
+});
+
+describe('popups', () => {
+  const plain = 'http://popup-only.test/a';
+  const secure = 'https://popup-only.test/a';
+
+  it('ignores a failure that was not its own try at HTTPS', () => {
+    expect(popupFallback('https://never-tried.test/', -107)).toBe(null);
+  });
+
+  it('goes back to the address asked for, and not over HTTPS again', () => {
+    expect(wantsSecurePopup(plain)).toBe(true);
+    popupUpgraded(plain, secure);
+    // A name that doesn't exist won't exist over HTTP either.
+    expect(popupFallback(secure, -105)).toBe(null);
+    // The site doesn't speak HTTPS.
+    expect(popupFallback(secure, -107)).toBe(plain);
+    expect(wantsSecurePopup(plain)).toBe(false);
+    expect(popupFallback(secure, -107)).toBe(null);
+  });
+});
+
+describe('a secure address that answers with an error', () => {
+  it('offers HTTP once, and only for an error', () => {
+    const attempt = new SecureAttempt();
+    attempt.begin('http://a.test/', 'https://a.test/');
+    expect(attempt.answeredWithError(200)).toBe(null);
+    expect(attempt.active).toBe(true);
+    expect(attempt.answeredWithError(404)).toBe('http://a.test/');
+    expect(attempt.active).toBe(false);
+    expect(attempt.answeredWithError(500)).toBe(null);
   });
 });

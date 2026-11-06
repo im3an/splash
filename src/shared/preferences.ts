@@ -81,6 +81,8 @@ export interface Preferences {
   startup: 'restore' | 'new-page';
   /** Try HTTPS for every public site, and ask before using plain HTTP. */
   httpsOnly: boolean;
+  /** Offer to fill forms and keep logins, in Splash's own menu and bar. */
+  passwordAutofill: boolean;
   /** Block ads and trackers, unless a site is allowed. */
   blockAds: boolean;
   /** Reject cookie banners and hide notices, never agreeing; sites can be allowed. */
@@ -108,7 +110,13 @@ export interface Preferences {
   defaultFontSize: number;
   /** No text is drawn smaller than this, in pixels; 0 turns it off. */
   minimumFontSize: number;
+  /** The language pages are spell-checked in, or macOS's pick, or none. */
+  spellingLanguage: SpellingLanguage;
 }
+
+/** What the bookmark library holds, in folders and in each folder. */
+export const MAX_COLLECTIONS = 2000;
+export const MAX_LINKS_PER_FOLDER = 10_000;
 
 export const DEFAULT_ZOOM_CHOICES = [
   75, 80, 90, 100, 110, 125, 150, 175, 200,
@@ -138,6 +146,54 @@ export const MONOSPACE_FONTS = [
 
 export const AWAKE_PAGE_CHOICES = [6, 12, 24, 48] as const;
 
+/** What the macOS spell checker offers, under its own language codes. */
+export const SPELLING_LANGUAGES = [
+  ['ar', 'Arabic'],
+  ['bg', 'Bulgarian'],
+  ['cs', 'Czech'],
+  ['da', 'Danish'],
+  ['nl', 'Dutch'],
+  ['en_AU', 'English (Australia)'],
+  ['en_CA', 'English (Canada)'],
+  ['en_IN', 'English (India)'],
+  ['en_NZ', 'English (New Zealand)'],
+  ['en_ZA', 'English (South Africa)'],
+  ['en_GB', 'English (UK)'],
+  ['en', 'English (US)'],
+  ['fi', 'Finnish'],
+  ['fr', 'French'],
+  ['de', 'German'],
+  ['el', 'Greek'],
+  ['he', 'Hebrew'],
+  ['hi', 'Hindi'],
+  ['hu', 'Hungarian'],
+  ['is', 'Icelandic'],
+  ['id', 'Indonesian'],
+  ['ga', 'Irish'],
+  ['it', 'Italian'],
+  ['ko', 'Korean'],
+  ['lt', 'Lithuanian'],
+  ['nb', 'Norwegian Bokmål'],
+  ['nn', 'Norwegian Nynorsk'],
+  ['pl', 'Polish'],
+  ['pt_BR', 'Portuguese (Brazil)'],
+  ['pt_PT', 'Portuguese (Portugal)'],
+  ['pa', 'Punjabi'],
+  ['ro', 'Romanian'],
+  ['ru', 'Russian'],
+  ['sl', 'Slovenian'],
+  ['es', 'Spanish'],
+  ['sv', 'Swedish'],
+  ['te', 'Telugu'],
+  ['tr', 'Turkish'],
+  ['uk', 'Ukrainian'],
+  ['vi', 'Vietnamese'],
+] as const;
+export type SpellingLanguage =
+  | 'automatic'
+  | 'off'
+  | (typeof SPELLING_LANGUAGES)[number][0];
+
 export const DEFAULT_PREFERENCES: Preferences = {
   sidebarWidth: 260,
   toolbarActions: ['bookmark', 'share', 'extensions', 'split'],
@@ -159,6 +215,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   homepage: null,
   startup: 'restore',
   httpsOnly: true,
+  passwordAutofill: true,
   blockAds: true,
   hideCookieNotices: true,
   warnDangerousSites: true,
@@ -178,6 +235,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   monospaceFont: '',
   defaultFontSize: 16,
   minimumFontSize: 0,
+  spellingLanguage: 'automatic',
 };
 
 /** A typed homepage as a full web address; `null` if it can't be one. */

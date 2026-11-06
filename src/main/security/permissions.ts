@@ -21,10 +21,13 @@ export const SITE_PERMISSIONS: readonly SitePermission[] = [
   'autoplay',
   'third-party-cookies',
   'dangerous',
+  'certificate',
   'midi',
   'clipboard',
   'apps',
   'insecure',
+  'save-passwords',
+  'picture-in-picture',
 ];
 
 export const PERMISSION_LABELS: Record<SitePermission, string> = {
@@ -44,6 +47,9 @@ export const PERMISSION_LABELS: Record<SitePermission, string> = {
   autoplay: 'Autoplay',
   'third-party-cookies': 'Third-party cookies',
   dangerous: 'Reported as dangerous',
+  certificate: 'Untrusted certificate',
+  'save-passwords': 'Offer to save passwords',
+  'picture-in-picture': 'Picture in picture',
 };
 
 /**

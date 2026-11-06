@@ -30,6 +30,40 @@ const config: ForgeConfig = {
           CFBundleURLSchemes: ['http', 'https'],
         },
       ],
+      // Lists Splash under "Open With" in the Finder, without taking over
+      // anything: an Alternate handler is never the default for these.
+      CFBundleDocumentTypes: [
+        {
+          CFBundleTypeName: 'Web page',
+          CFBundleTypeRole: 'Viewer',
+          LSHandlerRank: 'Alternate',
+          LSItemContentTypes: ['public.html', 'public.xhtml'],
+        },
+        {
+          CFBundleTypeName: 'PDF document',
+          CFBundleTypeRole: 'Viewer',
+          LSHandlerRank: 'Alternate',
+          LSItemContentTypes: ['com.adobe.pdf'],
+        },
+        {
+          CFBundleTypeName: 'Image',
+          CFBundleTypeRole: 'Viewer',
+          LSHandlerRank: 'Alternate',
+          LSItemContentTypes: ['public.image', 'public.svg-image'],
+        },
+        {
+          CFBundleTypeName: 'Text',
+          CFBundleTypeRole: 'Viewer',
+          LSHandlerRank: 'Alternate',
+          LSItemContentTypes: ['public.plain-text', 'public.json'],
+        },
+        {
+          CFBundleTypeName: 'Audio or video',
+          CFBundleTypeRole: 'Viewer',
+          LSHandlerRank: 'Alternate',
+          LSItemContentTypes: ['public.audio', 'public.movie'],
+        },
+      ],
       NSCameraUsageDescription:
         'Websites you allow can use your camera, for example for video calls.',
       NSMicrophoneUsageDescription:
@@ -94,6 +128,11 @@ const config: ForgeConfig = {
         {
           entry: 'src/preload/extension-preload.ts',
           config: 'vite.extension-preload.config.mts',
+          target: 'preload',
+        },
+        {
+          entry: 'src/preload/web-store-preload.ts',
+          config: 'vite.web-store-preload.config.mts',
           target: 'preload',
         },
       ],

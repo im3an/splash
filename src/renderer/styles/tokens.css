@@ -15,6 +15,7 @@
   /* The frame's ink as "r g b", used for tints in light mode. */
   --ink: 70 52 32;
   --field: rgb(var(--ink) / 0.065);
+  --field-hover: rgb(var(--ink) / 0.1);
   --field-focus: #ffffff;
   --hover: rgb(var(--ink) / 0.06);
   --pressed: rgb(var(--ink) / 0.1);
@@ -56,7 +57,8 @@
   --fg: #221d17;
   --fg-muted: #585047;
   --fg-subtle: #675e55;
-  --fg-disabled: rgb(var(--ink) / 0.38);
+  --disabled-alpha: 0.38;
+  --fg-disabled: rgb(var(--ink) / var(--disabled-alpha));
 
   /* Named borders: structural separators, then control and hover edges. */
   --border: var(--divider);
@@ -83,10 +85,11 @@
   --shadow-content:
     0 0 0 0.5px rgb(var(--ink) / 0.14), 0 1px 3px rgb(var(--ink) / 0.06);
   /*
-   * The palette floats over page content: a translucent material, so the
-   * page it was opened from stays in view, blurred, behind its results.
+   * The palette floats over page content, so the page shows faintly behind
+   * its results. Any more than this and a page of the opposite brightness
+   * takes its secondary text below 4.5:1: 3.13 at 70% in dark over white.
    */
-  --glass-panel: color-mix(in oklab, var(--elevated) 74%, transparent);
+  --glass-panel: color-mix(in oklab, var(--elevated) 92%, transparent);
   --shadow-glass-panel:
     var(--shadow-panel), inset 0 1px 0 rgb(255 255 255 / 0.8),
     inset 0 0 0 1px rgb(255 255 255 / 0.35);
@@ -105,11 +108,11 @@
   --shadow-focus: 0 0 0 1px var(--accent), 0 0 0 3.5px var(--accent-soft);
   --skeleton: rgb(var(--ink) / 0.07);
   --switch-knob: #ffffff;
-  /* The colour canvas's dots and the intensity slider's thumb ring in white. */
+  /* Dark enough that the off track and its knob each reach 3:1. */
+  --switch-off: rgb(var(--ink) / 0.54);
+  /* The colour disc's dots and the sliders' thumbs in white. */
   --wheel-handle-ring: #ffffff;
   --shadow-wheel-handle: 0 1px 4px rgb(0 0 0 / 0.3);
-  /* The grain dial's knob: silver in either scheme, so its grain shows. */
-  --dial-knob: #c9c7c4;
 
   --font-ui:
     -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
@@ -143,6 +146,8 @@
   --icon-lg: 20px;
   /* Stroke on a 24-unit grid. Small icons go heavier to look the same weight. */
   --icon-stroke: 2.4;
+  /* 1.5px exactly at the 16px every icon button uses. */
+  --icon-stroke-md: 2.25;
   --icon-stroke-small: 2.8;
   --icon-stroke-large: 2.1;
   --control-height: 28px;
@@ -158,7 +163,6 @@
   /* Sheets like the workspace editor, and the panels inside them. */
   --radius-sheet: 18px;
   --radius-panel: 13px;
-  /* The fanned cards over the workspace editor. */
   --radius-card: 12px;
   /* Pills, switches, progress lines. */
   --radius-full: 999px;
@@ -229,8 +233,8 @@
 
     --fg: #ede6dd;
     --fg-muted: #b3a89b;
-    --fg-subtle: #a09588;
-    --fg-disabled: rgb(var(--ink) / 0.34);
+    --fg-subtle: #a89c8f;
+    --disabled-alpha: 0.34;
 
     --accent: #e3906a;
     --accent-soft: rgb(227 144 106 / 0.2);
@@ -248,7 +252,7 @@
 
     --shadow-content:
       0 0 0 0.5px rgb(var(--ink) / 0.08), 0 1px 3px rgb(0 0 0 / 0.3);
-    --glass-panel: color-mix(in oklab, var(--elevated) 70%, transparent);
+    --glass-panel: color-mix(in oklab, var(--elevated) 92%, transparent);
     --shadow-glass-panel:
       var(--shadow-panel), inset 0 1px 0 rgb(var(--ink) / 0.14),
       inset 0 0 0 1px rgb(var(--ink) / 0.06);
@@ -259,6 +263,7 @@
       0 0 0 0.5px rgb(var(--ink) / 0.1), 0 16px 44px rgb(0 0 0 / 0.5);
     --skeleton: rgb(var(--ink) / 0.06);
     --switch-knob: #f4eee7;
+    --switch-off: rgb(var(--ink) / 0.4);
   }
 }
 

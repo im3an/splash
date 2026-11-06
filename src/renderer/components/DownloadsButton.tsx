@@ -36,7 +36,7 @@ export function DownloadsButton({ always = false }: { always?: boolean }) {
       {active.length > 0 ? (
         <DownloadRing received={received} total={total} size={16} />
       ) : (
-        <ArrowDownToLine size={15} />
+        <ArrowDownToLine size={16} />
       )}
       {unseenProblems > 0 && (
         <span

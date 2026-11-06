@@ -687,6 +687,57 @@ describe('buildPaletteItems', () => {
     expect(busy).toContain('Delete workspace');
   });
 
+  it('offers Close pages below only when pages are below', () => {
+    const titles = (hasBelow: boolean) =>
+      buildPaletteItems(
+        input({ query: '>', activePage: activePage({ hasBelow }) }),
+      ).map((i) => i.title);
+    expect(titles(false)).not.toContain('Close pages below');
+    expect(titles(true)).toContain('Close pages below');
+  });
+
+  it('finds the view and developer commands by name, with their shortcuts', () => {
+    const row = (query: string, page = activePage()) =>
+      buildPaletteItems(input({ query, activePage: page })).find(
+        (item) => item.kind === 'command',
+      );
+    expect(row('source')).toMatchObject({
+      title: 'View page source',
+      shortcut: '⌥⌘U',
+    });
+    expect(row('inspect')).toMatchObject({
+      title: 'Developer tools',
+      shortcut: '⌥⌘I',
+    });
+    expect(row('filter')).toMatchObject({
+      title: 'Filter pages',
+      shortcut: '⌥⌘F',
+    });
+    expect(row('ai')).toMatchObject({
+      title: 'Toggle AI panel',
+      shortcut: '⇧⌘A',
+    });
+  });
+
+  it('offers page source for web pages only', () => {
+    const titles = (url: string | null) =>
+      buildPaletteItems(
+        input({ query: '>', activePage: activePage({ url }) }),
+      ).map((i) => i.title);
+    expect(titles('https://example.com/')).toContain('View page source');
+    expect(titles('view-source:https://example.com/')).not.toContain(
+      'View page source',
+    );
+    expect(titles(null)).not.toContain('View page source');
+    expect(titles(null)).not.toContain('Developer tools');
+    expect(titles(null)).toContain('Filter pages');
+  });
+
+  it('shows the shortcut for Show downloads', () => {
+    const [row] = buildPaletteItems(input({ query: '>downloads' }));
+    expect(row).toMatchObject({ title: 'Show downloads', shortcut: '⌥⌘L' });
+  });
+
   it('offers Reopen closed only when something was closed', () => {
     const titles = (canReopen: boolean) =>
       buildPaletteItems(input({ query: '>', canReopen })).map((i) => i.title);

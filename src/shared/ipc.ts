@@ -1,8 +1,18 @@
 import { z } from 'zod';
 import { AI_PROVIDER_IDS } from './ai';
 import { ACCENTS, FRAMES, SYMBOLS, THEMES } from './appearance';
-import { TOOLBAR_ACTIONS } from './preferences';
-import { isSearchKeyword, isSearchTemplate } from './search';
+import {
+  MAX_COLLECTIONS,
+  MAX_LINKS_PER_FOLDER,
+  SPELLING_LANGUAGES,
+  TOOLBAR_ACTIONS,
+  type SpellingLanguage,
+} from './preferences';
+import {
+  isSearchKeyword,
+  isSearchTemplate,
+  MAX_SEARCH_SHORTCUTS,
+} from './search';
 
 /**
  * The single contract between the shell UI and the main process.
@@ -18,6 +28,9 @@ const pageTitle = z.string().max(300).nullable();
 const workspaceId = z.uuid();
 
 const zoomPercent = z.number().min(25).max(500);
+/** Chromium's extension ids: 32 letters from a to p. */
+const extensionId = z.string().regex(/^[a-p]{32}$/);
+
 /** Goes into page settings, so it stays a plain name. */
 const fontName = z
   .string()
@@ -52,10 +65,10 @@ export const preferencesSchema = z.strictObject({
                 ),
             }),
           )
-          .max(1000),
+          .max(MAX_LINKS_PER_FOLDER),
       }),
     )
-    .max(200)
+    .max(MAX_COLLECTIONS)
     .refine((items) => {
       const byId = new Map(items.map((item) => [item.id, item]));
       if (byId.size !== items.length) return false;
@@ -84,7 +97,7 @@ export const preferencesSchema = z.strictObject({
         url: z.string().max(2048).refine(isSearchTemplate),
       }),
     )
-    .max(100)
+    .max(MAX_SEARCH_SHORTCUTS)
     .refine(
       (items) =>
         new Set(items.map((item) => item.id)).size === items.length &&
@@ -110,6 +123,7 @@ export const preferencesSchema = z.strictObject({
     .nullable(),
   startup: z.enum(['restore', 'new-page']),
   httpsOnly: z.boolean(),
+  passwordAutofill: z.boolean(),
   blockAds: z.boolean(),
   hideCookieNotices: z.boolean(),
   warnDangerousSites: z.boolean(),
@@ -129,6 +143,11 @@ export const preferencesSchema = z.strictObject({
   monospaceFont: fontName,
   defaultFontSize: z.number().int().min(6).max(72),
   minimumFontSize: z.number().int().min(0).max(24),
+  spellingLanguage: z.enum([
+    'automatic',
+    'off',
+    ...SPELLING_LANGUAGES.map(([id]) => id),
+  ] as [SpellingLanguage, ...SpellingLanguage[]]),
 });
 const sitePermission = z.enum([
   'camera',
@@ -147,6 +166,9 @@ const sitePermission = z.enum([
   'autoplay',
   'third-party-cookies',
   'dangerous',
+  'certificate',
+  'save-passwords',
+  'picture-in-picture',
 ]);
 /** A bare web origin such as `https://example.com`. */
 const siteOrigin = z
@@ -203,7 +225,79 @@ export const workspaceAppearanceSchema = z.strictObject({
   mode: z.enum(['system', 'light', 'dark']),
 });
 
+const vaultId = z.string().min(1).max(64);
+const secretText = z.string().max(4096);
+const shortText = z.string().max(300);
+const addressFields = z.strictObject({
+  label: shortText,
+  name: shortText,
+  organization: shortText,
+  street: z.string().max(1000),
+  city: shortText,
+  region: shortText,
+  postalCode: shortText,
+  country: shortText,
+  tel: shortText,
+  email: shortText,
+});
+const cardFields = z.strictObject({
+  name: shortText,
+  number: z
+    .string()
+    .max(32)
+    .regex(/^[\d\s-]+$/),
+  expMonth: z.string().regex(/^(0?[1-9]|1[0-2])$/),
+  expYear: z.string().regex(/^\d{2}(\d{2})?$/),
+});
+/** Sections Settings can be opened to from elsewhere. */
+const settingsSection = z.enum(['passwords', 'transfer']);
+
 export const invokeContract = {
+  'vault:list': z.undefined(),
+  'vault:save-login': z.strictObject({
+    id: vaultId.optional(),
+    origin: siteOrigin,
+    username: secretText,
+    password: secretText.min(1),
+  }),
+  'vault:save-address': z.strictObject({
+    id: vaultId.optional(),
+    fields: addressFields,
+  }),
+  'vault:save-card': z.strictObject({
+    id: vaultId.optional(),
+    fields: cardFields,
+  }),
+  'vault:delete': z.strictObject({ id: vaultId }),
+  'vault:undo': z.strictObject({ token: vaultId }),
+  'vault:reveal': z.strictObject({ id: vaultId }),
+  'vault:copy': z.strictObject({ id: vaultId }),
+  'vault:export': z.undefined(),
+  'transfer:sources': z.undefined(),
+  'transfer:import': z.strictObject({
+    id: z.string().min(1).max(512),
+    bookmarks: z.boolean(),
+    history: z.boolean(),
+  }),
+  'transfer:import-file': z.undefined(),
+  'transfer:undo': z.strictObject({ token: vaultId }),
+  'transfer:trash': z.strictObject({ token: vaultId }),
+  'transfer:export-bookmarks': z.undefined(),
+  'transfer:export-trail': z.undefined(),
+  'autofill:current': z.undefined(),
+  'autofill:choose': z.strictObject({ id: vaultId }),
+  'credential:respond': z.strictObject({
+    id: vaultId,
+    answer: z.enum(['save', 'never', 'dismiss']),
+  }),
+  'window:info': z.undefined(),
+  'window:new-private': z.undefined(),
+  'file:choose': z.undefined(),
+  'file:open-dropped': z.strictObject({
+    paths: z.array(z.string().min(1).max(4096)).min(1).max(50),
+  }),
+  'app:open-settings-section': z.strictObject({ section: settingsSection }),
+  'page:picture-in-picture': z.strictObject({ pageId }),
   'auth:challenge': z.undefined(),
   'auth:respond': z
     .strictObject({
@@ -222,6 +316,7 @@ export const invokeContract = {
   'page:reload': z.strictObject({ pageId }),
   'page:continue-over-http': z.strictObject({ pageId }),
   'page:continue-to-dangerous-site': z.strictObject({ pageId }),
+  'page:continue-past-certificate': z.strictObject({ pageId }),
   'page:stop': z.strictObject({ pageId }),
   'page:set-collapsed': z.strictObject({ pageId, collapsed: z.boolean() }),
   'page:create-child': z.strictObject({
@@ -230,10 +325,23 @@ export const invokeContract = {
   }),
   'page:close-branch': z.strictObject({ pageId }),
   'page:close-others': z.strictObject({ pageId }),
+  'page:close-below': z.strictObject({ pageId }),
+  'page:view-source': z.strictObject({ pageId }),
+  'page:toggle-devtools': z.strictObject({ pageId }),
   'page:print': z.strictObject({ pageId }),
   'page:save-as': z.strictObject({ pageId }),
   'workspace:delete': z.strictObject({ workspaceId }),
   'page:reopen-closed': z.undefined(),
+  'page:reopen-closed-item': z.strictObject({
+    serial: z.number().int().nonnegative(),
+  }),
+  'page:recently-closed': z.undefined(),
+  'page:undo-close': z.strictObject({
+    serial: z.number().int().nonnegative(),
+  }),
+  'page:close-again': z.strictObject({
+    serial: z.number().int().nonnegative(),
+  }),
   'page:move': z.strictObject({
     pageId,
     parentId: pageId.nullable(),
@@ -271,7 +379,17 @@ export const invokeContract = {
     groupId: z.uuid(),
     collapsed: z.boolean(),
   }),
+  'group:set-icon': z.strictObject({
+    groupId: z.uuid(),
+    icon: z
+      .strictObject({
+        kind: z.literal('emoji'),
+        value: z.string().trim().min(1).max(16),
+      })
+      .nullable(),
+  }),
   'group:delete': z.strictObject({ groupId: z.uuid() }),
+  'group:delete-with-pages': z.strictObject({ groupId: z.uuid() }),
   'page:set-group': z.strictObject({ pageId, groupId: z.uuid().nullable() }),
   'page:duplicate': z.strictObject({ pageId }),
   'page:move-to-workspace': z.strictObject({ pageId, workspaceId }),
@@ -400,6 +518,16 @@ export const invokeContract = {
   }),
   'settings:delete-workspace': z.strictObject({ workspaceId }),
   'extensions:manage': z.undefined(),
+  'extensions:list': z.undefined(),
+  'extensions:set-enabled': z.strictObject({
+    id: extensionId,
+    enabled: z.boolean(),
+  }),
+  'extensions:remove': z.strictObject({ id: extensionId }),
+  'extensions:open-store': z.undefined(),
+  'extensions:open-page': z.strictObject({ url: z.string().max(2048) }),
+  'extensions:load-unpacked': z.undefined(),
+  'settings:take-section': z.undefined(),
   'page:share': z.strictObject({ pageId }),
   'page:copy-as': z.strictObject({
     pageId,
@@ -440,8 +568,12 @@ export const sendContract = {
   }),
   'view:focus-page': z.undefined(),
   'view:set-overlay': z.strictObject({ active: z.boolean() }),
+  'view:set-trail-undo-offered': z.strictObject({ offered: z.boolean() }),
   'workspace:preview-mode': z.strictObject({
     mode: z.enum(['system', 'light', 'dark']).nullable(),
+  }),
+  'autofill:resize': z.strictObject({
+    height: z.number().int().min(0).max(800),
   }),
   'ai:place': z
     .strictObject({

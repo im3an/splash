@@ -36,7 +36,7 @@ in `docs/beta-readiness.md`, not from today.
 - Each has its own trail, active page, scroll position, split view and look.
 - Move a page or branch to another workspace, by menu or by dragging onto the workspace bar, with "Go there" and Undo.
 - Editing happens in a sidebar panel with live preview.
-- Arc-style theme picker: 1–3 colour dots on a colour wheel (OKLCH), an intensity wave slider, a grain dial, light/dark per workspace, icon choice.
+- Theme picker in Settings-style rows: presets or 1–3 custom colours on an Arc-style dot field (OKLCH), intensity and grain sliders, light/dark per workspace.
 - Gradient colours are luminance-clamped so text keeps contrast.
 
 ### Navigation and search
@@ -89,7 +89,7 @@ in `docs/beta-readiness.md`, not from today.
 - Full screen from a video.
 - Right-click menu: open link as child or in the background, download, copy image, Look Up, Search for, spelling suggestions, Inspect.
 - Default-browser registration.
-- Real unpacked Chrome extensions plus a toolbar extension area.
+- Real Chrome extensions, from the Chrome Web Store or a folder, plus a toolbar extension area and an Extensions page in Settings.
 - Leave-site protection through `beforeunload`, plus a warning for edited forms.
 - Error pages that name the problem, with Retry. Offline pages reload themselves.
 - Hung-page bar.
@@ -188,7 +188,6 @@ are distribution and account-type features, not the core idea.
 - Open File (⌘O).
 - Picture in picture (menu and site permission).
 - A "New Window" command in the File menu (multiple windows exist in code; no menu item).
-- Chrome Web Store install (extensions are unpacked-only).
 - Built-in translation.
 - Reader mode.
 - Page screenshots.
@@ -202,15 +201,10 @@ are distribution and account-type features, not the core idea.
 
 ### C. Known gaps in what exists
 
-- Redo for trail edits.
-- Close pages below.
-- A recently-closed list outside the History menu.
 - Open File, PiP and Loop controls on video.
-- The "Show downloads" palette entry doesn't show its shortcut.
 - A resizable split view (and more than two panes).
 - Contrast checks for custom accents.
 - Extension APIs: some Chrome APIs are unavailable.
-- Palette entries missing for some menu actions (View Page Source, Developer Tools, Filter Pages, Toggle AI Panel).
 - A reading of the AI panel that includes the page (summarise this page, ask about the selection).
 - Smart trail rule and Arc folder filing exist, but only on `feat/arc-sidebar`.
 

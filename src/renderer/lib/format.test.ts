@@ -183,6 +183,31 @@ describe('local files', () => {
     expect(detail).toContain('anyone on your network');
   });
 
+  it('name what’s wrong with a certificate', () => {
+    const failure = (code: number) =>
+      describeError({
+        kind: 'load-failed',
+        code,
+        description: 'ERR_CERT',
+        url: 'https://nas.test/',
+      }).detail;
+    expect(failure(-200)).toContain('different site');
+    expect(failure(-201)).toContain('expired');
+    expect(failure(-202)).toContain('No authority');
+  });
+
+  it('say there’s no way on when a site insists on valid HTTPS', () => {
+    const { detail } = describeError({
+      kind: 'no-secure-connection',
+      code: -202,
+      description: 'ERR_CERT_AUTHORITY_INVALID',
+      url: 'http://github.com/',
+      certificateLocked: true,
+    });
+    expect(detail).toContain('github.com only allows');
+    expect(detail).toContain('can’t let you continue');
+  });
+
   it('say so when the file has gone', () => {
     expect(
       describeError({

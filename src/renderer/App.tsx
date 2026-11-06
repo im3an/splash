@@ -1,6 +1,7 @@
 import { AiPanel } from './components/AiPanel';
 import { BookmarksBar } from './components/BookmarksBar';
 import { ContentArea } from './components/ContentArea';
+import { CredentialBar } from './components/CredentialBar';
 import { FindBar } from './components/FindBar';
 import { PageMenu } from './components/PageMenu';
 import { PermissionBar } from './components/PermissionBar';
@@ -67,6 +68,7 @@ export function App() {
         <StorageBar />
         <UnresponsiveBar />
         <PermissionBar />
+        <CredentialBar />
         <FindBar />
         <ContentArea />
       </main>
