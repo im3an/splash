@@ -1,5 +1,5 @@
 import type { Preferences, SpellingLanguage } from '../shared/preferences';
-import { keepSpelling, type AppDefaults } from './spelling';
+import { keepSpelling, setDictionaryWord, type AppDefaults } from './spelling';
 
 function setup(language: SpellingLanguage) {
   const values = new Map<string, unknown>([
@@ -69,5 +69,39 @@ describe('keepSpelling', () => {
     session.setSpellCheckerEnabled.mockClear();
     change('de');
     expect(session.setSpellCheckerEnabled).not.toHaveBeenCalled();
+  });
+});
+
+describe('words in the dictionary', () => {
+  function dictionary(works = true) {
+    return {
+      isPersistent: () => true,
+      addWordToSpellCheckerDictionary: vi.fn(() => works),
+      removeWordFromSpellCheckerDictionary: vi.fn(() => works),
+    };
+  }
+
+  it('adds and removes a word', () => {
+    const session = dictionary();
+    expect(setDictionaryWord(session, 'Splashy', true)).toBe(true);
+    expect(session.addWordToSpellCheckerDictionary).toHaveBeenCalledWith(
+      'Splashy',
+    );
+    expect(setDictionaryWord(session, 'Splashy', false)).toBe(true);
+    expect(session.removeWordFromSpellCheckerDictionary).toHaveBeenCalledWith(
+      'Splashy',
+    );
+  });
+
+  it('says when the word wasn’t kept', () => {
+    expect(setDictionaryWord(dictionary(false), 'Splashy', true)).toBe(false);
+  });
+
+  it('counts a session that refuses as not kept', () => {
+    const session = dictionary();
+    session.addWordToSpellCheckerDictionary.mockImplementation(() => {
+      throw new Error('Spellcheck API is not available');
+    });
+    expect(setDictionaryWord(session, 'Splashy', true)).toBe(false);
   });
 });

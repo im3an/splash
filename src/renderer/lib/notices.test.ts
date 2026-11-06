@@ -112,3 +112,19 @@ describe('noticeMessage', () => {
     ).toEqual(['Unpin and close']);
   });
 });
+
+describe('a word added to the dictionary', () => {
+  it('confirms it, with a way to take it out', () => {
+    const toast = noticeToast({ kind: 'word-added', word: 'Splashy' });
+    expect(toast.message).toBe('Added “Splashy” to the dictionary.');
+    const [undo] = toast.actions;
+    expect(undo?.icon).toBe('undo');
+    expect(undo?.redo).toBeTypeOf('function');
+  });
+
+  it('says so when the word wasn’t kept', () => {
+    const toast = noticeToast({ kind: 'word-not-added', word: 'Splashy' });
+    expect(toast.message).toBe('Couldn’t add “Splashy” to the dictionary.');
+    expect(toast.actions).toEqual([]);
+  });
+});

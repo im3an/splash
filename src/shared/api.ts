@@ -113,6 +113,8 @@ export interface InvokeOutputs {
   'page:close-branch': void;
   'page:close-others': void;
   'page:close-below': void;
+  'spelling:words': string[];
+  'spelling:set-word': boolean;
   'page:view-source': PageId | null;
   'page:toggle-devtools': void;
   'page:print': void;
@@ -293,6 +295,10 @@ export interface SplashApi {
   closeOtherPages(pageId: PageId): Promise<void>;
   /** Closes what's below it in the sidebar; see the controller. */
   closePagesBelow(pageId: PageId): Promise<void>;
+  /** Adds a word to the dictionary or takes it out. False if nothing changed. */
+  setDictionaryWord(word: string, known: boolean): Promise<boolean>;
+  /** Words added from a page's right-click menu, in Settings. */
+  listDictionaryWords(): Promise<string[]>;
   /** Opens a web page's source as its child; null if it has none. */
   viewSource(pageId: PageId): Promise<PageId | null>;
   toggleDevTools(pageId: PageId): Promise<void>;

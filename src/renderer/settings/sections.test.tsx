@@ -9,6 +9,7 @@ function stubApi() {
   const splash = {
     listSiteSettings: vi.fn(async () => []),
     listCookies: vi.fn(async () => []),
+    listDictionaryWords: vi.fn(async () => []),
     getThreatListStatus: vi.fn(async () => ({
       state: 'ready' as const,
       updatedAt: Date.now(),

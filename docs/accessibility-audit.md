@@ -109,8 +109,8 @@ search shortcut, weren't measured separately.
   its sliding indicator, so it needs a proper look before it counts as a finding.
 - **A single miss on the theme sweep:** "Not secure" at 11px, 4.45:1, with a custom
   cyan at 100% intensity in dark.
-- **"Reduce transparency" and "Increase contrast"** in macOS aren't honoured. Only
-  reduced motion is.
+- **"Reduce transparency" and "Increase contrast"** in macOS weren't honoured. Now
+  they are, checked by emulating them: see the to-do for what each changes.
 - **No key moves focus from the shell to the page** without navigating. ⌘L reaches
   the shell from a page and isn't a trap, but Chrome's F6 pane cycling would help.
 

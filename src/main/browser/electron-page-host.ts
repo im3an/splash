@@ -24,6 +24,7 @@ import {
 } from '../../shared/page-bridge';
 import type { ExternalApp, Notice, SitePermission } from '../../shared/types';
 import { webContextMenu } from '../menus/web-context-menu';
+import { setDictionaryWord } from '../spelling';
 import { popupWindowOptions, wirePopupWindow } from '../windows/popup-window';
 import { isSameDocumentUrl, LinkActivations } from './link-activations';
 import type {
@@ -629,6 +630,15 @@ class ElectronPageHost implements PageHost {
       const template = webContextMenu(contents, params, {
         ...this.events.navigationAvailability(),
         searchUrlFor: (query) => this.events.searchUrlFor(query),
+        addToDictionary: contents.session.isPersistent()
+          ? (word) =>
+              this.events.onNotice({
+                kind: setDictionaryWord(contents.session, word, true)
+                  ? 'word-added'
+                  : 'word-not-added',
+                word,
+              })
+          : null,
         openChild: (url, options) => this.events.onOpenRequest(url, options),
         back: () => this.events.onNavigationCommand('back'),
         forward: () => this.events.onNavigationCommand('forward'),

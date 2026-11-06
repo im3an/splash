@@ -326,6 +326,11 @@ export const invokeContract = {
   'page:close-branch': z.strictObject({ pageId }),
   'page:close-others': z.strictObject({ pageId }),
   'page:close-below': z.strictObject({ pageId }),
+  'spelling:words': z.undefined(),
+  'spelling:set-word': z.strictObject({
+    word: z.string().min(1).max(200),
+    known: z.boolean(),
+  }),
   'page:view-source': z.strictObject({ pageId }),
   'page:toggle-devtools': z.strictObject({ pageId }),
   'page:print': z.strictObject({ pageId }),

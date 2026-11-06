@@ -8,11 +8,14 @@ import {
 } from '../lib/bookmarks';
 import { collectionNotice } from '../lib/collections';
 import { hostOf } from '../lib/format';
+import { api } from '../splash-api';
 import {
   dropTargetAt,
+  linkOpenTargetAt,
   sameTarget,
   useLinkDrag,
   type BookmarkDrop,
+  type LinkOpenTarget,
 } from '../stores/drag-store';
 import { useShell } from '../stores/shell-store';
 
@@ -27,6 +30,28 @@ const DRAG_GONE_MS = 800;
 
 function carriesLink(data: DataTransfer | null): data is DataTransfer {
   return !!data && LINK_TYPES.some((type) => data.types.includes(type));
+}
+
+/** A bookmark folder's drag has the type but no address to open. */
+function carriesAddress(data: DataTransfer): boolean {
+  return (
+    data.types.includes('text/uri-list') || data.types.includes('text/plain')
+  );
+}
+
+function sameOpening(a: LinkOpenTarget | null, b: LinkOpenTarget | null) {
+  if (a === null || b === null) return a === b;
+  return (
+    a.kind === b.kind &&
+    (a.kind !== 'page' || (b.kind === 'page' && a.id === b.id))
+  );
+}
+
+async function openLink(url: string, where: LinkOpenTarget): Promise<void> {
+  const splash = api();
+  if (where.kind === 'page') await splash.createChildPage(where.id, url);
+  else await splash.createPage(url);
+  splash.focusPage();
 }
 
 function bookmarkDropAt(x: number, y: number): BookmarkDrop | null {
@@ -48,8 +73,8 @@ function iconFor(url: string): string | null {
 
 /**
  * Lets a link dragged from a page or another app be filed by dropping it on
- * anything marked as a bookmark drop. A drop anywhere else stays refused, and
- * the shell never navigates to it.
+ * anything marked as a bookmark drop, or opened by dropping it on the trail. A
+ * drop anywhere else stays refused, and the shell never navigates to it.
  *
  * Only a drag that began in the shell may move bookmarks: a page can put any
  * type it likes on a drag of its own, so the type alone proves nothing.
@@ -61,7 +86,7 @@ export function useLinkDrop() {
 
     const clear = () => {
       clearTimeout(gone);
-      useLinkDrag.setState({ active: false, target: null });
+      useLinkDrag.setState({ active: false, target: null, opening: null });
     };
     const stillHere = () => {
       clearTimeout(gone);
@@ -84,16 +109,22 @@ export function useLinkDrop() {
       if (!carriesLink(data)) return;
       stillHere();
       const target = bookmarkDropAt(event.clientX, event.clientY);
+      const opening =
+        !target && carriesAddress(data)
+          ? linkOpenTargetAt(event.clientX, event.clientY)
+          : null;
       useLinkDrag.setState((state) =>
-        state.active && sameTarget(state.target, target)
+        state.active &&
+        sameTarget(state.target, target) &&
+        sameOpening(state.opening, opening)
           ? state
-          : { active: true, target },
+          : { active: true, target, opening },
       );
-      if (!target) return;
+      if (!target && !opening) return;
       event.preventDefault();
       const allowed = data.effectAllowed;
       data.dropEffect =
-        fromShell && data.types.includes(BOOKMARK_DRAG_TYPE)
+        target && fromShell && data.types.includes(BOOKMARK_DRAG_TYPE)
           ? 'move'
           : allowed === 'link' || allowed === 'linkMove'
             ? 'link'
@@ -106,9 +137,20 @@ export function useLinkDrop() {
     const onDrop = (event: DragEvent) => {
       const data = event.dataTransfer;
       const target = bookmarkDropAt(event.clientX, event.clientY);
+      const opening =
+        !target && data && carriesAddress(data)
+          ? linkOpenTargetAt(event.clientX, event.clientY)
+          : null;
       clear();
-      if (!carriesLink(data) || !target) return;
+      if (!carriesLink(data) || (!target && !opening)) return;
       event.preventDefault();
+      if (opening) {
+        const dropped = parseDroppedLink((type) => data.getData(type));
+        if (dropped) void openLink(dropped.url, opening);
+        else collectionNotice('That isn’t a web address, so it wasn’t opened.');
+        return;
+      }
+      if (!target) return;
       const folderId = target.kind === 'folder' ? target.id : null;
       const moving = fromShell ? data.getData(BOOKMARK_DRAG_TYPE) : '';
       if (moving) {

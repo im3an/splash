@@ -54,3 +54,25 @@ export function keepSpelling(
     apply(applied, session, defaults);
   });
 }
+
+/**
+ * Adds or removes a word, kept in the profile and lasting across launches. Text
+ * already on a page stops being marked at once. False if the word wasn't changed;
+ * sessions that keep nothing on disk refuse.
+ */
+export function setDictionaryWord(
+  session: Pick<
+    Session,
+    'addWordToSpellCheckerDictionary' | 'removeWordFromSpellCheckerDictionary'
+  >,
+  word: string,
+  known: boolean,
+): boolean {
+  try {
+    return known
+      ? session.addWordToSpellCheckerDictionary(word)
+      : session.removeWordFromSpellCheckerDictionary(word);
+  } catch {
+    return false;
+  }
+}

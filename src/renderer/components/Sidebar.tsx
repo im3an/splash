@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import { FolderPlus, PanelLeft, Plus } from 'lucide-react';
 import { api } from '../splash-api';
+import { useLinkDrag } from '../stores/drag-store';
 import { openLocation } from '../stores/shell-store';
 import {
   selectAddressInSidebar,
@@ -27,6 +28,7 @@ import { useWorkspaceSlide } from '../lib/use-workspace-slide';
 export function Sidebar() {
   const open = useShell((state) => state.sidebarOpen);
   const panel = useShell((state) => state.sidebarPanel);
+  const overTrail = useLinkDrag((state) => state.opening?.kind === 'trail');
   // The trail slides back in after a panel, but not when the window opens.
   const leftForPanel = useRef(false);
   if (panel) leftForPanel.current = true;
@@ -131,7 +133,9 @@ export function Sidebar() {
           {/* Padded so the active row's edge is never clipped by the scroller. */}
           <nav
             ref={listRef}
-            className="min-h-0 flex-1 scroll-py-1 overflow-x-hidden overflow-y-auto overscroll-contain pt-px pb-2"
+            data-link-drop="trail"
+            data-over={overTrail}
+            className="link-drop-trail min-h-0 flex-1 scroll-py-1 overflow-x-hidden overflow-y-auto overscroll-contain pt-px pb-2"
           >
             <SavedGroups />
             <div key={workspaceId} className={slide}>

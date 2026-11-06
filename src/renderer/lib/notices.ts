@@ -1,7 +1,7 @@
 import type { ClosedSummary, Notice } from '../../shared/types';
 import { api } from '../splash-api';
 import type { UndoStep } from './trail-undo';
-import { useToast, type ToastInput } from '../stores/toast-store';
+import type { ToastInput } from '../stores/toast-store';
 
 const UNDO_MS = 9000;
 const CONFIRM_MS = 4000;
@@ -96,6 +96,10 @@ export function noticeMessage(notice: Notice): string {
         : `“${shortName(notice.label)}” is pinned, so it stays.`;
     case 'page-saved':
       return `Saved “${notice.filename}”.`;
+    case 'word-added':
+      return `Added “${notice.word}” to the dictionary.`;
+    case 'word-not-added':
+      return `Couldn’t add “${notice.word}” to the dictionary.`;
     case 'no-app':
       return `No app on this Mac opens “${notice.scheme}:” links.`;
     case 'nothing-to-paste':
@@ -160,6 +164,30 @@ export function noticeToast(notice: Notice): ToastInput {
     case 'nothing-to-paste':
     case 'shell-recovered':
       return { message, detail: null, durationMs: CONFIRM_MS, actions: [] };
+    case 'word-not-added':
+      return {
+        message,
+        detail: 'Spelling may be off in Settings › Pages.',
+        durationMs: UNDO_MS,
+        actions: [],
+      };
+    case 'word-added': {
+      const { word } = notice;
+      return {
+        message,
+        detail: null,
+        durationMs: UNDO_MS,
+        actions: [
+          {
+            label: 'Undo',
+            title: 'Take it out of the dictionary',
+            icon: 'undo',
+            run: () => api().setDictionaryWord(word, false),
+            redo: () => api().setDictionaryWord(word, true),
+          },
+        ],
+      };
+    }
     case 'pinned': {
       const { pageId, pinned, origin, at } = notice;
       return {

@@ -176,6 +176,7 @@ function openSettings(section?: string): void {
     cleaner,
     blocker,
     cookies,
+    webSession: session.fromPartition(WEB_PARTITION),
     threats,
     extensions: () => extensions,
     browserWindow: () => regularWindow(),

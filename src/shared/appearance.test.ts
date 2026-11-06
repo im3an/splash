@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import {
   accentColors,
   appearanceGrain,
@@ -54,6 +55,27 @@ describe('workspace gradients', () => {
           for (const stop of themeStops(colors, tone, intensity))
             worst = Math.min(worst, contrast(MUTED[tone], stop));
       expect(worst).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
+  it.each(['light', 'dark'] as const)(
+    'give secondary text 7:1 with Increase Contrast on (%s)',
+    (tone) => {
+      const css = readFileSync('src/renderer/styles/tokens.css', 'utf8');
+      const block = css.split(
+        tone === 'dark'
+          ? '@media (prefers-contrast: more) and (prefers-color-scheme: dark)'
+          : '@media (prefers-contrast: more) {',
+      )[1]!;
+      const token = (name: string) =>
+        new RegExp(`--${name}: (#[0-9a-f]{6})`).exec(block)![1]!;
+      let worst = Infinity;
+      for (const colors of palettes)
+        for (const intensity of INTENSITIES)
+          for (const stop of themeStops(colors, tone, intensity))
+            for (const name of ['fg-muted', 'fg-subtle'])
+              worst = Math.min(worst, contrast(token(name), stop));
+      expect(worst).toBeGreaterThanOrEqual(7);
     },
   );
 

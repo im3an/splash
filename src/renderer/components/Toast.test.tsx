@@ -1,11 +1,5 @@
 // @vitest-environment jsdom
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 import { Toast } from './Toast';

@@ -9,6 +9,8 @@ import { isNavigableUrl } from '../browser/url';
 
 export interface WebContextMenuActions {
   openChild(url: string, options: { background: boolean }): void;
+  /** Null where words can't be kept, as in a private window. */
+  addToDictionary: ((word: string) => void) | null;
   /** Floats the page's video above other windows, or brings it back. */
   pictureInPicture(): void;
   back(): void;
@@ -72,6 +74,14 @@ export function webContextMenu(
     }
     if (suggestions.length === 0) {
       items.push({ label: 'No Guesses Found', enabled: false });
+    }
+    const { addToDictionary } = actions;
+    if (addToDictionary) {
+      const word = params.misspelledWord;
+      items.push({
+        label: 'Add to Dictionary',
+        click: () => addToDictionary(word),
+      });
     }
     items.push(separator);
   }

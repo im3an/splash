@@ -162,8 +162,11 @@ Pages and windows
 - [ ] Save as PDF from Print **(check)**: needs the native dialog, by hand
 - [x] Drop a link on a page: opens as a child page, unless a site's drop zone or a
       field takes it (tested with synthetic drags)
-  - [ ] Drop a link on the trail to open it. The Bookmarks work owns that hook
-        and files links for now; add it there.
+  - [x] Drop a link on the trail: on a row it opens as that page's child, on the empty
+        part as a new page. Favorites and folders still file it, and the shell still
+        refuses it elsewhere. Only web addresses open; anything else says so. Tested
+        with trusted drag events in the app.
+    - [ ] By hand: a real mouse drag from a page. A synthetic one starts no native drag.
   - [ ] Real mouse drags: out of a page to another app, image and text, by hand
 - [x] Keep Window on Top, in the View menu, for this session (unit test only)
 
@@ -234,7 +237,11 @@ Media and macOS
 - [x] Spellcheck language choice in Settings (Pages › Spelling). A language applies
       at the next launch, Off applies at once. Electron's `setSpellCheckerLanguages`
       does nothing on macOS, so this sets the app's own macOS defaults.
-  - [ ] "Add to Dictionary" in the misspelling menu
+  - [x] "Add to Dictionary" in the misspelling menu, with Undo and Redo. The mark goes
+        at once, also on text already typed, and the word lasts across launches. It's
+        kept in Splash's profile; macOS's own `LocalDictionary` file stays as it was.
+        A private window doesn't offer it, since it keeps nothing. Settings › Pages ›
+        Added words lists them, with Remove and Undo.
 - [x] Dock menu: New Window and recent pages. Clearing history empties the list.
   - [ ] By hand: a real click in the Dock (tested through its click handlers)
 - [ ] Handoff / Continuity (later)
@@ -244,7 +251,12 @@ Media and macOS
         brightness (3.13:1 in dark over white). The panel is now 92% opaque.
   - [x] Switch tracks and knobs reach 3:1 on every frame, accent and theme
   - [x] Dark secondary text lifted to `#a89c8f`: placeholders pass on all six frames
-  - [ ] Honour macOS "Reduce transparency" and "Increase contrast"
+  - [x] Honour macOS "Reduce transparency" and "Increase contrast". The first makes
+        the palette and unfolded groups solid. The second lifts secondary text to 7:1
+        on every frame and strengthens lines, scrollbars and disabled text. Checked by
+        emulating both settings in the app.
+    - [ ] By hand: turn each on in System Settings. It wasn't changed for the test,
+          so macOS's own signal reaching Splash hasn't been seen.
 - [ ] VoiceOver walkthrough of the shell. Needs a person: it speaks aloud and takes
       over the Mac
 

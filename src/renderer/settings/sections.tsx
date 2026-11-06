@@ -33,6 +33,7 @@ import {
 } from '../lib/format';
 import { Button, Choice, Row, Section, Select, Toggle } from './controls';
 import { CookieSettings } from './CookieSettings';
+import { DictionarySettings } from './DictionarySettings';
 import { NewPageSettings } from './NewPageSettings';
 import { SearchShortcuts } from './SearchShortcuts';
 
@@ -593,6 +594,7 @@ export function PageSettings() {
           </Select>
         </Row>
       </Section>
+      <DictionarySettings />
     </>
   );
 }

@@ -60,6 +60,7 @@ import {
 } from '../browser/electron-page-host';
 import { togglePictureInPicture } from '../browser/picture-in-picture';
 import { exportBookmarks, exportTrail } from '../transfer/transfer-dialogs';
+import { setDictionaryWord } from '../spelling';
 import { requestExternalOpen } from '../security/external-apps';
 import { contentBounds } from '../browser/layout';
 import { wwwSibling } from '../security/https-only';
@@ -498,6 +499,8 @@ export class TrailWindow {
           this.controller.closeOtherPages(pageId),
         'page:close-below': ({ pageId }) =>
           this.controller.closePagesBelow(pageId),
+        'spelling:set-word': ({ word, known }) =>
+          setDictionaryWord(options.webSession, word, known),
         'page:view-source': ({ pageId }) => this.controller.viewSource(pageId),
         'page:toggle-devtools': ({ pageId }) =>
           this.controller.toggleDevTools(pageId),

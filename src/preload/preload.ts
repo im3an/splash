@@ -112,6 +112,9 @@ const api: SplashApi = {
   closeBranch: (pageId) => invoke('page:close-branch', { pageId }),
   closeOtherPages: (pageId) => invoke('page:close-others', { pageId }),
   closePagesBelow: (pageId) => invoke('page:close-below', { pageId }),
+  listDictionaryWords: () => invoke('spelling:words'),
+  setDictionaryWord: (word, known) =>
+    invoke('spelling:set-word', { word, known }),
   viewSource: (pageId) => invoke('page:view-source', { pageId }),
   toggleDevTools: (pageId) => invoke('page:toggle-devtools', { pageId }),
   print: (pageId) => invoke('page:print', { pageId }),

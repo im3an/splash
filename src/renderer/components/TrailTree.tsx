@@ -102,6 +102,7 @@ import { fileLink } from '../lib/bookmarks';
 import { collectionNotice, webLink } from '../lib/collections';
 import {
   splitPartner,
+  useLinkDrag,
   usePageDrag,
   type DropTarget,
 } from '../stores/drag-store';
@@ -655,6 +656,9 @@ const TrailRow = memo(function TrailRow({
   /** Animate in on mount: the row was just opened or revealed. */
   appear: boolean;
 }) {
+  const linkOver = useLinkDrag(
+    (state) => state.opening?.kind === 'page' && state.opening.id === row.id,
+  );
   const page = useShell((state) => state.snapshot?.pages[row.id]);
   const filter = useShell((state) => state.trailFilter)?.trim() ?? '';
   // While filtering, pages shown only for a match below them step back.
@@ -816,6 +820,7 @@ const TrailRow = memo(function TrailRow({
       data-paired={paired}
       data-menu-open={menuOpen}
       data-dragging={dragging}
+      data-link-over={linkOver}
       data-discarded={page.isDiscarded}
       onAnimationEnd={(event) => {
         if (event.target === event.currentTarget) setAppearing(false);

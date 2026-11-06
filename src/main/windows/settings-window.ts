@@ -1,5 +1,12 @@
 import path from 'node:path';
-import { app, BrowserWindow, clipboard, nativeTheme, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  nativeTheme,
+  shell,
+  type Session,
+} from 'electron';
 import { eventChannels } from '../../shared/api';
 import { DEFAULT_APPEARANCE, frameColor } from '../../shared/appearance';
 import type { SiteSettings } from '../../shared/types';
@@ -23,6 +30,7 @@ import {
   exportPasswords,
   importChosenFile,
 } from '../transfer/transfer-dialogs';
+import { setDictionaryWord } from '../spelling';
 import type { TrailWindow } from './browser-window';
 import { isSameDocument, shellUrl } from './shell-url';
 
@@ -33,6 +41,8 @@ export interface SettingsWindowOptions {
   cleaner: BrowsingDataCleaner;
   blocker: ContentBlocking;
   cookies: CookieViewer;
+  /** The session pages browse in, which keeps words added to the dictionary. */
+  webSession: Session;
   threats: ThreatList;
   extensions(): ExtensionHost | null;
   vault: Vault;
@@ -164,6 +174,10 @@ export class SettingsWindow {
         'preferences:update': ({ patch }) =>
           this.options.preferences.update(patch),
         'settings:sites': () => this.sites(),
+        'spelling:words': () =>
+          this.options.webSession.listWordsInSpellCheckerDictionary(),
+        'spelling:set-word': ({ word, known }) =>
+          setDictionaryWord(this.options.webSession, word, known),
         'cookies:list': ({ host }) => cookies.list(host),
         'cookies:delete': ({ site, only }) => cookies.delete(site, only),
         'cookies:undo': ({ token }) => cookies.restore(token),

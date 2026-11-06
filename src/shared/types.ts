@@ -525,6 +525,8 @@ export interface TrailPosition {
 /** Something done outside the shell UI that the shell confirms in a toast. */
 export type Notice =
   | { kind: 'page-saved'; filename: string }
+  /** A word from the page menu's spelling items, kept or refused. */
+  | { kind: 'word-added' | 'word-not-added'; word: string }
   /** Bookmarks or a trail were written to a file. */
   | { kind: 'exported'; filename: string }
   /** A login was kept, after asking or because Splash made its password. */

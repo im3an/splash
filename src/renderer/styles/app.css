@@ -1459,8 +1459,12 @@ button.sidebar-row,
 .bookmark-row[data-chosen='true'] {
   background: var(--accent-soft);
 }
-.bookmark-row[data-over='true'] {
+.bookmark-row[data-over='true'],
+.trail-row[data-link-over='true'] {
   background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.link-drop-trail[data-over='true'] {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 .bookmark-list:focus-visible .bookmark-row[data-active='true'] {
@@ -1565,6 +1569,11 @@ button.sidebar-row,
   background-color: var(--group-glass);
   box-shadow: var(--shadow-group-glass);
   backdrop-filter: blur(14px) saturate(130%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .group-card[data-open='true'] {
+    backdrop-filter: none;
+  }
 }
 .group-card .sidebar-row {
   height: var(--group-row);
