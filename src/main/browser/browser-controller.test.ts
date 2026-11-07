@@ -7,6 +7,7 @@ import type {
   PageHost,
   PageHostEvents,
 } from './page-host';
+import type { OutlineItem, TrailOutline } from '../transfer/trail-markdown';
 
 class FakeHost implements PageHost {
   loaded: string[] = [];
@@ -2001,6 +2002,55 @@ describe('BrowserController', () => {
       expect(latest().pages[id]?.blockedPermissions).toEqual([]);
     });
 
+    it('explains once when macOS refuses what the site was allowed', () => {
+      const { controller, hosts, latest, notices } = setup();
+      const id = controller.createPage({ input: 'meet.example' });
+      hosts[0]!.events.onStateChange({ url: 'https://meet.example/' });
+
+      hosts[0]!.events.onPermissionRefusedBySystem(['location']);
+      hosts[0]!.events.onPermissionRefusedBySystem(['location']);
+
+      expect(latest().pages[id]?.blockedPermissions).toEqual(['location']);
+      expect(controller.systemRefusedOn(id)).toEqual(['location']);
+      expect(
+        notices.filter((n) => n.kind === 'system-permission-refused'),
+      ).toEqual([
+        {
+          kind: 'system-permission-refused',
+          permissions: ['location'],
+          host: 'meet.example',
+        },
+      ]);
+    });
+
+    it('asks macOS afresh after a reload or on another site', () => {
+      const { controller, hosts, latest, notices } = setup();
+      const id = controller.createPage({ input: 'meet.example' });
+      hosts[0]!.events.onStateChange({ url: 'https://meet.example/' });
+
+      hosts[0]!.events.onPermissionRefusedBySystem(['camera']);
+      controller.reload(id);
+      expect(controller.systemRefusedOn(id)).toEqual([]);
+      expect(latest().pages[id]?.blockedPermissions).toEqual([]);
+
+      hosts[0]!.events.onPermissionRefusedBySystem(['camera']);
+      expect(
+        notices.filter((n) => n.kind === 'system-permission-refused'),
+      ).toHaveLength(2);
+      hosts[0]!.events.onStateChange({ url: 'https://elsewhere.example/' });
+      expect(controller.systemRefusedOn(id)).toEqual([]);
+    });
+
+    it('keeps a refusal the user made through a reload', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'meet.example' });
+      hosts[0]!.events.onStateChange({ url: 'https://meet.example/' });
+      hosts[0]!.events.onPermissionBlocked(['midi']);
+      hosts[0]!.events.onPermissionRefusedBySystem(['camera']);
+      controller.reload(id);
+      expect(latest().pages[id]?.blockedPermissions).toEqual(['midi']);
+    });
+
     it('refuses pending requests when the page leaves or closes', async () => {
       const { controller, hosts } = setup();
       const id = controller.createPage({ input: 'meet.example' });
@@ -2394,5 +2444,365 @@ describe('shared trails', () => {
       a.controller.taskPages().live.length +
         b.controller.taskPages().live.length,
     ).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('trails', () => {
+  function setup(now = () => 1000) {
+    const notices: Notice[] = [];
+    const controller = new BrowserController({
+      createHost: (events) => new FakeHost(events),
+      onSnapshot: () => {},
+      onNotice: (notice) => notices.push(notice),
+      schedule: (flush) => flush(),
+      now,
+    });
+    return { controller, notices };
+  }
+
+  /** Two trails: a › a1 › a2, and b › b1. */
+  function twoTrails(controller: BrowserController) {
+    const a = controller.createPage({ url: 'https://a.example/' });
+    const a1 = controller.createPage({
+      url: 'https://a.example/1',
+      parentId: a,
+    });
+    const a2 = controller.createPage({
+      url: 'https://a.example/2',
+      parentId: a1,
+    });
+    const b = controller.createPage({ url: 'https://b.example/' });
+    const b1 = controller.createPage({
+      url: 'https://b.example/1',
+      parentId: b,
+    });
+    return { a, a1, a2, b, b1 };
+  }
+
+  const pageOf = (controller: BrowserController, id: string) =>
+    controller.snapshot().pages[id]!;
+
+  it('opens a sibling right after a page, at its level', () => {
+    const { controller } = setup();
+    const { a, a1, b } = twoTrails(controller);
+    const child = controller.createSiblingPage(a1);
+    expect(pageOf(controller, a).childIds).toEqual([a1, child]);
+    const top = controller.createSiblingPage(a);
+    expect(controller.snapshot().rootIds).toEqual([a, top, b]);
+  });
+
+  it('files a top-level sibling in the same group', () => {
+    const { controller } = setup();
+    const { a } = twoTrails(controller);
+    const group = controller.createGroup('Work', a);
+    const sibling = controller.createSiblingPage(a);
+    expect(pageOf(controller, sibling).groupId).toBe(group);
+  });
+
+  it('gives a trail an emoji that survives a restart and a reopen', () => {
+    const { controller } = setup();
+    const { a, a1 } = twoTrails(controller);
+    controller.setEmoji(a, '🐎');
+    expect(pageOf(controller, a).emoji).toBe('🐎');
+
+    const restored = setup().controller;
+    restored.restoreSession(controller.exportSession());
+    expect(pageOf(restored, a).emoji).toBe('🐎');
+    expect(pageOf(restored, a1).emoji).toBeNull();
+
+    controller.closeBranch(a);
+    controller.reopenClosed();
+    expect(pageOf(controller, a).emoji).toBe('🐎');
+
+    controller.setEmoji(a, null);
+    expect(pageOf(controller, a).emoji).toBeNull();
+  });
+
+  it('collapses everything but the current trail, and says what changed', () => {
+    const { controller, notices } = setup();
+    const { a, a2, b, b1 } = twoTrails(controller);
+    const other = controller.createPage({ url: 'https://c.example/' });
+    const group = controller.createGroup('Work', other);
+    controller.activatePage(a2);
+    controller.collapseOtherTrails();
+    const snapshot = controller.snapshot();
+    expect(snapshot.pages[a]!.collapsed).toBe(false);
+    expect(snapshot.pages[b]!.collapsed).toBe(true);
+    expect(snapshot.groups[0]!.collapsed).toBe(true);
+    expect(snapshot.activePageId).toBe(a2);
+    expect(notices.at(-1)).toEqual({
+      kind: 'trails-collapsed',
+      pageIds: [b],
+      groupIds: [group],
+    });
+
+    controller.setTrailsCollapsed([b, 'gone'], [group], false);
+    expect(pageOf(controller, b).collapsed).toBe(false);
+    expect(controller.snapshot().groups[0]!.collapsed).toBe(false);
+    expect(pageOf(controller, b1)).toBeDefined();
+  });
+
+  it('keeps the group the current trail is in open', () => {
+    const { controller, notices } = setup();
+    const { a, b } = twoTrails(controller);
+    const group = controller.createGroup('Work', a);
+    controller.collapseOtherTrails(a);
+    expect(
+      controller.snapshot().groups.find((g) => g.id === group)?.collapsed,
+    ).toBe(false);
+    expect(notices.at(-1)).toMatchObject({ pageIds: [b], groupIds: [] });
+    controller.collapseOtherTrails(a);
+    expect(notices.at(-1)).toMatchObject({ pageIds: [], groupIds: [] });
+  });
+
+  it('steps between trails, wrapping around and skipping folded groups', () => {
+    const { controller } = setup();
+    const { a, a2, b } = twoTrails(controller);
+    const c = controller.createPage({ url: 'https://c.example/' });
+    controller.activatePage(a2);
+    controller.activateAdjacentTrail(1);
+    expect(controller.activePageId).toBe(b);
+    controller.activateAdjacentTrail(1);
+    expect(controller.activePageId).toBe(c);
+    controller.activateAdjacentTrail(1);
+    expect(controller.activePageId).toBe(a);
+    controller.activateAdjacentTrail(-1);
+    expect(controller.activePageId).toBe(c);
+
+    const group = controller.createGroup('Work', b);
+    controller.setGroupCollapsed(group, true);
+    controller.activatePage(a);
+    controller.activateAdjacentTrail(1);
+    expect(controller.activePageId).toBe(c);
+  });
+
+  it('folds one level at a time without leaving the page on screen', () => {
+    const { controller } = setup();
+    const { a, a1, a2 } = twoTrails(controller);
+    controller.createPage({ url: 'https://a.example/3', parentId: a2 });
+    controller.activatePage(a2);
+    const collapsed = () =>
+      [a, a1, a2].filter((id) => pageOf(controller, id).collapsed);
+
+    controller.stepCollapse('collapse');
+    expect(collapsed()).toEqual([a2]);
+    controller.stepCollapse('collapse');
+    expect(collapsed()).toEqual([a1, a2]);
+    controller.stepCollapse('collapse');
+    expect(collapsed()).toEqual([a, a1, a2]);
+    controller.stepCollapse('collapse');
+    expect(collapsed()).toEqual([a, a1, a2]);
+    expect(controller.activePageId).toBe(a2);
+
+    controller.stepCollapse('expand');
+    expect(collapsed()).toEqual([a1, a2]);
+    controller.stepCollapse('expand');
+    controller.stepCollapse('expand');
+    controller.stepCollapse('expand');
+    expect(collapsed()).toEqual([]);
+  });
+
+  describe('importing an outline', () => {
+    const item = (
+      label: string,
+      url: string | null,
+      children: OutlineItem[] = [],
+      extra: Partial<OutlineItem> = {},
+    ): OutlineItem => ({
+      label,
+      url,
+      note: null,
+      emoji: null,
+      children,
+      ...extra,
+    });
+    const outline = (
+      items: OutlineItem[],
+      title: string | null = null,
+    ): TrailOutline => ({
+      title,
+      items,
+      pageCount: 0,
+      skippedAddresses: 0,
+    });
+
+    it('makes one list a new trail, asleep, without leaving the page', () => {
+      const { controller } = setup();
+      const here = controller.createPage({ url: 'https://here.example/' });
+      const { pageIds, groupId, label } = controller.importOutline(
+        outline(
+          [
+            item(
+              'Top',
+              'https://top.example/',
+              [item('Note only', null, [], { note: 'kept' })],
+              { emoji: '🐎' },
+            ),
+          ],
+          'Named',
+        ),
+      );
+      const root = pageOf(controller, pageIds[0]!);
+      expect(groupId).toBeNull();
+      expect(label).toBe('Named');
+      expect(controller.activePageId).toBe(here);
+      expect(root).toMatchObject({
+        customTitle: 'Named',
+        title: 'Top',
+        url: 'https://top.example/',
+        emoji: '🐎',
+        isDiscarded: true,
+      });
+      const child = pageOf(controller, root.childIds[0]!);
+      expect(child).toMatchObject({
+        url: null,
+        customTitle: 'Note only',
+        note: 'kept',
+      });
+    });
+
+    it('makes several lists a group, named by the heading or the file', () => {
+      const { controller } = setup();
+      controller.createPage({ url: 'https://here.example/' });
+      const items = [
+        item('One', 'https://one.example/'),
+        item('Two', 'https://two.example/'),
+      ];
+      const titled = controller.importOutline(outline(items, 'Reading'));
+      expect(titled.label).toBe('Reading');
+      expect(controller.snapshot().groups.map((g) => g.name)).toEqual([
+        'Reading',
+      ]);
+      const named = controller.importOutline(outline(items), { name: 'notes' });
+      expect(named.label).toBe('notes');
+      expect(pageOf(controller, named.pageIds[0]!).groupId).toBe(named.groupId);
+    });
+
+    it('joins a branch under a page, opening it', () => {
+      const { controller } = setup();
+      const { a, a1 } = twoTrails(controller);
+      controller.setCollapsed(a, true);
+      const { pageIds } = controller.importOutline(
+        outline([item('Under', 'https://under.example/')], 'Ignored'),
+        { parentId: a },
+      );
+      expect(pageOf(controller, a).childIds).toEqual([a1, pageIds[0]]);
+      expect(pageOf(controller, a).collapsed).toBe(false);
+      expect(pageOf(controller, pageIds[0]!).customTitle).toBeNull();
+    });
+
+    it('shows the first page when the workspace had none', () => {
+      const { controller } = setup();
+      const { pageIds } = controller.importOutline(
+        outline([item('Only', 'https://only.example/')]),
+      );
+      expect(controller.activePageId).toBe(pageIds[0]);
+    });
+
+    it('loads a page when it is opened', () => {
+      const hosts: FakeHost[] = [];
+      const controller = new BrowserController({
+        createHost: (events) => {
+          const host = new FakeHost(events);
+          hosts.push(host);
+          return host;
+        },
+        onSnapshot: () => {},
+        schedule: (flush) => flush(),
+      });
+      controller.createPage({ url: 'https://here.example/' });
+      const { pageIds } = controller.importOutline(
+        outline([item('Later', 'https://later.example/')]),
+      );
+      expect(hosts).toHaveLength(1);
+      controller.activatePage(pageIds[0]!);
+      expect(hosts[1]!.loaded).toEqual(['https://later.example/']);
+    });
+
+    it('takes it back in one close that reopening restores', async () => {
+      const { controller } = setup();
+      const here = controller.createPage({ url: 'https://here.example/' });
+      const { pageIds, groupId } = controller.importOutline(
+        outline([
+          item('One', 'https://one.example/'),
+          item('Two', 'https://two.example/'),
+        ]),
+      );
+      await controller.undoImport(pageIds, groupId);
+      expect(controller.snapshot().rootIds).toEqual([here]);
+      expect(controller.snapshot().groups).toEqual([]);
+      controller.reopenClosed();
+      expect(controller.snapshot().rootIds).toHaveLength(3);
+      expect(controller.snapshot().groups).toHaveLength(1);
+
+      const { a } = twoTrails(controller);
+      const under = controller.importOutline(
+        outline([
+          item('X', 'https://x.example/'),
+          item('Y', 'https://y.example/'),
+        ]),
+        { parentId: a },
+      );
+      const before = pageOf(controller, a).childIds.length;
+      controller.activatePage(under.pageIds[1]!);
+      await controller.undoImport(under.pageIds, null);
+      expect(pageOf(controller, a).childIds).toHaveLength(before - 2);
+      expect(controller.activePageId).toBe(a);
+    });
+
+    it('does not take a named line for an empty page to reuse', () => {
+      const { controller } = setup();
+      const { pageIds } = controller.importOutline(
+        outline([item('Just a name', null)]),
+      );
+      const fresh = controller.startWithNewPage();
+      expect(fresh).not.toBe(pageIds[0]);
+    });
+  });
+
+  describe('coming back', () => {
+    const HOUR = 60 * 60 * 1000;
+
+    function restored(leftAgo: number) {
+      let time = 100 * HOUR;
+      const first = setup(() => time);
+      const { a, a1, b } = twoTrails(first.controller);
+      first.controller.activatePage(a1);
+      time += 1000;
+      first.controller.activatePage(b);
+      const session = first.controller.exportSession();
+      time += leftAgo;
+      const second = setup(() => time);
+      second.controller.restoreSession(session);
+      return { ...second, a, a1, b };
+    }
+
+    it('names the trail used before the one on screen, once', () => {
+      const { controller } = restored(2 * HOUR);
+      expect(controller.takeComeBack()).toEqual({
+        kind: 'come-back',
+        trailCount: 2,
+        trail: 'a.example',
+        page: 'a.example',
+      });
+      expect(controller.takeComeBack()).toBeNull();
+    });
+
+    it('says nothing after a quick restart', () => {
+      expect(restored(10 * 60 * 1000).controller.takeComeBack()).toBeNull();
+    });
+
+    it('says nothing with one trail to come back to', () => {
+      const first = setup();
+      first.controller.createPage({ url: 'https://a.example/' });
+      const session = first.controller.exportSession();
+      const later = setup(() => 1000 + 5 * HOUR);
+      later.controller.restoreSession(session);
+      expect(later.controller.takeComeBack()).toBeNull();
+    });
+
+    it('says nothing when nothing was restored', () => {
+      expect(setup().controller.takeComeBack()).toBeNull();
+    });
   });
 });

@@ -15,7 +15,13 @@ import {
 } from './browser-formats';
 import { loginOrigin, loginsToCsv, parseCsv, parseLoginCsv } from './login-csv';
 import { parseBinaryPlist } from './plist';
-import { branchOf, trailToMarkdown } from './trail-markdown';
+import {
+  branchOf,
+  groupPages,
+  parseTrailOutline,
+  trailFileName,
+  trailToMarkdown,
+} from './trail-markdown';
 
 describe('parseChromiumBookmarks', () => {
   it('reads its fixed folders in order', () => {
@@ -307,5 +313,179 @@ describe('trailToMarkdown', () => {
       page('d', null),
     ];
     expect(branchOf(pages, 'b').map((p) => p.id)).toEqual(['b', 'c']);
+  });
+});
+
+describe('parseTrailOutline', () => {
+  it('reads back what a trail exports', () => {
+    const pages = [
+      {
+        id: 'a',
+        parentId: null,
+        url: 'https://example.com/a_(b)',
+        title: 'A [draft]',
+        customTitle: null,
+        note: 'first line\nsecond line',
+        emoji: '🐎',
+      },
+      {
+        id: 'b',
+        parentId: 'a',
+        url: 'https://example.com/b',
+        title: 'B',
+        customTitle: null,
+        note: null,
+      },
+      {
+        id: 'c',
+        parentId: 'b',
+        url: null,
+        title: '',
+        customTitle: 'Just a name',
+        note: null,
+      },
+    ];
+    const outline = parseTrailOutline(trailToMarkdown('Trip', pages));
+    expect(outline.title).toBe('Trip');
+    expect(outline.pageCount).toBe(3);
+    expect(outline.skippedAddresses).toBe(0);
+    expect(outline.items).toEqual([
+      {
+        label: 'A [draft]',
+        url: 'https://example.com/a_%28b%29',
+        note: 'first line\nsecond line',
+        emoji: '🐎',
+        children: [
+          {
+            label: 'B',
+            url: 'https://example.com/b',
+            note: null,
+            emoji: null,
+            children: [
+              {
+                label: 'Just a name',
+                url: null,
+                note: null,
+                emoji: null,
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('reads outlines people wrote by hand', () => {
+    const { items, title } = parseTrailOutline(
+      [
+        'Some words before the list.',
+        '',
+        '* [Plain](https://a.example/x_(y)) - worth a look',
+        '\t1. https://b.example/path',
+        '\t2. <https://c.example>',
+        '+ [ ] [Task](https://d.example "A title")',
+        'See [this] in the text.',
+        'https://e.example between lists',
+      ].join('\r\n'),
+    );
+    expect(title).toBeNull();
+    expect(items.map((item) => [item.label, item.url, item.note])).toEqual([
+      ['Plain', 'https://a.example/x_(y)', 'worth a look'],
+      ['Task', 'https://d.example', null],
+      ['', 'https://e.example', 'between lists'],
+    ]);
+    expect(items[0]!.children.map((item) => item.url)).toEqual([
+      'https://b.example/path',
+      'https://c.example',
+    ]);
+  });
+
+  it('nests under later headings, and takes the first as the title', () => {
+    const { title, items } = parseTrailOutline(
+      [
+        '# Plans',
+        '## Reading',
+        '- [One](https://one.example)',
+        '### Later',
+        '- [Two](https://two.example)',
+        '## Watching',
+        '- [Three](https://three.example)',
+      ].join('\n'),
+    );
+    expect(title).toBe('Plans');
+    expect(items.map((item) => item.label)).toEqual(['Reading', 'Watching']);
+    expect(items[0]!.children.map((item) => item.label)).toEqual([
+      'One',
+      'Later',
+    ]);
+    expect(items[0]!.children[1]!.children[0]!.label).toBe('Two');
+  });
+
+  it('never takes an address that could run or read something', () => {
+    const outline = parseTrailOutline(
+      [
+        '- [Run](javascript:alert(1))',
+        '- [Local](file:///etc/passwd)',
+        '- [Data](data:text/html,hi)',
+        '- [Fine](https://fine.example)',
+      ].join('\n'),
+    );
+    expect(outline.skippedAddresses).toBe(3);
+    expect(outline.items.map((item) => [item.label, item.url])).toEqual([
+      ['Run', null],
+      ['Local', null],
+      ['Data', null],
+      ['Fine', 'https://fine.example'],
+    ]);
+  });
+
+  it('finds nothing in text with no outline', () => {
+    expect(
+      parseTrailOutline('Just a sentence.\n\nAnd another.').pageCount,
+    ).toBe(0);
+    expect(parseTrailOutline('').pageCount).toBe(0);
+    expect(parseTrailOutline('- \n* [](javascript:x)').pageCount).toBe(0);
+  });
+
+  it('survives a broken link', () => {
+    const { items } = parseTrailOutline('- [never closed](https://a.example');
+    expect(items[0]!.label).toBe('[never closed](https://a.example');
+    expect(items[0]!.url).toBeNull();
+  });
+});
+
+describe('groupPages', () => {
+  it('takes a group’s trails with what is beneath them', () => {
+    const page = (id: string, parentId: string | null, groupId?: string) => ({
+      id,
+      parentId,
+      groupId,
+      url: null,
+      title: id,
+      customTitle: null,
+      note: null,
+    });
+    const pages = [
+      page('a', null, 'g'),
+      page('a1', 'a'),
+      page('b', null),
+      page('b1', 'b'),
+      page('c', null, 'g'),
+    ];
+    expect(groupPages(pages, 'g').map((item) => item.id)).toEqual([
+      'a',
+      'a1',
+      'c',
+    ]);
+  });
+});
+
+describe('trailFileName', () => {
+  it('makes a name a file can have', () => {
+    expect(trailFileName('A/B: "C"')).toBe('A B   C.md');
+    expect(trailFileName('../../secret')).toBe('secret.md');
+    expect(trailFileName('   ')).toBe('Trail.md');
+    expect(trailFileName('x\u0000y\nz')).toBe('x y z.md');
   });
 });

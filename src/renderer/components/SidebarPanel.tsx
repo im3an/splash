@@ -4,6 +4,7 @@ import { BookmarksPanel } from './BookmarksPanel';
 import { DownloadsPanel } from './DownloadsPanel';
 import { HistoryPanel } from './HistoryPanel';
 import { TasksPanel } from './TasksPanel';
+import { TrailSummaryPanel } from './TrailSummaryPanel';
 import { WorkspaceEditor } from './WorkspaceEditor';
 
 const LABELS: Record<Panel, string> = {
@@ -11,6 +12,7 @@ const LABELS: Record<Panel, string> = {
   history: 'History',
   bookmarks: 'Bookmarks',
   tasks: 'Task Manager',
+  trails: 'Where You Left Off',
   workspace: 'Workspace',
 };
 
@@ -50,6 +52,8 @@ export function SidebarPanel({ panel }: { panel: Panel }) {
         <BookmarksPanel />
       ) : panel === 'tasks' ? (
         <TasksPanel />
+      ) : panel === 'trails' ? (
+        <TrailSummaryPanel />
       ) : (
         <WorkspaceEditor key={editingId ?? 'new'} workspaceId={editingId} />
       )}

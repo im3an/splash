@@ -980,6 +980,21 @@ details[open] > .sidebar-section-content {
   min-width: 0;
 }
 
+/* The top of a trail: its name reads first, with a little room above it. */
+.trail-row[data-trailhead='true'] {
+  margin-top: var(--space-1);
+}
+.trail-row[data-trailhead='true'] .trail-title {
+  font-weight: 500;
+}
+.trail-emoji {
+  display: block;
+  width: 16px;
+  font-size: var(--type-lead);
+  line-height: 16px;
+  text-align: center;
+}
+
 .trail-row[data-pinned-root='true'] {
   min-height: 38px;
   margin-bottom: 2px;

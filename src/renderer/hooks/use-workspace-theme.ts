@@ -5,6 +5,7 @@ import {
   appearanceGrain,
   frameColor,
   framePreset,
+  frameSurfaces,
   themeImage,
 } from '../../shared/appearance';
 import type { WorkspaceAppearance } from '../../shared/types';
@@ -57,7 +58,8 @@ export function themeVariables(
   const frame = framePreset(appearance.frame);
   const accent = accentColors(appearance.accent);
   const accentColor = dark ? accent.dark : accent.light;
-  const colors = dark ? frame.dark : frame.light;
+  const ink = dark ? frame.dark.ink : frame.light.ink;
+  const colors = frameSurfaces(appearance, dark);
   const gradient = appearanceColors(appearance);
   return {
     // Painted over the frame colour, which stands in while it fades in.
@@ -72,7 +74,11 @@ export function themeVariables(
     '--field-focus': dark
       ? `color-mix(in oklab, ${colors.elevated} 85%, ${colors.chrome})`
       : colors.elevated,
-    '--ink': colors.ink,
+    '--ink': ink,
+    ...(gradient && {
+      '--fg-muted': 'var(--fg-muted-on-gradient)',
+      '--fg-subtle': 'var(--fg-subtle-on-gradient)',
+    }),
     '--accent': accentColor,
     '--accent-soft': `color-mix(in oklab, ${accentColor} ${dark ? 22 : 16}%, transparent)`,
   };

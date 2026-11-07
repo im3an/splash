@@ -57,6 +57,13 @@
   --fg: #221d17;
   --fg-muted: #585047;
   --fg-subtle: #675e55;
+  /*
+   * A gradient's frame is already as far as text allows, and a field on it
+   * takes it further, so secondary text there goes a step stronger to keep
+   * 4.5:1. Plain frames have the room. use-workspace-theme picks.
+   */
+  --fg-muted-on-gradient: #474038;
+  --fg-subtle-on-gradient: #514941;
   --disabled-alpha: 0.38;
   --fg-disabled: rgb(var(--ink) / var(--disabled-alpha));
 
@@ -72,7 +79,8 @@
   --on-accent: #ffffff;
   --focus-ring: var(--accent);
   /* Status colours. Never the only cue: pair with an icon or words. */
-  --danger: #b03a2e;
+  /* Error text sits on any frame and field: 4.5:1 on all of them. */
+  --danger: #911a12;
   --success: #3f7a3a;
   --warning: #9a6a0a;
   --info: #2d6cb0;
@@ -234,13 +242,15 @@
     --fg: #ede6dd;
     --fg-muted: #b3a89b;
     --fg-subtle: #a89c8f;
+    --fg-muted-on-gradient: #c8bfb4;
+    --fg-subtle-on-gradient: #bcb2a6;
     --disabled-alpha: 0.34;
 
     --accent: #e3906a;
     --accent-soft: rgb(227 144 106 / 0.2);
     --accent-hover: color-mix(in oklab, var(--accent), white 8%);
     --on-accent: var(--chrome);
-    --danger: #ec7a6b;
+    --danger: #ff998b;
     --success: #8fc27a;
     --warning: #e6b04f;
     --info: #7eafea;
@@ -301,6 +311,8 @@
   :root {
     --fg-muted: #332d26;
     --fg-subtle: #39322a;
+    --fg-muted-on-gradient: #332d26;
+    --fg-subtle-on-gradient: #39322a;
     --disabled-alpha: 0.55;
     --field: rgb(var(--ink) / 0.11);
     --divider: rgb(var(--ink) / 0.3);
@@ -315,6 +327,8 @@
   :root {
     --fg-muted: #dfd6cb;
     --fg-subtle: #d9cfc3;
+    --fg-muted-on-gradient: #dfd6cb;
+    --fg-subtle-on-gradient: #d9cfc3;
     --disabled-alpha: 0.5;
     --field: rgb(var(--ink) / 0.11);
     --divider: rgb(var(--ink) / 0.3);

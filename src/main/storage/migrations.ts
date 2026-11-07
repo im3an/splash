@@ -103,6 +103,10 @@ export const MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX vault_kind_origin ON vault (kind, origin);
   `,
+  // 11 — the emoji a top-level trail can be given.
+  `
+  ALTER TABLE pages ADD COLUMN emoji TEXT;
+  `,
 ];
 
 export class SchemaTooNewError extends Error {}

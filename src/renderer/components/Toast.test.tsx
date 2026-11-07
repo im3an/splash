@@ -25,6 +25,22 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('Toast', () => {
+  it('gives a long button its own row in the sidebar', () => {
+    render(<Toast placement="sidebar" />);
+    act(() =>
+      useToast.getState().show({
+        message: 'a.example can’t use your location.',
+        detail: null,
+        durationMs: 9000,
+        actions: [{ label: 'Open System Settings', run: vi.fn() }],
+      }),
+    );
+    const button = screen.getByRole('button', {
+      name: 'Open System Settings',
+    });
+    expect(button.parentElement?.className).toContain('justify-end');
+  });
+
   it('moves from the sidebar to the toolbar when the sidebar hides', () => {
     render(
       <>

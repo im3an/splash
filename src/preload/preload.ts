@@ -109,6 +109,17 @@ const api: SplashApi = {
     invoke('page:set-collapsed', { pageId, collapsed }),
   createChildPage: (pageId, input) =>
     invoke('page:create-child', { pageId, input }),
+  createSiblingPage: (pageId, input) =>
+    invoke('page:create-sibling', { pageId, input }),
+  setPageEmoji: (pageId, emoji) => invoke('page:set-emoji', { pageId, emoji }),
+  collapseOtherTrails: (pageId) => invoke('trail:collapse-others', { pageId }),
+  setTrailsCollapsed: (pageIds, groupIds, collapsed) =>
+    invoke('trail:set-collapsed', { pageIds, groupIds, collapsed }),
+  importTrailFile: () => invoke('trail:import-file'),
+  pasteOutline: (parentId) => invoke('trail:paste-outline', { parentId }),
+  undoTrailImport: (pageIds, groupId) =>
+    invoke('trail:undo-import', { pageIds, groupId }),
+  dragTrailOut: (target) => invoke('trail:drag-out', target),
   closeBranch: (pageId) => invoke('page:close-branch', { pageId }),
   closeOtherPages: (pageId) => invoke('page:close-others', { pageId }),
   closePagesBelow: (pageId) => invoke('page:close-below', { pageId }),
@@ -171,6 +182,8 @@ const api: SplashApi = {
   respondToPermission: (pageId, requestId, granted) =>
     invoke('page:respond-permission', { pageId, requestId, granted }),
   getSiteInfo: (pageId) => invoke('site:get-info', { pageId }),
+  openPermissionSettings: (permission) =>
+    invoke('system:open-permission-settings', { permission }),
   setSitePermission: (origin, permission, decision) =>
     invoke('site:set-permission', { origin, permission, decision }),
   resetSite: (origin) => invoke('site:reset', { origin }),

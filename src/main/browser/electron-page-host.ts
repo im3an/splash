@@ -22,7 +22,12 @@ import {
   LINK_ACTIVATED,
   NAVIGATION_BUTTON,
 } from '../../shared/page-bridge';
-import type { ExternalApp, Notice, SitePermission } from '../../shared/types';
+import type {
+  ExternalApp,
+  Notice,
+  SitePermission,
+  SystemPermission,
+} from '../../shared/types';
 import { webContextMenu } from '../menus/web-context-menu';
 import { setDictionaryWord } from '../spelling';
 import { popupWindowOptions, wirePopupWindow } from '../windows/popup-window';
@@ -111,6 +116,8 @@ export interface PageHandle {
     opens?: ExternalApp,
   ): Promise<boolean>;
   blocked(permissions: SitePermission[]): void;
+  /** The site was allowed these, and macOS hasn't allowed them to Splash. */
+  refusedBySystem(permissions: SystemPermission[]): void;
   notify(notice: Notice): void;
   /** Its main-frame request for `url` was stopped: reported as dangerous. */
   flaggedDangerous(url: string): void;
@@ -207,6 +214,8 @@ class ElectronPageHost implements PageHost {
       request: (origin, permissions, opens) =>
         this.events.onPermissionRequest(origin, permissions, opens),
       blocked: (permissions) => this.events.onPermissionBlocked(permissions),
+      refusedBySystem: (permissions) =>
+        this.events.onPermissionRefusedBySystem(permissions),
       notify: (notice) => this.events.onNotice(notice),
       flaggedDangerous: (url) => {
         this.flaggedUrl = url;

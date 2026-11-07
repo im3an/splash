@@ -6,12 +6,14 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Folder } from 'lucide-react';
-import type { GroupIcon, PageGroup } from '../../shared/types';
+import { Folder, Globe } from 'lucide-react';
+import type { PageGroup, PageId } from '../../shared/types';
 import { useDialogFocus } from '../hooks/use-dialog-focus';
 import { menuPosition } from '../lib/menu-position';
 import { durationMs } from '../lib/motion';
 import { api } from '../splash-api';
+import { pageLabel } from '../lib/format';
+import { useShell } from '../stores/shell-store';
 import { WorkspaceIcon } from './WorkspaceIcon';
 
 const COLUMNS = 7;
@@ -75,10 +77,7 @@ export function GroupMark({
   );
 }
 
-/**
- * Picks a group's emoji, opening under the mark it changes. It stays inside
- * the sidebar: a live page view would paint over anything reaching the page.
- */
+/** Picks a group's emoji, or back to a folder. */
 export function GroupIconPicker({
   group,
   anchor,
@@ -86,6 +85,76 @@ export function GroupIconPicker({
 }: {
   group: PageGroup;
   anchor: HTMLElement;
+  onClose(): void;
+}) {
+  return (
+    <EmojiPicker
+      label={`Icon for ${group.name}`}
+      chosen={group.icon?.value ?? null}
+      none={{ label: 'folder', title: 'Folder', icon: Folder, filled: true }}
+      anchor={anchor}
+      onChoose={(value) =>
+        void api().setGroupIcon(
+          group.id,
+          value ? { kind: 'emoji', value } : null,
+        )
+      }
+      onClose={onClose}
+    />
+  );
+}
+
+/** Picks a trail's emoji, or back to its site's icon. */
+export function TrailIconPicker({
+  pageId,
+  anchor,
+  onClose,
+}: {
+  pageId: PageId;
+  anchor: HTMLElement;
+  onClose(): void;
+}) {
+  const page = useShell((state) => state.snapshot?.pages[pageId]);
+  if (!page) return null;
+  return (
+    <EmojiPicker
+      label={`Emoji for ${pageLabel(page)}`}
+      chosen={page.emoji ?? null}
+      none={{ label: 'site icon', title: 'Site icon', icon: Globe }}
+      anchor={anchor}
+      focusBack={anchor.closest<HTMLElement>('[data-page-id]') ?? anchor}
+      onChoose={(value) => void api().setPageEmoji(pageId, value)}
+      onClose={onClose}
+    />
+  );
+}
+
+/**
+ * Picks an emoji, opening under the mark it changes. It stays inside the
+ * sidebar: a live page view would paint over anything reaching the page.
+ */
+function EmojiPicker({
+  label,
+  chosen,
+  none,
+  anchor,
+  focusBack = anchor,
+  onChoose,
+  onClose,
+}: {
+  label: string;
+  chosen: string | null;
+  /** The first choice: no emoji, and what shows instead. */
+  none: {
+    label: string;
+    title: string;
+    icon: typeof Folder;
+    filled?: boolean;
+  };
+  anchor: HTMLElement;
+  /** Takes focus when the picker is put away from the keyboard. */
+  focusBack?: HTMLElement;
+  onChoose(value: string | null): void;
   onClose(): void;
 }) {
   const ref = useDialogFocus<HTMLDivElement>();
@@ -99,7 +168,7 @@ export function GroupIconPicker({
   const dismiss = (restoreFocus: boolean) => {
     if (leaving) return;
     setLeaving(true);
-    if (restoreFocus) anchor.focus({ preventScroll: true });
+    if (restoreFocus) focusBack.focus({ preventScroll: true });
     leaveTimer.current = setTimeout(onClose, durationMs('--duration-exit'));
   };
   useEffect(() => () => clearTimeout(leaveTimer.current), []);
@@ -144,8 +213,8 @@ export function GroupIconPicker({
     };
   });
 
-  const choose = (icon: GroupIcon | null) => {
-    void api().setGroupIcon(group.id, icon);
+  const choose = (value: string | null) => {
+    onChoose(value);
     dismiss(true);
   };
 
@@ -167,7 +236,7 @@ export function GroupIconPicker({
   };
 
   // An emoji from outside the grid leaves the tab stop on the folder.
-  const chosen = group.icon?.value;
+  const NoneIcon = none.icon;
   const hasStop = EMOJI.some(([value]) => value === chosen);
 
   return createPortal(
@@ -175,7 +244,7 @@ export function GroupIconPicker({
       <div
         ref={ref}
         role="radiogroup"
-        aria-label={`Icon for ${group.name}`}
+        aria-label={label}
         inert={leaving}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
@@ -195,14 +264,18 @@ export function GroupIconPicker({
         <button
           type="button"
           role="radio"
-          aria-checked={!group.icon}
-          aria-label="folder"
-          title="Folder"
+          aria-checked={!chosen}
+          aria-label={none.label}
+          title={none.title}
           tabIndex={hasStop ? -1 : 0}
           onClick={() => choose(null)}
           className="group-icon-choice text-fg-subtle"
         >
-          <Folder size={16} fill="currentColor" aria-hidden />
+          <NoneIcon
+            size={16}
+            fill={none.filled ? 'currentColor' : 'none'}
+            aria-hidden
+          />
         </button>
         {EMOJI.map(([value, label]) => (
           <button
@@ -213,7 +286,7 @@ export function GroupIconPicker({
             aria-label={label}
             title={label}
             tabIndex={value === chosen ? 0 : -1}
-            onClick={() => choose({ kind: 'emoji', value })}
+            onClick={() => choose(value)}
             className="group-icon-choice"
           >
             <span aria-hidden>{value}</span>

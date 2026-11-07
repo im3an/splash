@@ -145,8 +145,40 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
   {
     command: 'new-child-page',
     title: 'New child page',
-    keywords: 'branch nested',
+    keywords: 'branch nested subtrail',
     shortcut: '⌥⌘T',
+  },
+  {
+    command: 'new-sibling-page',
+    title: 'New sibling page',
+    keywords: 'sidetrail beside next same level',
+    shortcut: '⌃⌘T',
+    needs: 'page',
+  },
+  {
+    command: 'collapse-other-trails',
+    title: 'Collapse other trails',
+    keywords: 'focus fold hide everything except current branch',
+    shortcut: '⌥⌘C',
+    needs: 'page',
+  },
+  {
+    command: 'show-trail-summary',
+    title: 'Where you left off',
+    keywords: 'come back trails resume summary last',
+    shortcut: null,
+  },
+  {
+    command: 'import-trail',
+    title: 'Import trail from Markdown',
+    keywords: 'outline open file md list',
+    shortcut: null,
+  },
+  {
+    command: 'paste-outline',
+    title: 'Paste outline as trail',
+    keywords: 'markdown clipboard import list links',
+    shortcut: null,
   },
   {
     command: 'close-page',
@@ -334,6 +366,17 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     keywords: 'memory cpu processes slow end unresponsive',
     shortcut: null,
   },
+  // PROTOTYPE: dev builds only, as is what it opens. See src/renderer/prototype/.
+  ...(import.meta.env.DEV
+    ? [
+        {
+          command: 'show-alma-view',
+          title: 'Show Alma view',
+          keywords: 'graph map network pages trails folders types',
+          shortcut: '⌥⌘G',
+        } satisfies CommandDefinition,
+      ]
+    : []),
   {
     command: 'show-history',
     title: 'Show history',

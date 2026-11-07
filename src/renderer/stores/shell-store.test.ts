@@ -174,3 +174,28 @@ describe('Undo and Redo sent to the trail', () => {
     disconnect();
   });
 });
+
+describe('a snapshot arriving', () => {
+  it('leaves pages that didn’t change as they were', () => {
+    const first = sampleSnapshot();
+    useShell.getState().receiveSnapshot(first);
+    const [changed, other] = Object.keys(first.pages) as [string, string];
+    const kept = useShell.getState().snapshot!.pages[other];
+
+    const next = structuredClone(first);
+    next.pages[changed]!.title = 'A new title';
+    useShell.getState().receiveSnapshot(next);
+
+    const { pages } = useShell.getState().snapshot!;
+    expect(pages[other]).toBe(kept);
+    expect(pages[changed]?.title).toBe('A new title');
+  });
+
+  it('changes nothing when nothing changed', () => {
+    const first = sampleSnapshot();
+    useShell.getState().receiveSnapshot(first);
+    const before = useShell.getState().snapshot;
+    useShell.getState().receiveSnapshot(structuredClone(first));
+    expect(useShell.getState().snapshot).toBe(before);
+  });
+});

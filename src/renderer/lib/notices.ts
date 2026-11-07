@@ -1,6 +1,8 @@
 import type { ClosedSummary, Notice } from '../../shared/types';
+import { permissionNames } from './format';
 import { api } from '../splash-api';
 import type { UndoStep } from './trail-undo';
+import { useShell } from '../stores/shell-store';
 import type { ToastInput } from '../stores/toast-store';
 
 const UNDO_MS = 9000;
@@ -64,10 +66,41 @@ export function closedToast(closed: ClosedSummary): ToastInput {
 
 export function noticeMessage(notice: Notice): string {
   switch (notice.kind) {
+    case 'trails-collapsed': {
+      const count = notice.pageIds.length + notice.groupIds.length;
+      if (count === 0) return 'Nothing else to collapse.';
+      return count === 1
+        ? 'Collapsed the other trail.'
+        : `Collapsed ${count} other trails.`;
+    }
+    case 'trail-imported':
+      return notice.pageCount > 1
+        ? `Imported “${shortName(notice.label)}” with ${notice.pageCount} pages.`
+        : `Imported “${shortName(notice.label)}”.`;
+    case 'trail-not-imported': {
+      const from = notice.source ? `“${shortName(notice.source)}”` : null;
+      switch (notice.reason) {
+        case 'empty':
+          return from
+            ? `${from} has no outline in it.`
+            : 'There’s no outline on the clipboard.';
+        case 'too-long':
+          return from
+            ? `${from} is too long to import.`
+            : 'The outline on the clipboard is too long to import.';
+        case 'unreadable':
+          return `Couldn’t read ${from ?? 'that file'}.`;
+      }
+      break;
+    }
+    case 'come-back':
+      return `Welcome back. Your ${notice.trailCount} trails are as you left them.`;
     case 'exported':
       return `Saved “${shortName(notice.filename)}”.`;
     case 'password-saved':
       return `Saved your password for ${notice.host}.`;
+    case 'system-permission-refused':
+      return `${notice.host} can’t use your ${permissionNames(notice.permissions)}, because macOS hasn’t allowed Splash to.`;
     case 'passkey-unavailable':
       return `${notice.host} asked for a passkey, and Splash can’t use Touch ID or iCloud passkeys yet.`;
     case 'no-video':
@@ -132,6 +165,18 @@ export function noticeMessage(notice: Notice): string {
 export function noticeToast(notice: Notice): ToastInput {
   const message = noticeMessage(notice);
   switch (notice.kind) {
+    case 'system-permission-refused':
+      return {
+        message,
+        detail: 'Turn it on in System Settings, then reload the page.',
+        durationMs: UNDO_MS,
+        actions: [
+          {
+            label: 'Open System Settings',
+            run: () => api().openPermissionSettings(notice.permissions[0]!),
+          },
+        ],
+      };
     case 'passkey-unavailable':
       return {
         message,
@@ -154,6 +199,83 @@ export function noticeToast(notice: Notice): ToastInput {
           'Its desktop features, such as unlocking with the desktop app, may not work. The rest of it still does.',
         durationMs: UNDO_MS,
         actions: [],
+      };
+    case 'trails-collapsed': {
+      const { pageIds, groupIds } = notice;
+      if (pageIds.length + groupIds.length === 0) {
+        return { message, detail: null, durationMs: CONFIRM_MS, actions: [] };
+      }
+      return {
+        message,
+        detail: null,
+        durationMs: UNDO_MS,
+        actions: [
+          {
+            label: 'Undo',
+            title: 'Open them again',
+            icon: 'undo',
+            run: () => api().setTrailsCollapsed(pageIds, groupIds, false),
+            redo: () => api().setTrailsCollapsed(pageIds, groupIds, true),
+          },
+        ],
+      };
+    }
+    case 'trail-imported': {
+      const { pageIds, groupId, skippedAddresses: skipped } = notice;
+      const first = pageIds[0];
+      return {
+        message,
+        detail:
+          skipped > 0
+            ? `${skipped} ${skipped === 1 ? 'link wasn’t a web address, so its page has' : 'links weren’t web addresses, so their pages have'} a name only.`
+            : null,
+        durationMs: UNDO_MS,
+        actions: [
+          ...(first
+            ? [
+                {
+                  label: 'Go there',
+                  title: 'Show its first page',
+                  run: () => void api().activatePage(first),
+                },
+              ]
+            : []),
+          {
+            // Closing it offers its own undo, so this isn't one more step.
+            label: 'Undo',
+            title: 'Close what was imported',
+            run: () => void api().undoTrailImport(pageIds, groupId),
+          },
+        ],
+      };
+    }
+    case 'trail-not-imported':
+      return {
+        message,
+        detail:
+          notice.reason === 'empty'
+            ? 'An outline is a Markdown list of links, nested as you like.'
+            : notice.reason === 'too-long'
+              ? 'Splash imports up to 500 pages at a time.'
+              : null,
+        durationMs: UNDO_MS,
+        actions: [],
+      };
+    case 'come-back':
+      return {
+        message,
+        detail:
+          notice.page === notice.trail
+            ? `Before this, you were on “${shortName(notice.page)}”.`
+            : `“${shortName(notice.trail)}” was left on “${shortName(notice.page)}”.`,
+        durationMs: UNDO_MS,
+        actions: [
+          {
+            label: 'Show All',
+            title: 'Where each trail was left',
+            run: () => useShell.getState().setSidebarPanel('trails'),
+          },
+        ],
       };
     case 'exported':
     case 'password-saved':

@@ -1,9 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import {
+  LOCATION_REFUSED,
   PAGE_SETTINGS,
   PASSKEY_REQUESTED,
   type PageSettings,
 } from '../shared/page-bridge';
+import { watchLocationRefusals } from './location-refusals';
 
 /*
  * Applies, before the page's own scripts run, the settings a request hook
@@ -264,6 +266,10 @@ if (settings && window.isSecureContext) {
   contextBridge.executeInMainWorld({
     func: watchPasskeyRequests,
     args: [() => ipcRenderer.send(PASSKEY_REQUESTED)],
+  });
+  contextBridge.executeInMainWorld({
+    func: watchLocationRefusals,
+    args: [() => ipcRenderer.send(LOCATION_REFUSED)],
   });
 }
 if (settings && settings.undecided.length > 0) {

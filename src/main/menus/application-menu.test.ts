@@ -179,3 +179,61 @@ describe('Edit › Undo and Redo', () => {
     expect(browser.sendUiCommand).toHaveBeenCalledWith({ type: 'undo' });
   });
 });
+
+describe('⇧⌘ and an arrow', () => {
+  function arrowSetup(fieldTakesIt: boolean) {
+    const activateAdjacentTrail = vi.fn();
+    const browser = {
+      window: { isAlwaysOnTop: () => false },
+      controller: {
+        activePageId: 'a',
+        snapshot: () => sampleSnapshot(),
+        recentlyClosed: () => [],
+        activateAdjacentTrail,
+      },
+    };
+    const executeJavaScript = vi.fn(async () => fieldTakesIt);
+    electron.focusedContents.mockReturnValue({
+      focusedFrame: { executeJavaScript },
+    });
+    installApplicationMenu({
+      currentWindow: () => browser,
+      preferences: { get: () => DEFAULT_PREFERENCES },
+      store: { frequentHistory: () => [] },
+    } as unknown as MenuActions);
+    const view = electron.build.mock.calls
+      .at(-1)![0]
+      .find((entry) => entry.label === 'View')!;
+    const item = (view.submenu as MenuItemConstructorOptions[]).find(
+      (entry) => entry.label === 'Next Trail',
+    )!;
+    const press = item.click as unknown as (
+      item: null,
+      window: null,
+      event: { triggeredByAccelerator?: boolean },
+    ) => Promise<void>;
+    return { press, activateAdjacentTrail, executeJavaScript };
+  }
+
+  const keys = { triggeredByAccelerator: true };
+
+  it('moves to the next trail when nothing is being typed', async () => {
+    const { press, activateAdjacentTrail } = arrowSetup(false);
+    await press(null, null, keys);
+    expect(activateAdjacentTrail).toHaveBeenCalledWith(1);
+  });
+
+  it('stays put when a text field took the key', async () => {
+    const { press, activateAdjacentTrail } = arrowSetup(true);
+    await press(null, null, keys);
+    expect(activateAdjacentTrail).not.toHaveBeenCalled();
+  });
+
+  it('always means the trail when chosen with the mouse', async () => {
+    const { press, activateAdjacentTrail, executeJavaScript } =
+      arrowSetup(true);
+    await press(null, null, { triggeredByAccelerator: false });
+    expect(executeJavaScript).not.toHaveBeenCalled();
+    expect(activateAdjacentTrail).toHaveBeenCalledWith(1);
+  });
+});

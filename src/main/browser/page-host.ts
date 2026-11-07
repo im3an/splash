@@ -6,6 +6,7 @@ import type {
   PageError,
   PageId,
   SitePermission,
+  SystemPermission,
 } from '../../shared/types';
 
 /** Live state reported by a page's Chromium view. */
@@ -81,6 +82,8 @@ export interface PageHostEvents {
   ): Promise<boolean>;
   /** The page was refused something, without asking. */
   onPermissionBlocked(permissions: SitePermission[]): void;
+  /** The site was allowed these, and macOS hasn't allowed them to Splash. */
+  onPermissionRefusedBySystem(permissions: SystemPermission[]): void;
   /** Something the user did in the page's own menu worth confirming. */
   onNotice(notice: Notice): void;
   /** The page put itself in full screen (a video), or left it. */

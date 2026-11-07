@@ -11,12 +11,14 @@ const info: SiteInfo = {
   host: 'a.example',
   security: 'secure',
   blockedCount: 0,
+  refusedBySystem: [],
   permissions: [{ permission: 'camera', label: 'Camera', decision: 'ask' }],
 };
 function stubApi() {
   const splash = {
     getSiteInfo: vi.fn(async () => info),
     setSitePermission: vi.fn(async () => undefined),
+    openPermissionSettings: vi.fn(async () => undefined),
   };
   window.splash = splash as unknown as SplashApi;
   useShell.setState({ snapshot: sampleSnapshot() });
@@ -50,4 +52,47 @@ it('retains the existing choice and reports a failed permission change', async (
     screen.getByRole('radio', { name: 'Ask' }).getAttribute('aria-checked'),
   ).toBe('true');
   expect(screen.queryByRole('button', { name: 'Reload to apply' })).toBeNull();
+});
+
+describe('when macOS refused something the site was allowed', () => {
+  it('says so and opens System Settings', async () => {
+    const splash = stubApi();
+    splash.getSiteInfo.mockResolvedValueOnce({
+      ...info,
+      refusedBySystem: ['location'],
+    });
+    render(<SiteInfoPopover />);
+    expect(
+      await screen.findByText(
+        'macOS hasn’t allowed Splash to use your location.',
+      ),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Open System Settings' }),
+    );
+    expect(splash.openPermissionSettings).toHaveBeenCalledWith('location');
+  });
+
+  it('says nothing about macOS otherwise', async () => {
+    stubApi();
+    render(<SiteInfoPopover />);
+    await screen.findByRole('radiogroup', { name: 'Camera' });
+    expect(screen.queryByText(/macOS/)).toBeNull();
+  });
+
+  it('tells when System Settings wouldn’t open', async () => {
+    const splash = stubApi();
+    splash.getSiteInfo.mockResolvedValueOnce({
+      ...info,
+      refusedBySystem: ['camera'],
+    });
+    splash.openPermissionSettings.mockRejectedValueOnce(new Error('no'));
+    render(<SiteInfoPopover />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Open System Settings' }),
+    );
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'Couldn’t open System Settings.',
+    );
+  });
 });

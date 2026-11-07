@@ -79,6 +79,9 @@ export function Favicon({ page }: { page: PageSnapshot }) {
     content = <span className="spinner" aria-hidden />;
   } else if (page.error) {
     content = <CircleAlert size={14} className="text-danger" />;
+  } else if (page.emoji && page.parentId === null) {
+    // Named for the trail; the states above still show on its row.
+    content = <span className="trail-emoji">{page.emoji}</span>;
   } else if (page.url?.startsWith('view-source:')) {
     content = <Code2 size={14} className="text-fg-subtle" />;
   } else if (page.url === null) {

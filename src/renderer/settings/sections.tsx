@@ -263,6 +263,19 @@ export function AppearanceSettings() {
             ]}
           />
         </Row>
+        {/* PROTOTYPE: see src/renderer/prototype/. */}
+        {import.meta.env.DEV && (
+          <Row
+            label="Show Alma view button"
+            help="Keeps a button for the graph of your pages at the foot of the sidebar."
+          >
+            <Toggle
+              label="Show Alma view button"
+              checked={preferences.almaViewButton}
+              onChange={(almaViewButton) => update({ almaViewButton })}
+            />
+          </Row>
+        )}
         <Row
           label="Show site names"
           help="Shows the site after each page’s title."

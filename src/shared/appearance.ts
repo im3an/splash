@@ -412,9 +412,6 @@ export function accentColors(accent: string): { light: string; dark: string } {
   return { light: preset.light, dark: preset.dark };
 }
 
-/** How much of the accent tints the window frame, like an Arc space. */
-const FRAME_TINT = { light: 0.06, dark: 0.05 };
-
 function mixHex(a: string, b: string, amountOfA: number): string {
   const channel = (hex: string, i: number) =>
     parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
@@ -428,9 +425,9 @@ function mixHex(a: string, b: string, amountOfA: number): string {
 }
 
 /**
- * The window frame around the page: the frame preset's chrome with a little
- * of the accent. A hex colour, since the main process paints the window
- * background with it too.
+ * The window frame around the page: the frame preset's chrome in the accent's
+ * colour. A hex colour, since the main process paints the window background
+ * with it too.
  */
 export function frameColor(
   appearance: WorkspaceAppearance,
@@ -440,15 +437,100 @@ export function frameColor(
   const colors = appearanceColors(appearance);
   const intensity = appearance.intensity ?? INTENSITY;
   if (colors) return themeStops(colors, dark ? 'dark' : 'light', intensity)[1];
-  const chrome = dark
-    ? framePreset(appearance.frame).dark.chrome
-    : framePreset(appearance.frame).light.chrome;
+  const preset = framePreset(appearance.frame);
+  return plainTint(
+    dark ? preset.dark.chrome : preset.light.chrome,
+    appearance,
+    dark,
+  );
+}
+
+/**
+ * A plain frame's colour with the accent blended in at the colour's own
+ * lightness, so text on it keeps its contrast whatever the accent. Intensity
+ * scales it: none at 0, all the accent from about 0.67 up.
+ */
+function plainTint(
+  hex: string,
+  appearance: WorkspaceAppearance,
+  dark: boolean,
+): string {
   const accents = accentColors(appearance.accent);
-  const accent = dark ? accents.dark : accents.light;
-  // Intensity scales the tint: none at 0, twice the usual at 1.
-  const tint =
-    (dark ? FRAME_TINT.dark : FRAME_TINT.light) * (intensity / INTENSITY);
-  return mixHex(accent, chrome, tint);
+  const accent = hexToOklch(dark ? accents.dark : accents.light);
+  const intensity = appearance.intensity ?? INTENSITY;
+  const share = Math.min(1, PLAIN_SHARE * (intensity / INTENSITY));
+  const { l } = hexToOklch(hex);
+  const ceiling = dark ? SURFACE_LIGHTNESS.dark.elevated : 1;
+  const limit = SURFACE_VIVID_LIMIT[dark ? 'dark' : 'light'];
+  return mixHex(shade(accent, Math.min(l, ceiling), 1, limit), hex, share);
+}
+
+/**
+ * Lightness of what sits inside the frame. In dark the page area is a shade
+ * deeper than the frame and panels rise above it; in light the page area is
+ * paler than the frame and panels stay white.
+ */
+const SURFACE_LIGHTNESS = {
+  light: { chrome: 0.94, surface: 0.955 },
+  // Elevated is as light as it goes: Settings' switches and fields sit on it,
+  // and above this they drop below 3:1 and 4.5:1 (appearance.test.ts).
+  dark: { chrome: 0.2, surface: 0.245, elevated: 0.27 },
+} as const;
+/**
+ * How much more vivid a surface is than the frame's middle stop. Very dark and
+ * very pale colours have little chroma to show, so at the frame's own vividness
+ * they'd read as black or white rather than as the workspace's colour.
+ */
+const SURFACE_VIVIDNESS = { light: 2, dark: 1.4 };
+/**
+ * The most vivid a surface gets, as a share of what the screen can show. The
+ * deepest dark blues are so dim that a switch on them drops below 3:1.
+ */
+const SURFACE_VIVID_LIMIT = { light: 1, dark: 0.6 };
+/**
+ * How much of the accent a plain frame's surfaces take at usual intensity. It
+ * has to outweigh the preset's own lean, or a warm preset cancels a blue accent
+ * back to grey.
+ */
+const PLAIN_SHARE = 0.75;
+
+/** The same colour at another lightness, just as vivid for that lightness. */
+function shade(color: Oklch, l: number, boost = 1, limit = 1): string {
+  const vivid = color.c / (maxChroma(color.l, color.h) || 1);
+  const c = Math.min(limit, vivid * boost) * maxChroma(l, color.h);
+  return oklchToHex({ l, c, h: color.h });
+}
+
+/**
+ * The page area, panels and chrome in the workspace's colour, so the window
+ * reads as one colour rather than a neutral card in a coloured frame. A
+ * gradient's middle stop gives the hue, as it does for `frameColor`; a plain
+ * frame blends its accent into the preset, and at no intensity is the preset.
+ */
+export function frameSurfaces(
+  appearance: WorkspaceAppearance,
+  dark: boolean,
+): { chrome: string; surface: string; elevated: string } {
+  const preset = framePreset(appearance.frame)[dark ? 'dark' : 'light'];
+  const colors = appearanceColors(appearance);
+  const intensity = appearance.intensity ?? INTENSITY;
+  if (colors) {
+    const tone = dark ? 'dark' : 'light';
+    const middle = hexToOklch(themeStops(colors, tone, intensity)[1]);
+    const lightness = SURFACE_LIGHTNESS[tone];
+    const at = (l: number) =>
+      shade(middle, l, SURFACE_VIVIDNESS[tone], SURFACE_VIVID_LIMIT[tone]);
+    return {
+      chrome: at(lightness.chrome),
+      surface: at(lightness.surface),
+      elevated: dark ? at(SURFACE_LIGHTNESS.dark.elevated) : preset.elevated,
+    };
+  }
+  return {
+    chrome: plainTint(preset.chrome, appearance, dark),
+    surface: plainTint(preset.surface, appearance, dark),
+    elevated: plainTint(preset.elevated, appearance, dark),
+  };
 }
 
 /**

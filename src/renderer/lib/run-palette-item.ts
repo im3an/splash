@@ -51,9 +51,17 @@ async function performPaletteItem(
       overlay.close();
       return shell.setSidebarPanel('bookmarks');
     }
+    if (item.command === 'show-trail-summary') {
+      overlay.close();
+      return shell.setSidebarPanel('trails');
+    }
     if (item.command === 'show-tasks') {
       overlay.close();
       return shell.setSidebarPanel('tasks');
+    }
+    if (item.command === 'show-alma-view') {
+      // Swaps with the palette, so the page stays frozen in between.
+      return overlay.open({ kind: 'alma-view' });
     }
     if (item.command === 'filter-pages') {
       // Closed first: closing puts focus back, and the field should keep it.
@@ -94,6 +102,17 @@ async function performPaletteItem(
           if (active) await splash.createChildPage(active.id);
           else await splash.createPage();
           return void openLocation();
+        case 'new-sibling-page':
+          if (active) await splash.createSiblingPage(active.id);
+          else await splash.createPage();
+          return void openLocation();
+        case 'collapse-other-trails':
+          if (active) await splash.collapseOtherTrails(active.id);
+          return;
+        case 'import-trail':
+          return void splash.importTrailFile();
+        case 'paste-outline':
+          return void splash.pasteOutline(null);
         case 'open-file':
           return void splash.chooseFiles();
         case 'new-private-window':

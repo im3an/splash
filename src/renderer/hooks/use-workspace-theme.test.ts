@@ -28,6 +28,19 @@ describe('useWorkspaceTheme', () => {
     renderHook(() => useWorkspaceTheme());
   });
 
+  it('strengthens secondary text on a gradient, and leaves plain frames alone', () => {
+    preview({ gradient: 'dusk' });
+    expect(root.style.getPropertyValue('--fg-muted')).toBe(
+      'var(--fg-muted-on-gradient)',
+    );
+    expect(root.style.getPropertyValue('--fg-subtle')).toBe(
+      'var(--fg-subtle-on-gradient)',
+    );
+    preview({ gradient: undefined, colors: undefined });
+    expect(root.style.getPropertyValue('--fg-muted')).toBe('');
+    expect(root.style.getPropertyValue('--fg-subtle')).toBe('');
+  });
+
   // Each tick of the slider restarting the fade made the frame flicker.
   it('tunes intensity without replaying the frame fade', () => {
     preview({ gradient: 'dusk', intensity: 0.2 });

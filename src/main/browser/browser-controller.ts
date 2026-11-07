@@ -15,6 +15,7 @@ import type {
   PageSnapshot,
   PermissionRequest,
   SitePermission,
+  SystemPermission,
   SplitView,
   TrailPosition,
   WorkspaceAppearance,
@@ -39,6 +40,8 @@ import { TrailTree } from './trail-tree';
 import { secureUpgradeOf, typedPlainAddress } from '../security/https-only';
 import { canContinuePastCertificate } from '../../shared/certificate-errors';
 import { pagesBelow, type TrailShape } from '../../shared/pages-below';
+import { trailSummaries } from '../../shared/trail-summary';
+import type { OutlineItem, TrailOutline } from '../transfer/trail-markdown';
 import {
   isNavigableUrl,
   isPageUrl,
@@ -93,12 +96,16 @@ interface Page {
   pinned: boolean;
   /** The group a top-level page is filed under; never set on a pinned page. */
   groupId: string | null;
+  /** The mark a top-level trail was given. */
+  emoji: string | null;
   /** The last address the page actually committed, as opposed to requested. */
   committedUrl: string | null;
   /** Permission requests waiting for the user, oldest first. */
   permissionQueue: PendingPermission[];
   /** Permissions refused on the current site. */
   blocked: Set<SitePermission>;
+  /** Those of them the site was allowed, and macOS refused to Splash. */
+  systemRefused: Set<SystemPermission>;
   /** Addresses stopped from opening in the current document. */
   blockedPopups: string[];
 }
@@ -185,6 +192,8 @@ const DEFAULT_MAX_LIVE_VIEWS = 12;
 const MAX_CLOSED_RECORDS = 25;
 const MAX_BLOCKED_POPUPS = 20;
 const DEFAULT_WORKSPACE_NAME = 'Personal';
+/** A restart isn't coming back; being away this long is. */
+const COME_BACK_AFTER_MS = 60 * 60 * 1000;
 
 const EMPTY_STATE: PageRuntimeState = {
   url: null,
@@ -217,6 +226,8 @@ export class SharedTrails {
   maxLiveViews = DEFAULT_MAX_LIVE_VIEWS;
   /** Whether the saved session has been read; only the first window does. */
   loaded = false;
+  /** When the session being restored was saved, until the shell has said so. */
+  leftAt: number | null = null;
   readonly viewers = new Set<BrowserController>();
   /**
    * The window saved as where you were: the last one focused, and the last
@@ -415,6 +426,8 @@ export class BrowserController {
         node?.parentId === null &&
         node.childIds.length === 0 &&
         page?.state.url === null &&
+        // An outline's named line isn't an empty page.
+        page.customTitle === null &&
         !page.history?.entries.length &&
         !this.wantedByPeer(id)
       );
@@ -663,6 +676,7 @@ export class BrowserController {
           workspace.groups.some((group) => group.id === closed.groupId)
             ? closed.groupId
             : null,
+        emoji: closed.emoji ?? null,
         history: closed.history,
         createdAt: closed.createdAt,
         // Records saved by older versions may lack newer fields.
@@ -1112,6 +1126,118 @@ export class BrowserController {
     return this.createPage({ parentId, input });
   }
 
+  /** Opens a page right after this one, at the same level. */
+  createSiblingPage(id: PageId, input?: string): PageId {
+    const page = this.require(id);
+    const { tree } = this.workspaceOf(id);
+    return this.createPage({
+      parentId: tree.get(id)?.parentId ?? null,
+      index: tree.indexOf(id) + 1,
+      input,
+      ...(page.groupId ? { groupId: page.groupId } : {}),
+    });
+  }
+
+  /**
+   * Brings a Markdown outline in as pages. They come without views and load
+   * when opened, like a restored session. Under a page they join its branch;
+   * otherwise one list is a new trail, and several are a group of trails.
+   */
+  importOutline(
+    outline: TrailOutline,
+    { parentId = null, name }: { parentId?: PageId | null; name?: string } = {},
+  ): {
+    label: string;
+    pageCount: number;
+    pageIds: PageId[];
+    groupId: string | null;
+  } {
+    const workspace =
+      parentId === null ? this.workspace : this.workspaceOf(parentId);
+    const { tree } = workspace;
+    const { items, title } = outline;
+    const groupName = title ?? name ?? 'Imported trail';
+    let groupId: string | null = null;
+    if (parentId === null && items.length > 1) {
+      groupId = this.createId();
+      workspace.groups.push({
+        id: groupId,
+        name: cleanText(groupName)?.slice(0, 100) ?? 'Imported trail',
+        collapsed: false,
+      });
+    }
+    const add = (item: OutlineItem, under: PageId | null): PageId => {
+      const id = this.createId();
+      tree.add(id, under);
+      this.pages.set(id, {
+        ...this.newPage(workspace.id),
+        state: {
+          ...EMPTY_STATE,
+          url: item.url,
+          title: item.url ? item.label : '',
+        },
+        committedUrl: item.url,
+        // A line with no address has only this for a name.
+        customTitle: item.url ? null : item.label,
+        note: item.note,
+        emoji: under === null ? item.emoji : null,
+        groupId: under === null ? groupId : null,
+      });
+      for (const child of item.children) add(child, id);
+      return id;
+    };
+    const pageIds = items.map((item) => add(item, parentId));
+    const [only] = pageIds;
+    // A heading over one list names that trail; its pages keep their titles.
+    if (parentId === null && only !== undefined && !groupId && title) {
+      this.require(only).customTitle = title;
+    }
+    if (parentId !== null) this.collapsedIds.delete(parentId);
+    this.settleRoots(workspace);
+    const view = this.viewOf(workspace);
+    if (view.activePageId === null && only !== undefined) {
+      this.activatePage(only);
+    } else {
+      this.changed();
+    }
+    return {
+      label:
+        groupId !== null
+          ? groupName
+          : only !== undefined
+            ? nameOf(this.require(only).customTitle, this.require(only).state)
+            : groupName,
+      pageCount: outline.pageCount,
+      pageIds,
+      groupId,
+    };
+  }
+
+  /** Takes back an import: one close, which reopening brings back whole. */
+  undoImport(pageIds: PageId[], groupId: string | null): void | Promise<void> {
+    if (groupId !== null) {
+      const known = [...this.workspaces.values()].some((workspace) =>
+        workspace.groups.some((group) => group.id === groupId),
+      );
+      return known ? this.deleteGroupWithPages(groupId) : undefined;
+    }
+    const here = pageIds.filter((id) => this.pages.has(id));
+    const [first] = here;
+    if (first === undefined) return;
+    const workspace = this.workspaceOf(first);
+    const closing = here.flatMap((id) => workspace.tree.branch(id));
+    return this.guardRemoval(closing, () => {
+      const active = this.viewOf(workspace).activePageId;
+      const heir =
+        workspace.tree.get(first)?.parentId ??
+        workspace.tree.rootIds.find((id) => !here.includes(id)) ??
+        null;
+      const successor =
+        active !== null && closing.includes(active) ? heir : active;
+      this.closeBranchesNow(workspace, closing, successor, heir);
+    });
+  }
+
   /** A copy of a page, right after it, with the same history. */
   duplicatePage(id: PageId): PageId {
     const page = this.require(id);
@@ -1122,6 +1248,7 @@ export class BrowserController {
       ...this.newPage(page.workspaceId),
       customTitle: page.customTitle,
       note: page.note,
+      emoji: page.emoji,
       history: page.host?.captureHistory() ?? page.history,
       state: { ...page.state, isLoading: false, error: null },
     });
@@ -1180,6 +1307,12 @@ export class BrowserController {
   /** Gives a page its own name; `null` goes back to the page's title. */
   renamePage(id: PageId, title: string | null): void {
     this.require(id).customTitle = cleanText(title);
+    this.changed();
+  }
+
+  /** Gives a trail its mark; `null` goes back to its site's icon. */
+  setEmoji(id: PageId, emoji: string | null): void {
+    this.require(id).emoji = cleanText(emoji);
     this.changed();
   }
 
@@ -1267,8 +1400,21 @@ export class BrowserController {
     if (childId !== null) this.activatePage(childId);
   }
 
+  /** What macOS refused to Splash on this page, since it last loaded. */
+  systemRefusedOn(id: PageId): SystemPermission[] {
+    return [...(this.pages.get(id)?.systemRefused ?? [])];
+  }
+
   reload(id: PageId, options: { ignoreCache?: boolean } = {}): void {
     const page = this.require(id);
+    // The way to find out if a change in System Settings took.
+    if (page.systemRefused.size > 0) {
+      for (const permission of page.systemRefused) {
+        page.blocked.delete(permission);
+      }
+      page.systemRefused.clear();
+      this.changed();
+    }
     // A crash leaves the history intact, so reloading adds nothing to it and
     // keeps the back button honest.
     if (page.state.error?.kind === 'crashed' && page.host) {
@@ -1311,6 +1457,114 @@ export class BrowserController {
     const rows = this.visibleRows();
     const id = position === 'last' ? rows.at(-1) : rows[position - 1];
     if (id !== undefined && id !== this.activePageId) this.activatePage(id);
+  }
+
+  /**
+   * Shows the top of the trail `offset` above or below this one, wrapping
+   * around. Trails inside a folded group are skipped, as they aren't shown.
+   */
+  activateAdjacentTrail(offset: 1 | -1): void {
+    const workspace = this.workspace;
+    const { tree, groups } = workspace;
+    const folded = new Set(
+      groups.filter((group) => group.collapsed).map((group) => group.id),
+    );
+    const trails = tree.rootIds.filter((id) => {
+      const groupId = this.require(id).groupId;
+      return groupId === null || !folded.has(groupId);
+    });
+    if (trails.length === 0) return;
+    const current = this.activePageId;
+    const index =
+      current === null ? -1 : trails.indexOf(this.trailOf(workspace, current));
+    const start = index === -1 ? (offset > 0 ? -1 : 0) : index;
+    const next = trails[(start + offset + trails.length) % trails.length]!;
+    if (next !== current) this.activatePage(next);
+  }
+
+  /**
+   * One step at a time, on the way down to the page on screen. The page stays
+   * on screen whichever way it goes: collapsing folds the lowest open level,
+   * expanding unfolds the highest closed one.
+   */
+  stepCollapse(direction: 'collapse' | 'expand'): void {
+    const id = this.activePageId;
+    if (id === null) return;
+    const { tree } = this.workspaceOf(id);
+    const path: PageId[] = [];
+    for (let at: PageId | null = id; at !== null; ) {
+      path.unshift(at);
+      at = tree.get(at)?.parentId ?? null;
+    }
+    const canFold = (pageId: PageId) =>
+      (tree.get(pageId)?.childIds.length ?? 0) > 0;
+    if (direction === 'expand') {
+      const fold = path.find(
+        (pageId) => this.collapsedIds.has(pageId) && canFold(pageId),
+      );
+      if (fold !== undefined) this.setCollapsed(fold, false);
+      return;
+    }
+    const fold = path.findLast(
+      (pageId) => !this.collapsedIds.has(pageId) && canFold(pageId),
+    );
+    if (fold !== undefined) this.setCollapsed(fold, true);
+  }
+
+  /**
+   * Collapses every trail and group but the one this page is in, and shows
+   * the way down to it. The shell says what changed and offers to undo it.
+   */
+  collapseOtherTrails(id: PageId | null = this.activePageId): void {
+    if (id === null) return;
+    const workspace = this.workspaceOf(id);
+    const { tree, groups } = workspace;
+    const keep = this.trailOf(workspace, id);
+    const keepGroup = this.require(keep).groupId;
+    const pageIds = tree.rootIds.filter(
+      (root) =>
+        root !== keep &&
+        (tree.get(root)?.childIds.length ?? 0) > 0 &&
+        !this.collapsedIds.has(root),
+    );
+    const groupIds = groups
+      .filter((group) => group.id !== keepGroup && !group.collapsed)
+      .map((group) => group.id);
+    this.reveal(workspace, id);
+    this.setTrailsCollapsed(pageIds, groupIds, true);
+    this.options.onNotice?.({ kind: 'trails-collapsed', pageIds, groupIds });
+  }
+
+  /** Folds or unfolds these together; any that have since gone are skipped. */
+  setTrailsCollapsed(
+    pageIds: readonly PageId[],
+    groupIds: readonly string[],
+    collapsed: boolean,
+  ): void {
+    for (const id of pageIds) {
+      if (!this.pages.has(id)) continue;
+      if (collapsed) this.collapsedIds.add(id);
+      else this.collapsedIds.delete(id);
+    }
+    for (const workspace of this.workspaces.values()) {
+      for (const group of workspace.groups) {
+        if (groupIds.includes(group.id)) group.collapsed = collapsed;
+      }
+    }
+    this.changed();
+  }
+
+  /** The top-level page of the trail a page is in. */
+  private trailOf(workspace: Workspace, id: PageId): PageId {
+    let at = id;
+    for (
+      let parent = workspace.tree.get(at)?.parentId ?? null;
+      parent !== null;
+      parent = workspace.tree.get(at)?.parentId ?? null
+    ) {
+      at = parent;
+    }
+    return at;
   }
 
   stop(id: PageId): void {
@@ -1758,6 +2012,7 @@ export class BrowserController {
           note: page.note,
           pinned: page.pinned,
           groupId: page.groupId,
+          ...(page.emoji ? { emoji: page.emoji } : {}),
           collapsed: this.collapsedIds.has(id),
           history: page.host?.captureHistory() ?? page.history,
           createdAt: page.createdAt,
@@ -1781,6 +2036,7 @@ export class BrowserController {
       pages,
       activeWorkspaceId: this.activeWorkspaceId,
       closed: [...this.closed],
+      savedAt: this.now(),
     };
   }
 
@@ -1795,6 +2051,7 @@ export class BrowserController {
     this.workspaceOrder = [];
     this.views.clear();
     this.collapsedIds.clear();
+    this.trails.leftAt = session.savedAt ?? null;
 
     for (const stored of session.workspaces) {
       const workspace = this.addWorkspace(stored.name, stored.id);
@@ -1831,6 +2088,7 @@ export class BrowserController {
           workspace.groups.some((group) => group.id === stored.groupId)
             ? (stored.groupId ?? null)
             : null,
+        emoji: stored.emoji ?? null,
         createdAt: stored.createdAt,
         lastActiveAt: stored.lastActiveAt,
       });
@@ -1888,6 +2146,8 @@ export class BrowserController {
         note: page.note,
         isPinned: page.pinned,
         groupId: page.groupId,
+        emoji: page.emoji,
+        lastActiveAt: page.lastActiveAt,
         blockedPermissions: [...page.blocked],
         blockedPopups: [...page.blockedPopups],
         permissionRequest: page.permissionQueue[0]?.request ?? null,
@@ -1914,6 +2174,31 @@ export class BrowserController {
         };
       }),
       activeWorkspaceId: workspace.id,
+    };
+  }
+
+  /**
+   * What to say about coming back, once, if Splash reopened after a while with
+   * more than the trail on screen to go back to. Names the one used before it.
+   */
+  takeComeBack(): Extract<Notice, { kind: 'come-back' }> | null {
+    const leftAt = this.trails.leftAt;
+    this.trails.leftAt = null;
+    if (leftAt === null || this.now() - leftAt < COME_BACK_AFTER_MS)
+      return null;
+    const snapshot = this.snapshot();
+    const summaries = trailSummaries(snapshot);
+    const previous = summaries.find((summary) => !summary.current);
+    if (!previous || summaries.length < 2) return null;
+    const name = (id: PageId) => {
+      const page = this.require(id);
+      return nameOf(page.customTitle, page.state);
+    };
+    return {
+      kind: 'come-back',
+      trailCount: summaries.length,
+      trail: name(previous.rootId),
+      page: name(previous.leftId),
     };
   }
 
@@ -2225,9 +2510,11 @@ export class BrowserController {
       note: null,
       pinned: false,
       groupId: null,
+      emoji: null,
       committedUrl: null,
       permissionQueue: [],
       blocked: new Set(),
+      systemRefused: new Set(),
       blockedPopups: [],
     };
   }
@@ -2259,6 +2546,7 @@ export class BrowserController {
         note: page.note,
         pinned: page.pinned,
         groupId: page.groupId,
+        ...(page.emoji ? { emoji: page.emoji } : {}),
         state: page.state,
         history: page.host?.captureHistory() ?? page.history,
         createdAt: page.createdAt,
@@ -2479,6 +2767,22 @@ export class BrowserController {
         for (const permission of permissions) page.blocked.add(permission);
         this.changed();
       },
+      onPermissionRefusedBySystem: (permissions) => {
+        const page = this.pages.get(id);
+        if (!isCurrent() || !page) return;
+        const fresh = permissions.filter((p) => !page.systemRefused.has(p));
+        if (fresh.length === 0) return;
+        for (const permission of fresh) {
+          page.blocked.add(permission);
+          page.systemRefused.add(permission);
+        }
+        at().options.onNotice?.({
+          kind: 'system-permission-refused',
+          permissions: fresh,
+          host: hostOf(page.committedUrl) ?? 'This site',
+        });
+        this.changed();
+      },
     });
     this.require(id).holder = this;
     return host;
@@ -2563,6 +2867,7 @@ export class BrowserController {
         // Requests and refusals belong to the site the page has left.
         this.cancelPermissionRequests(page);
         page.blocked.clear();
+        page.systemRefused.clear();
       }
       if (previous === null || !isSameDocumentUrl(patch.url, previous)) {
         // Popups are stopped per document; a new one starts with a clean slate.
@@ -2675,6 +2980,15 @@ export class BrowserController {
 
 function inSplit(split: SplitView, id: PageId): boolean {
   return split.leftId === id || split.rightId === id;
+}
+
+function hostOf(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).host || null;
+  } catch {
+    return null;
+  }
 }
 
 function originOf(url: string | null): string | null {

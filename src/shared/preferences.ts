@@ -52,6 +52,8 @@ export interface Preferences {
   showSiteNames: boolean;
   /** A row of bookmarks over the page; the sidebar holds them too. */
   bookmarksBar: boolean;
+  /** PROTOTYPE: the Alma view button at the foot of the sidebar. */
+  almaViewButton: boolean;
   /** Hairlines down each branch of the trail. */
   showBranchLines: boolean;
   /**
@@ -205,6 +207,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   density: 'comfortable',
   showSiteNames: true,
   bookmarksBar: false,
+  almaViewButton: true,
   showBranchLines: true,
   trailStyle: 'minimal',
   reduceMotion: false,

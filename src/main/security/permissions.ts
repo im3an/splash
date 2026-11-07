@@ -1,4 +1,8 @@
-import type { PermissionDecision, SitePermission } from '../../shared/types';
+import type {
+  PermissionDecision,
+  SitePermission,
+  SystemPermission,
+} from '../../shared/types';
 
 /** Granted without asking: harmless, and expected to just work. */
 export const AUTO_GRANTED = new Set([
@@ -129,4 +133,56 @@ export async function resolvePermissionRequest(
     decisions.setPermission(origin, permission, granted);
   }
   return granted;
+}
+
+/** How Electron reaches macOS's own answer about a camera or microphone. */
+export interface SystemMediaAccess {
+  status(kind: 'camera' | 'microphone'): string;
+  ask(kind: 'camera' | 'microphone'): Promise<boolean>;
+}
+
+/**
+ * What macOS refuses of what a site was just given, asking it if it hasn't
+ * answered yet. The location isn't here because Electron can't ask about it: see
+ * `watchLocationRefusals`.
+ */
+export async function refusedBySystem(
+  permissions: readonly SitePermission[],
+  access: SystemMediaAccess,
+): Promise<SystemPermission[]> {
+  for (const kind of ['camera', 'microphone'] as const) {
+    if (!permissions.includes(kind)) continue;
+    if (access.status(kind) === 'granted') continue;
+    if (!(await access.ask(kind))) return [kind];
+  }
+  return [];
+}
+
+/**
+ * A refused request reaches Splash from a frame in a page, and either one's site
+ * can hold the answer the user gave. A refusal on an allowed site came from below
+ * Splash; on any other, Splash refused it itself.
+ */
+export function isAllowedOnAny(
+  decisions: Pick<PermissionDecisions, 'getPermission'>,
+  permission: SitePermission,
+  urls: readonly (string | undefined)[],
+): boolean {
+  return urls.some((url) => {
+    const origin = webOrigin(url);
+    return (
+      origin !== null && decisions.getPermission(origin, permission) === true
+    );
+  });
+}
+
+const SYSTEM_SETTINGS_PANES: Record<SystemPermission, string> = {
+  camera: 'Privacy_Camera',
+  microphone: 'Privacy_Microphone',
+  location: 'Privacy_LocationServices',
+};
+
+/** The pane of System Settings where macOS keeps this permission. */
+export function systemSettingsUrl(permission: SystemPermission): string {
+  return `x-apple.systempreferences:com.apple.preference.security?${SYSTEM_SETTINGS_PANES[permission]}`;
 }

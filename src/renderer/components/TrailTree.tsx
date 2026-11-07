@@ -59,7 +59,9 @@ import {
 import { useOverlay } from '../stores/overlay-store';
 import { Highlighted } from './PaletteList';
 import { TrailGroup } from './TrailGroup';
+import { TrailIconPicker } from './GroupIconPicker';
 import { pageLabel, pageParts } from '../lib/format';
+import { shareById } from '../lib/share-unchanged';
 import { renamedToast, trailMoveToast } from '../lib/notices';
 import {
   trailSectionCounts,
@@ -108,7 +110,11 @@ import {
 } from '../stores/drag-store';
 import { useDownloads } from '../stores/downloads-store';
 import { useToast } from '../stores/toast-store';
-import { openPageMenu, usePageMenu } from '../stores/page-menu-store';
+import {
+  openPageMenu,
+  usePageMenu,
+  useTrailIcon,
+} from '../stores/page-menu-store';
 import { DownloadRing } from './DownloadRing';
 import { Favicon } from './Favicon';
 import { usePagePreview } from './PagePreview';
@@ -170,6 +176,16 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
     if (!dragging) return;
     const track = (event: PointerEvent) => {
       pointerAt.current = { x: event.clientX, y: event.clientY };
+      // Off the window's edge it stops being a move in the trail, and goes on
+      // as macOS's own drag of the trail as a Markdown file.
+      const pageId = usePageDrag.getState().pageId;
+      if (pageId && leftWindow(event.clientX, event.clientY)) {
+        void api().dragTrailOut({ pageId });
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape' }),
+        );
+        return;
+      }
       usePageDrag.getState().track(event.clientX, event.clientY);
     };
     window.addEventListener('pointermove', track, true);
@@ -177,22 +193,22 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
   }, [dragging]);
   // A small threshold keeps plain clicks from turning into drags.
   // No dragging while filtered: neighbours on screen aren't neighbours.
-  const pointer = useSensor(PointerSensor, {
-    activationConstraint: { distance: 4 },
-  });
+  const pointer = useSensor(PointerSensor, POINTER_OPTIONS);
 
   const filter = useShell((state) => state.trailFilter)?.trim() ?? '';
   const filtering = filter !== '';
   const sensors = useSensors(filtering ? undefined : pointer);
-  const allRows = useMemo(
-    () =>
-      snapshot
-        ? filtering
-          ? filteredRows(snapshot, filter)
-          : visibleRows(snapshot)
-        : [],
-    [snapshot, filter, filtering],
-  );
+  const keptRows = useRef<Row[]>([]);
+  const allRows = useMemo(() => {
+    const next = !snapshot
+      ? []
+      : filtering
+        ? filteredRows(snapshot, filter)
+        : visibleRows(snapshot);
+    // Unchanged rows keep their object, so only rows that changed draw again.
+    keptRows.current = shareById(keptRows.current, next);
+    return keptRows.current;
+  }, [snapshot, filter, filtering]);
   // Collapsed rows stand in for the pages beneath them.
   const hidden = useMemo(() => {
     const summaries = new Map<PageId, HiddenSummary>();
@@ -268,6 +284,8 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
       ?.focus();
   }, []);
   const rows = drag ? rowsWhileDragging(allRows, drag.activeId) : allRows;
+  // A new list here would draw every row: each one listens to this context.
+  const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
   const projection: DropProjection | null = drag
     ? projectDrop(allRows, drag.activeId, drag.overId, drag.offsetX, indent)
     : null;
@@ -387,7 +405,7 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
         announcements,
         screenReaderInstructions: {
           draggable:
-            'Drag to move the page. With the keyboard, Option-Command and the arrow keys move it.',
+            'Drag to move the page, or out of the window to save its trail as Markdown. With the keyboard, Option-Command and the arrow keys move it.',
         },
       }}
       onDragStart={onDragStart}
@@ -399,10 +417,7 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
         usePageDrag.getState().end();
       }}
     >
-      <SortableContext
-        items={rows.map((row) => row.id)}
-        strategy={verticalListSortingStrategy}
-      >
+      <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
         <div
           ref={treeRef}
           role="tree"
@@ -512,9 +527,39 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
             activeId={snapshot.activePageId}
             dragging={drag !== null}
           />
+          <TrailIcon />
         </div>
       </SortableContext>
     </DndContext>
+  );
+}
+
+/** At or past the window's edge: where a page drag turns into a file drag. */
+function leftWindow(x: number, y: number): boolean {
+  return (
+    x <= 0 ||
+    y <= 0 ||
+    x >= window.innerWidth - 1 ||
+    y >= window.innerHeight - 1
+  );
+}
+
+/** Picks a trail's emoji, opening at its mark in the trail. */
+function TrailIcon() {
+  const pageId = useTrailIcon((state) => state.pageId);
+  const anchor = pageId
+    ? document.querySelector<HTMLElement>(
+        `.trail-row[data-page-id="${CSS.escape(pageId)}"] .trail-favicon`,
+      )
+    : null;
+  if (!pageId || !anchor) return null;
+  return (
+    <TrailIconPicker
+      key={pageId}
+      pageId={pageId}
+      anchor={anchor}
+      onClose={() => useTrailIcon.setState({ pageId: null })}
+    />
   );
 }
 
@@ -618,6 +663,9 @@ function previousSiblingId(rows: Row[], id: PageId): PageId | null {
   return null;
 }
 
+/** Outside the component: a new object here would draw every row each time. */
+const POINTER_OPTIONS = { activationConstraint: { distance: 4 } };
+
 const TrailRow = memo(function TrailRow({
   row,
   depth,
@@ -702,6 +750,8 @@ const TrailRow = memo(function TrailRow({
     : undefined;
   const label = pageLabel(page);
   const parts = pageParts(page);
+  // The top of a trail with pages under it, or one that's been marked as one.
+  const trailhead = row.depth === 0 && (row.hasChildren || Boolean(page.emoji));
   // One quiet marker at the row's end; close takes its place on hover.
   const marker = page.shownElsewhere ? (
     <AppWindow size={11} aria-label="Showing in another window" />
@@ -788,7 +838,7 @@ const TrailRow = memo(function TrailRow({
       ]
         .filter(Boolean)
         .join(', ')}
-      aria-roledescription="page"
+      aria-roledescription={trailhead ? 'trail' : 'page'}
       tabIndex={tabStop ? 0 : -1}
       data-page-id={row.id}
       onFocus={(event) => {
@@ -817,6 +867,7 @@ const TrailRow = memo(function TrailRow({
       data-flat={flat}
       // Minimal keeps every row alike; the pin at its end says enough.
       data-pinned-root={!minimal && page.isPinned && row.depth === 0}
+      data-trailhead={trailhead}
       data-paired={paired}
       data-menu-open={menuOpen}
       data-dragging={dragging}

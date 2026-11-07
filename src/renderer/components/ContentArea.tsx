@@ -28,6 +28,7 @@ import { canContinuePastCertificate } from '../../shared/certificate-errors';
 import { ErrorBoundary } from './ErrorBoundary';
 import { SiteInfoPopover } from './SiteInfoPopover';
 import { StartPage } from './StartPage';
+import { AlmaViewPrototype } from '../prototype/AlmaViewPrototype';
 
 const PANE =
   'relative overflow-hidden rounded-content bg-surface shadow-content';
@@ -222,6 +223,8 @@ function OverlayContent({
       return <AddressSuggestions />;
     case 'site-info':
       return <SiteInfoPopover />;
+    case 'alma-view':
+      return import.meta.env.DEV ? <AlmaViewPrototype /> : null;
     default:
       return null;
   }

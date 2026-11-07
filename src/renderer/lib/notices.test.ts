@@ -1,3 +1,5 @@
+import type { SplashApi } from '../../shared/api';
+import type { Notice } from '../../shared/types';
 import { noticeMessage, noticeToast, undoMessage } from './notices';
 
 describe('undoMessage', () => {
@@ -126,5 +128,36 @@ describe('a word added to the dictionary', () => {
     const toast = noticeToast({ kind: 'word-not-added', word: 'Splashy' });
     expect(toast.message).toBe('Couldn’t add “Splashy” to the dictionary.');
     expect(toast.actions).toEqual([]);
+  });
+});
+
+describe('a permission macOS refused', () => {
+  const notice: Notice = {
+    kind: 'system-permission-refused',
+    permissions: ['location'],
+    host: 'maps.example',
+  };
+
+  it('says what can’t happen, and why', () => {
+    expect(noticeMessage(notice)).toBe(
+      'maps.example can’t use your location, because macOS hasn’t allowed Splash to.',
+    );
+  });
+
+  it('offers the place to change it', async () => {
+    const openPermissionSettings = vi.fn(async () => undefined);
+    vi.stubGlobal('window', {
+      splash: { openPermissionSettings } as unknown as SplashApi,
+    });
+    const toast = noticeToast(notice);
+    expect(toast.detail).toBe(
+      'Turn it on in System Settings, then reload the page.',
+    );
+    expect(toast.actions.map((action) => action.label)).toEqual([
+      'Open System Settings',
+    ]);
+    await toast.actions[0]!.run();
+    expect(openPermissionSettings).toHaveBeenCalledWith('location');
+    vi.unstubAllGlobals();
   });
 });

@@ -37,6 +37,8 @@ export interface StoredPage {
   collapsed: boolean;
   pinned: boolean;
   groupId?: string | null;
+  /** A trail's mark, on its top-level page. */
+  emoji?: string | null;
   history: PageHistory | null;
   createdAt: number;
   lastActiveAt: number;
@@ -53,6 +55,8 @@ export interface StoredSession {
   activeWorkspaceId: WorkspaceId | null;
   /** Undo history for closed pages and workspaces, oldest first. */
   closed?: ClosedRecord[];
+  /** When this was saved, which is about when Splash was last in use. */
+  savedAt?: number;
 }
 
 export interface HistoryMatch {

@@ -217,8 +217,17 @@ Privacy and security
   - [x] Fixed: sites read "denied" before being asked, so a site that checks first
         would say the camera was blocked and never ask. They now read "prompt".
   - [ ] Allow, with a real macOS prompt for each. Needs a person to answer them.
-  - [ ] A location refused in macOS shows the page an error, with no explanation
-        from Splash, unlike the camera and microphone
+  - [x] What macOS refuses is explained: location, camera and microphone. A toast
+        names the site and opens the right pane of System Settings, and Site Info
+        says the same while the page shows it. Before, the camera and microphone
+        only had the Blocked shield, whose "click to change" led to an Allow that
+        was already on. Electron can't ask macOS about the location, so a frame's
+        refused request on an allowed site is what counts. Tried in the app with
+        the refusal simulated below Splash.
+    - [ ] A real macOS refusal, and that the button opens the right pane. Needs a
+          person: deny Splash in System Settings, or Don't Allow in its prompt. The
+          packaged app is needed, since the dev Electron has no location usage
+          string and its requests just time out.
 
 Media and macOS
 
@@ -270,7 +279,29 @@ Media and macOS
 - [ ] Print and Save Page dialogs by hand
 - [ ] Populated downloads, split view, offline recovery, narrow window and
       reduced motion walkthroughs in the packaged app
-- [ ] 100+ pages and 10k+ history entries: speed and memory
+- [x] 100+ pages and 10k+ history entries: speed and memory. Measured in packaged
+      builds with and without the fix, on local pages, with a throwaway profile.
+  - [x] Fixed: every snapshot drew every row of the trail. Snapshots now keep what
+        didn't change, and the drag library no longer gets new options each time.
+        At 200 pages, averaging the medians of 3 runs each: activate a page 123 →
+        27 ms, new page 55 → 35 ms, close page 53 → 33 ms, rename a page 25 → 17 ms.
+  - [x] Already fine, at 500 pages and 100k history entries: launch to rows on
+        screen 0.5 s (2.3 to 2.8 s at 200 pages on a new build's first run), palette
+        query 8 ms, history search 3 ms, scrolling at 120 fps.
+  - [x] Memory, with one small page open: the main process takes about 300 MB
+        however many pages there are, uBlock Origin 190 to 240 MB, and the shell
+        36 MB at 2 pages, 130 MB at 200 and 155 MB at 500. Only 12 pages stay live;
+        with 12 real sites the page processes took 2.6 to 3 GB in a dev build.
+  - [ ] One later run at 200 pages had 7,700 elements in the shell instead of 4,400,
+        no scrolling trail, and a 56 ms new page. It didn't come back in 2 more runs.
+        Cause unknown.
+  - [ ] Opening or closing a page still draws every row, because each row listens
+        to the drag library's list: 70 ms at 500 pages, the only long task left.
+        Drawing only the rows on screen would solve it.
+  - [ ] Find out why the main process takes 300 MB. The built-in blocker's lists
+        are the first suspect, and removing them is already planned below.
+  - [ ] 12 live pages is a fixed number. Chrome frees pages by memory pressure and
+        how long they've been idle, which could lower that 3 GB.
 - [x] Upgrade Electron: now 45.2.3. No 45.0.1 was released; the fix for hanging
       blocking listeners (electron/electron#55234) works here.
 - [ ] **Rely on uBlock Origin for blocking, not Splash's own hooks.** Decided 6
@@ -373,18 +404,30 @@ Trails and projects (Horse parity)
       each with its own page, split view and expand/collapse state. A page shows
       in one window at a time: opening it in a second moves it there, and the
       first says so and offers Show here until the page comes back.
-- [ ] Name a top-level trail and give it an emoji
-- [ ] Several trails per workspace, with a clear "trailhead" (a top-level
+- [x] Name a top-level trail and give it an emoji
+- [x] Several trails per workspace, with a clear "trailhead" (a top-level
       page) in the UI
-- [ ] Create a sibling ("sidetrail") as well as a child ("subtrail"), each on its own shortcut
-- [ ] Collapse everything except the current trail (one shortcut)
-- [ ] Select the trail above/below and collapse/expand by ⌘⇧ arrows **(check)**
-      against the existing ↑ ↓ ← → navigation
-- [ ] Drag a trail out of the sidebar to export it as Markdown: pages in order,
+- [x] Create a sibling ("sidetrail") as well as a child ("subtrail"), each on
+      its own shortcut: ⌃⌘T for a sibling, ⌥⌘T for a child
+- [x] Collapse everything except the current trail (one shortcut): ⌥⌘C
+- [x] Select the trail above/below and collapse/expand by ⌘⇧ arrows. **Check
+      result:** the plain arrows don't clash, but Chromium offers ⇧⌘-arrows to
+      the menu before it selects text. The menu's handler now asks the focused
+      frame first, so a field with text keeps its selection keys, and a site
+      that handles the key itself keeps it too.
+  - [ ] By hand: click into a text field in the frontmost window and press
+        ⇧⌘←/→/↑/↓. It should select, and the trail should stay put. Tested with
+        real key events, but only with the app in the background.
+- [x] Drag a trail out of the sidebar to export it as Markdown: pages in order,
       links clickable, notes beside their page, folders nested
-- [ ] Import / paste a Markdown outline back into a trail
-- [ ] Come-back summary: on reopening, show where you left each trail
-- [ ] Cross-device trail sync (the question Horse's FAQ expects)
+  - [ ] By hand: drop a trail row and a group row on Finder and in a Markdown
+        app. The hand-off and the file are tested; the native drop isn't.
+- [x] Import / paste a Markdown outline back into a trail
+- [x] Come-back summary: on reopening, show where you left each trail. After an
+      hour away, with two or more trails: a toast with Show All, which opens
+      Where You Left Off.
+- [ ] Cross-device trail sync (the question Horse's FAQ expects). Not built:
+      it needs a decision on where trails live between devices.
 
 Arc / Zen style
 

@@ -17,6 +17,7 @@ import { workspaceMenuItems } from './workspace-menu';
 import { isNavigableUrl, isPageUrl } from '../browser/url';
 import { contentsForPage, pageHandleFor } from '../browser/electron-page-host';
 import { editTarget, isEditingText } from './edit-history';
+import { selectionTookArrow, type SelectionArrow } from './selection-keys';
 import { savePage } from '../browser/save-page';
 
 export interface MenuActions {
@@ -123,6 +124,32 @@ export function installApplicationMenu(actions: MenuActions): void {
     else if (focused && !focused.isDestroyed()) focused[command]();
   };
 
+  /**
+   * ⇧⌘ and an arrow, unless it's meant for the text field that has focus. Chosen
+   * from the menu with the mouse, the item always means the trail.
+   */
+  const trailArrow =
+    (
+      arrow: SelectionArrow,
+      run: (controller: TrailWindow['controller']) => void,
+    ) =>
+    async (
+      _item: unknown,
+      _window: unknown,
+      event: { triggeredByAccelerator?: boolean },
+    ) => {
+      const focused = webContents.getFocusedWebContents();
+      if (
+        event.triggeredByAccelerator &&
+        focused &&
+        (await selectionTookArrow(focused, arrow))
+      ) {
+        return;
+      }
+      const window = actions.currentWindow();
+      if (window) run(window.controller);
+    };
+
   // The menu is rebuilt when these change, so toggles name what they'll do.
   const activeWindow = actions.currentWindow();
   const activeId = activeWindow?.controller.activePageId;
@@ -209,6 +236,14 @@ export function installApplicationMenu(actions: MenuActions): void {
           }),
         },
         {
+          label: 'New Sibling Page',
+          accelerator: 'Ctrl+CmdOrCtrl+T',
+          click: withActivePage((w, id) => {
+            w.controller.createSiblingPage(id);
+            w.sendUiCommand({ type: 'open-location' });
+          }),
+        },
+        {
           label: 'Duplicate Page',
           click: withActivePage((w, id) => w.controller.duplicatePage(id)),
         },
@@ -244,6 +279,13 @@ export function installApplicationMenu(actions: MenuActions): void {
           label: 'Export Trail…',
           enabled: Boolean(activePage),
           click: () => void actions.currentWindow()?.saveTrail(),
+        },
+        {
+          label: 'Import Trail…',
+          click: () => {
+            const window = actions.currentWindow() ?? actions.openWindow();
+            void window.importTrailFile();
+          },
         },
         { type: 'separator' },
         {
@@ -366,6 +408,13 @@ export function installApplicationMenu(actions: MenuActions): void {
           click: () => {
             const window = actions.currentWindow() ?? actions.openWindow();
             void window.pasteAndGo();
+          },
+        },
+        {
+          label: 'Paste Outline as Trail',
+          click: () => {
+            const window = actions.currentWindow() ?? actions.openWindow();
+            void window.pasteOutline(null);
           },
         },
         { role: 'selectAll' },
@@ -512,10 +561,66 @@ export function installApplicationMenu(actions: MenuActions): void {
         ...rowShortcuts,
         { type: 'separator' },
         {
+          label: 'Next Trail',
+          accelerator: 'Shift+CmdOrCtrl+Down',
+          click: trailArrow('down', (controller) =>
+            controller.activateAdjacentTrail(1),
+          ),
+        },
+        {
+          label: 'Previous Trail',
+          accelerator: 'Shift+CmdOrCtrl+Up',
+          click: trailArrow('up', (controller) =>
+            controller.activateAdjacentTrail(-1),
+          ),
+        },
+        {
+          label: 'Collapse Branch',
+          accelerator: 'Shift+CmdOrCtrl+Left',
+          click: trailArrow('left', (controller) =>
+            controller.stepCollapse('collapse'),
+          ),
+        },
+        {
+          label: 'Expand Branch',
+          accelerator: 'Shift+CmdOrCtrl+Right',
+          click: trailArrow('right', (controller) =>
+            controller.stepCollapse('expand'),
+          ),
+        },
+        {
+          label: 'Collapse Other Trails',
+          accelerator: 'Alt+CmdOrCtrl+C',
+          enabled: Boolean(activePage),
+          click: () =>
+            actions.currentWindow()?.controller.collapseOtherTrails(),
+        },
+        {
+          label: 'Where You Left Off',
+          click: () =>
+            actions
+              .currentWindow()
+              ?.sendUiCommand({ type: 'show-trail-summary' }),
+        },
+        { type: 'separator' },
+        {
           label: 'Task Manager',
           click: () =>
             actions.currentWindow()?.sendUiCommand({ type: 'show-tasks' }),
         },
+        // PROTOTYPE: see src/renderer/prototype/.
+        ...(app.isPackaged
+          ? []
+          : [
+              {
+                label: 'Alma View',
+                accelerator: 'Alt+CmdOrCtrl+G',
+                click: () =>
+                  actions
+                    .currentWindow()
+                    ?.sendUiCommand({ type: 'show-alma-view' }),
+              },
+            ]),
         {
           label: 'Downloads',
           accelerator: 'Alt+CmdOrCtrl+L',

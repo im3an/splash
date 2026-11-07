@@ -1,8 +1,8 @@
-import { writeFile } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { dialog, type BaseWindow } from 'electron';
-import type { ImportResult } from '../../shared/types';
+import type { ImportResult, PageId } from '../../shared/types';
 import type { BrowserController } from '../browser/browser-controller';
 import type { PreferencesService } from '../preferences';
 import type { Vault } from '../vault/vault';
@@ -10,10 +10,17 @@ import { bookmarksToHtml } from './bookmark-html';
 import { libraryTree } from './bookmark-tree';
 import { loginsToCsv } from './login-csv';
 import type { Transfer } from './transfer';
-import { branchOf, trailToMarkdown } from './trail-markdown';
+import {
+  branchOf,
+  groupPages,
+  trailFileName,
+  trailToMarkdown,
+} from './trail-markdown';
 
 /** Past this, a file isn't an export of anything Splash can read. */
 const MAX_IMPORT_FILE = 256 * 1024 * 1024;
+/** Far past any outline of the most pages an import takes. */
+const MAX_TRAIL_FILE = 4 * 1024 * 1024;
 
 const todayStamp = () => new Date().toISOString().slice(0, 10);
 
@@ -66,16 +73,63 @@ export function exportTrail(
   }
   if (!root) return Promise.resolve(null);
   const title = root.customTitle || root.title || root.url || 'Trail';
-  const safeName = title
-    .replace(/[/\\:*?"<>|]/g, ' ')
-    .trim()
-    .slice(0, 80);
   return saveAs(parent, {
     title: 'Export Trail',
-    name: `${safeName || 'Trail'}.md`,
+    name: trailFileName(title),
     filters: [{ name: 'Markdown', extensions: ['md'] }],
     text: trailToMarkdown(title, branchOf(pages, root.id)),
   });
+}
+
+/** A page's branch, or a whole group, as a Markdown file's name and text. */
+export function trailFile(
+  controller: Pick<BrowserController, 'exportSession'>,
+  target: { pageId: PageId } | { groupId: string },
+): { filename: string; text: string } | null {
+  const { pages, workspaces } = controller.exportSession();
+  if ('groupId' in target) {
+    const group = workspaces
+      .flatMap((workspace) => workspace.groups ?? [])
+      .find((item) => item.id === target.groupId);
+    if (!group) return null;
+    return {
+      filename: trailFileName(group.name),
+      text: trailToMarkdown(group.name, groupPages(pages, group.id)),
+    };
+  }
+  const root = pages.find((page) => page.id === target.pageId);
+  if (!root) return null;
+  const title = root.customTitle || root.title || root.url || 'Trail';
+  return {
+    filename: trailFileName(title),
+    text: trailToMarkdown(title, branchOf(pages, root.id)),
+  };
+}
+
+/** Asks for a Markdown outline. `text` is `null` when it couldn't be read. */
+export async function chooseTrailFile(parent: BaseWindow): Promise<{
+  name: string;
+  text: string | null;
+  tooLarge: boolean;
+} | null> {
+  const { canceled, filePaths } = await dialog.showOpenDialog(parent, {
+    title: 'Import Trail',
+    message:
+      'Choose a Markdown outline. Its lists become pages, nested as written.',
+    filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
+    properties: ['openFile'],
+  });
+  const file = filePaths[0];
+  if (canceled || !file) return null;
+  const name = path.basename(file);
+  try {
+    if ((await stat(file)).size > MAX_TRAIL_FILE) {
+      return { name, text: null, tooLarge: true };
+    }
+    return { name, text: await readFile(file, 'utf8'), tooLarge: false };
+  } catch {
+    return { name, text: null, tooLarge: false };
+  }
 }
 
 /** Passwords leave in the open, so this says so, and asks for Touch ID first. */

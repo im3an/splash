@@ -19,6 +19,7 @@ import { useWorkspaceSlide } from '../lib/use-workspace-slide';
 import { useDownloads } from '../stores/downloads-store';
 import { useSidebarMenu } from '../hooks/use-sidebar-menu';
 import { WorkspaceButton } from './WorkspaceButton';
+import { AlmaViewButton } from '../prototype/AlmaViewPrototype';
 
 /**
  * The sidebar's foot: the current workspace's name with one dot per
@@ -42,6 +43,10 @@ export function WorkspaceBar() {
   const create = () => editWorkspace(null);
 
   const slide = useWorkspaceSlide();
+  const almaButton = useShell(
+    (state) =>
+      import.meta.env.DEV && (state.preferences?.almaViewButton ?? true),
+  );
 
   // At most five circles show, a window that follows the current one and
   // fades out on whichever side has more.
@@ -140,7 +145,7 @@ export function WorkspaceBar() {
           </button>
         </div>
       </div>
-      <span aria-hidden />
+      {almaButton ? <AlmaViewButton /> : <span aria-hidden />}
     </div>
   );
 }

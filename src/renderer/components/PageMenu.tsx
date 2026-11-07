@@ -6,6 +6,7 @@ import {
   ArrowRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  ClipboardPaste,
   Columns2,
   Copy,
   CornerDownRight,
@@ -16,6 +17,7 @@ import {
   Link,
   ListEnd,
   ListMinus,
+  ListPlus,
   ListX,
   Moon,
   Pencil,
@@ -23,6 +25,7 @@ import {
   PinOff,
   Plus,
   RotateCw,
+  Smile,
   StickyNote,
   Type,
   Ungroup,
@@ -39,7 +42,7 @@ import { pageLabel } from '../lib/format';
 import { noticeToast } from '../lib/notices';
 import { api } from '../splash-api';
 import { openLocation } from '../stores/shell-store';
-import { usePageMenu } from '../stores/page-menu-store';
+import { usePageMenu, useTrailIcon } from '../stores/page-menu-store';
 import { useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
@@ -69,6 +72,7 @@ export function pageMenuEntries(
   const shell = useShell.getState();
   const url = page.url;
   const hasChildren = page.childIds.length > 0;
+  const trailhead = page.parentId === null;
   const below = pagesBelow(snapshot, pageId).length;
   const branchWebPages = hasChildren ? branchLinks(snapshot, pageId).length : 0;
   const activeId = snapshot.activePageId;
@@ -121,6 +125,16 @@ export function pageMenuEntries(
       shortcut: key('⌥⌘T'),
       run: async () => {
         await splash.createChildPage(pageId);
+        void openLocation();
+      },
+    },
+    {
+      kind: 'action',
+      label: 'New Sibling Page',
+      icon: <ListPlus {...ICON} />,
+      shortcut: key('⌃⌘T'),
+      run: async () => {
+        await splash.createSiblingPage(pageId);
         void openLocation();
       },
     },
@@ -210,9 +224,15 @@ export function pageMenuEntries(
     { kind: 'separator' },
     {
       kind: 'action',
-      label: 'Rename…',
+      label: trailhead ? 'Name Trail…' : 'Rename…',
       icon: <Pencil {...ICON} />,
       run: () => shell.startRename(pageId),
+    },
+    trailhead && {
+      kind: 'action',
+      label: page.emoji ? 'Change Emoji…' : 'Add Emoji…',
+      icon: <Smile {...ICON} />,
+      run: () => useTrailIcon.setState({ pageId }),
     },
     !!page.customTitle && {
       kind: 'action',
@@ -263,6 +283,12 @@ export function pageMenuEntries(
           run: () => void splash.copyPageAs(pageId, 'text'),
         },
       ],
+    },
+    {
+      kind: 'action',
+      label: 'Paste Outline Here',
+      icon: <ClipboardPaste {...ICON} />,
+      run: () => void splash.pasteOutline(pageId),
     },
     otherWorkspaces.length > 0 && {
       kind: 'submenu',
@@ -327,6 +353,13 @@ export function pageMenuEntries(
         <ChevronsDownUp {...ICON} />
       ),
       run: () => void splash.setCollapsed(pageId, !page.collapsed),
+    },
+    snapshot.rootIds.length > 1 && {
+      kind: 'action',
+      label: 'Collapse Other Trails',
+      icon: <ChevronsDownUp {...ICON} />,
+      shortcut: key('⌥⌘C'),
+      run: () => void splash.collapseOtherTrails(pageId),
     },
     { kind: 'separator' },
     ...(page.isPinned

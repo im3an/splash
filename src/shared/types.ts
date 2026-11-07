@@ -70,6 +70,10 @@ export interface PageSnapshot {
   isPinned: boolean;
   /** The group this top-level page is filed under, if any. */
   groupId: string | null;
+  /** The mark a top-level trail was given, drawn in place of its site icon. */
+  emoji?: string | null;
+  /** When the page was last brought on screen. */
+  lastActiveAt?: number;
   isAudible: boolean;
   isMuted: boolean;
   zoomPercent: number;
@@ -87,6 +91,9 @@ export interface PageSnapshot {
 }
 
 /** Site permissions the user can decide on. */
+/** The permissions macOS decides for the whole app, above any one site. */
+export type SystemPermission = 'camera' | 'microphone' | 'location';
+
 export type SitePermission =
   | 'camera'
   | 'microphone'
@@ -127,6 +134,8 @@ export interface SiteInfo {
   security: 'secure' | 'insecure';
   /** Ads and trackers blocked since the page last loaded. */
   blockedCount: number;
+  /** Allowed here, but macOS isn't letting Splash have it on this page. */
+  refusedBySystem: SystemPermission[];
   permissions: {
     permission: SitePermission;
     label: string;
@@ -203,6 +212,11 @@ export type PaletteCommand =
   | 'picture-in-picture'
   | 'new-page'
   | 'new-child-page'
+  | 'new-sibling-page'
+  | 'collapse-other-trails'
+  | 'import-trail'
+  | 'paste-outline'
+  | 'show-trail-summary'
   | 'new-workspace'
   | 'customize-workspace'
   | 'reopen-closed'
@@ -228,6 +242,8 @@ export type PaletteCommand =
   | 'show-history'
   | 'show-bookmarks'
   | 'show-tasks'
+  /** PROTOTYPE: see src/renderer/prototype/. */
+  | 'show-alma-view'
   | 'toggle-bookmarks-bar'
   | 'bookmark-branch'
   | 'open-settings'
@@ -527,12 +543,40 @@ export type Notice =
   | { kind: 'page-saved'; filename: string }
   /** A word from the page menu's spelling items, kept or refused. */
   | { kind: 'word-added' | 'word-not-added'; word: string }
+  /** Everything but one trail was collapsed; empty when nothing changed. */
+  | { kind: 'trails-collapsed'; pageIds: PageId[]; groupIds: string[] }
+  /** A Markdown outline came in as pages. */
+  | {
+      kind: 'trail-imported';
+      label: string;
+      pageCount: number;
+      /** What it added at the top of its place, to go there or take it out. */
+      pageIds: PageId[];
+      /** Set when it came in as a group of several trails. */
+      groupId: string | null;
+      /** Links kept as plain names, since they weren't web addresses. */
+      skippedAddresses: number;
+    }
+  | {
+      kind: 'trail-not-imported';
+      reason: 'empty' | 'too-long' | 'unreadable';
+      /** The file's name; `null` for the clipboard. */
+      source: string | null;
+    }
+  /** Splash reopened after a while, with several trails to go back to. */
+  | { kind: 'come-back'; trailCount: number; trail: string; page: string }
   /** Bookmarks or a trail were written to a file. */
   | { kind: 'exported'; filename: string }
   /** A login was kept, after asking or because Splash made its password. */
   | { kind: 'password-saved'; host: string }
   /** A site asked for a passkey, and no authenticator in Splash can answer. */
   | { kind: 'passkey-unavailable'; host: string }
+  /** The site was allowed something, and macOS hasn't allowed it to Splash. */
+  | {
+      kind: 'system-permission-refused';
+      permissions: SystemPermission[];
+      host: string;
+    }
   /** A page had no video to float, or its site doesn't allow it. */
   | { kind: 'no-video'; blocked: boolean }
   /** A file can't be shown as a page. */
@@ -626,6 +670,9 @@ export type UiCommand =
   | { type: 'show-history' }
   | { type: 'show-bookmarks' }
   | { type: 'show-tasks' }
+  /** PROTOTYPE: see src/renderer/prototype/. */
+  | { type: 'show-alma-view' }
+  | { type: 'show-trail-summary' }
   /** Edit › Undo while the shell has focus: text first, then the trail. */
   /** `trail` goes straight to the trail, whatever field the shell has focused. */
   | { type: 'undo'; trail?: boolean }

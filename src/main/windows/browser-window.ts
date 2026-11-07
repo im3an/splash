@@ -1,3 +1,5 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   hasCertificateException,
@@ -59,7 +61,13 @@ import {
   pageHandleFor,
 } from '../browser/electron-page-host';
 import { togglePictureInPicture } from '../browser/picture-in-picture';
-import { exportBookmarks, exportTrail } from '../transfer/transfer-dialogs';
+import {
+  chooseTrailFile,
+  exportBookmarks,
+  exportTrail,
+  trailFile,
+} from '../transfer/transfer-dialogs';
+import { parseTrailOutline } from '../transfer/trail-markdown';
 import { setDictionaryWord } from '../spelling';
 import { requestExternalOpen } from '../security/external-apps';
 import { contentBounds } from '../browser/layout';
@@ -74,6 +82,7 @@ import {
   decisionOf,
   PERMISSION_LABELS,
   SITE_PERMISSIONS,
+  systemSettingsUrl,
   webOrigin,
 } from '../security/permissions';
 import { dangerousSiteKey } from '../security/threat-list';
@@ -84,6 +93,11 @@ import type { DownloadManager } from '../downloads/download-manager';
 import type { ContentBlocking } from '../privacy/content-blocker';
 import type { CookieViewer } from '../privacy/cookies';
 import type { ExtensionHost } from '../extensions/extension-host';
+
+/** The most pages one import brings in. */
+const MAX_OUTLINE_PAGES = 500;
+/** How long a dragged-out trail's file stays for the app it was dropped on. */
+const TRAIL_DRAG_FILE_MS = 60_000;
 
 const BOUNDS_KEY = 'window.bounds';
 
@@ -456,6 +470,10 @@ export class TrailWindow {
             this.shellRecovering = false;
             setImmediate(() => this.notify({ kind: 'shell-recovered' }));
           }
+          const comeBack = options.isPrivate
+            ? null
+            : this.controller.takeComeBack();
+          if (comeBack) setImmediate(() => this.notify(comeBack));
           return this.controller.snapshot();
         },
         'storage:status': () => this.storageStatus(),
@@ -493,6 +511,19 @@ export class TrailWindow {
           this.controller.setCollapsed(pageId, collapsed),
         'page:create-child': ({ pageId, input }) =>
           this.controller.createChildPage(pageId, input),
+        'page:create-sibling': ({ pageId, input }) =>
+          this.controller.createSiblingPage(pageId, input),
+        'page:set-emoji': ({ pageId, emoji }) =>
+          this.controller.setEmoji(pageId, emoji),
+        'trail:collapse-others': ({ pageId }) =>
+          this.controller.collapseOtherTrails(pageId),
+        'trail:set-collapsed': ({ pageIds, groupIds, collapsed }) =>
+          this.controller.setTrailsCollapsed(pageIds, groupIds, collapsed),
+        'trail:import-file': () => this.importTrailFile(),
+        'trail:paste-outline': ({ parentId }) => this.pasteOutline(parentId),
+        'trail:undo-import': ({ pageIds, groupId }) =>
+          this.controller.undoImport(pageIds, groupId),
+        'trail:drag-out': (target) => this.dragTrailOut(target),
         'page:close-branch': ({ pageId }) =>
           this.controller.closeBranch(pageId),
         'page:close-others': ({ pageId }) =>
@@ -582,6 +613,8 @@ export class TrailWindow {
         'page:open-blocked-popup': ({ pageId, url }) =>
           this.controller.openBlockedPopup(pageId, url),
         'site:get-info': ({ pageId }) => this.siteInfo(pageId),
+        'system:open-permission-settings': ({ permission }) =>
+          shell.openExternal(systemSettingsUrl(permission)),
         'site:set-permission': ({ origin, permission, decision }) => {
           store.setPermission(
             origin,
@@ -912,6 +945,70 @@ export class TrailWindow {
     return this.saved(() => exportTrail(this.window, this.controller));
   }
 
+  /** Asks for a Markdown file and brings it in as a new trail. */
+  async importTrailFile(): Promise<void> {
+    const chosen = await chooseTrailFile(this.window);
+    if (!chosen) return;
+    if (chosen.text === null) {
+      return this.notify({
+        kind: 'trail-not-imported',
+        reason: chosen.tooLarge ? 'too-long' : 'unreadable',
+        source: chosen.name,
+      });
+    }
+    this.bringInOutline(chosen.text, null, chosen.name);
+  }
+
+  /** Brings in the outline on the clipboard, under a page or on its own. */
+  async pasteOutline(parentId: PageId | null): Promise<void> {
+    this.bringInOutline(await clipboard.readText(), parentId, null);
+  }
+
+  private bringInOutline(
+    text: string,
+    parentId: PageId | null,
+    source: string | null,
+  ): void {
+    const outline = parseTrailOutline(text);
+    if (outline.pageCount === 0 || outline.pageCount > MAX_OUTLINE_PAGES) {
+      return this.notify({
+        kind: 'trail-not-imported',
+        reason: outline.pageCount === 0 ? 'empty' : 'too-long',
+        source,
+      });
+    }
+    const added = this.controller.importOutline(outline, {
+      parentId,
+      ...(source ? { name: source.replace(/\.[^.]+$/, '') } : {}),
+    });
+    this.notify({
+      kind: 'trail-imported',
+      ...added,
+      skippedAddresses: outline.skippedAddresses,
+    });
+  }
+
+  /**
+   * Hands a trail or group to macOS as a Markdown file, for dropping in the
+   * Finder or another app. The file is only there for the drop to read.
+   */
+  async dragTrailOut(
+    target: { pageId: PageId } | { groupId: string },
+  ): Promise<void> {
+    const trail = trailFile(this.controller, target);
+    if (!trail) return;
+    const folder = await mkdtemp(path.join(tmpdir(), 'splash-trail-'));
+    const file = path.join(folder, trail.filename);
+    await writeFile(file, trail.text, { encoding: 'utf8', mode: 0o600 });
+    const icon = await app.getFileIcon(file, { size: 'normal' });
+    setTimeout(() => {
+      void rm(folder, { recursive: true, force: true });
+    }, TRAIL_DRAG_FILE_MS);
+    if (!this.window.webContents.isDestroyed()) {
+      this.window.webContents.startDrag({ file, icon });
+    }
+  }
+
   /** Confirms something in the shell, without taking focus from the page. */
   /** Copies a page's title and address, and says what was copied. */
   async copyPageAs(pageId: PageId, format: CopyFormat): Promise<void> {
@@ -1004,6 +1101,7 @@ export class TrailWindow {
           ? 'secure'
           : 'insecure',
       blockedCount: this.options.blocker.blockedOn(pageId),
+      refusedBySystem: this.controller.systemRefusedOn(pageId),
       // A secure site has no plain HTTP address to allow.
       permissions: SITE_PERMISSIONS.filter(
         // The warning itself asks about danger; Settings lists what was chosen.

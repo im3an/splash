@@ -74,6 +74,8 @@ export const FORM_FILL = 'page:form-fill';
 export const FORM_CLOSED = 'page:form-closed';
 /** A page asked for a passkey in a way the user would have to answer. */
 export const PASSKEY_REQUESTED = 'page:passkey-requested';
+/** A page was refused its location. Main works out who refused it. */
+export const LOCATION_REFUSED = 'page:location-refused';
 
 /** The field a menu opens under, as a frame reports it. */
 export interface FormFieldReport {

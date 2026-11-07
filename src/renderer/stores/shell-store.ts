@@ -3,6 +3,7 @@ import { redoLast, undoLast } from '../lib/trail-undo';
 import type { SplashApi } from '../../shared/api';
 import type { Preferences } from '../../shared/preferences';
 import { closedToast, noticeToast } from '../lib/notices';
+import { shareUnchanged } from '../lib/share-unchanged';
 import { useOverlay } from './overlay-store';
 import { confirmUndo, offersUndoHistory, useToast } from './toast-store';
 import type {
@@ -21,6 +22,7 @@ export type SidebarPanel =
   | 'history'
   | 'bookmarks'
   | 'tasks'
+  | 'trails'
   | 'workspace';
 
 interface ShellState {
@@ -89,7 +91,8 @@ export const useShell = create<ShellState>()((set) => ({
   trailFilter: null,
   trailFilterFocus: 0,
   workspaceDropId: null,
-  receiveSnapshot: (snapshot) => set({ snapshot }),
+  receiveSnapshot: (snapshot) =>
+    set((state) => ({ snapshot: shareUnchanged(state.snapshot, snapshot) })),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setSidebarPanel: (panel) =>
     set(
@@ -307,6 +310,13 @@ export function connectShell(splash: SplashApi): () => void {
         return shell.toggleSidebarPanel('bookmarks');
       case 'show-tasks':
         return shell.toggleSidebarPanel('tasks');
+      case 'show-trail-summary':
+        return shell.toggleSidebarPanel('trails');
+      // PROTOTYPE: see src/renderer/prototype/. ⌥⌘G again closes it.
+      case 'show-alma-view':
+        return overlay.overlay?.kind === 'alma-view'
+          ? overlay.close()
+          : void overlay.open({ kind: 'alma-view' });
       case 'create-workspace':
         overlay.close();
         return shell.editWorkspace(null);

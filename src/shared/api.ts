@@ -25,6 +25,7 @@ import type {
   PermissionDecision,
   SiteInfo,
   SitePermission,
+  SystemPermission,
   TaskList,
   ExtensionInfo,
   TrailPosition,
@@ -110,6 +111,14 @@ export interface InvokeOutputs {
   'page:stop': void;
   'page:set-collapsed': void;
   'page:create-child': PageId;
+  'page:create-sibling': PageId;
+  'page:set-emoji': void;
+  'trail:collapse-others': void;
+  'trail:set-collapsed': void;
+  'trail:import-file': void;
+  'trail:paste-outline': void;
+  'trail:undo-import': void;
+  'trail:drag-out': void;
   'page:close-branch': void;
   'page:close-others': void;
   'page:close-below': void;
@@ -158,6 +167,7 @@ export interface InvokeOutputs {
   'site:get-info': SiteInfo | null;
   'site:set-permission': void;
   'site:reset': void;
+  'system:open-permission-settings': void;
   'view:freeze': Record<PageId, string>;
   'palette:query': PaletteItem[];
   'search:suggest': PaletteItem[];
@@ -290,6 +300,26 @@ export interface SplashApi {
   stop(pageId: PageId): Promise<void>;
   setCollapsed(pageId: PageId, collapsed: boolean): Promise<void>;
   createChildPage(pageId: PageId, input?: string): Promise<PageId>;
+  /** Opens a page right after this one, at the same level. */
+  createSiblingPage(pageId: PageId, input?: string): Promise<PageId>;
+  /** Gives a top-level trail a mark; `null` goes back to its site's icon. */
+  setPageEmoji(pageId: PageId, emoji: string | null): Promise<void>;
+  /** Collapses every trail but this page's, and says so. */
+  collapseOtherTrails(pageId: PageId): Promise<void>;
+  /** Folds or unfolds these together, for undoing the one above. */
+  setTrailsCollapsed(
+    pageIds: PageId[],
+    groupIds: string[],
+    collapsed: boolean,
+  ): Promise<void>;
+  /** Asks for a Markdown file and brings it in as a new trail. */
+  importTrailFile(): Promise<void>;
+  /** Brings in a Markdown outline from the clipboard, under a page or on its own. */
+  pasteOutline(parentId: PageId | null): Promise<void>;
+  /** Closes what an import added; reopening brings it back. */
+  undoTrailImport(pageIds: PageId[], groupId: string | null): Promise<void>;
+  /** Starts dragging a trail or group out of the window as a Markdown file. */
+  dragTrailOut(target: { pageId: PageId } | { groupId: string }): Promise<void>;
   closeBranch(pageId: PageId): Promise<void>;
   /** Closes the rest of the workspace's trail; see the controller. */
   closeOtherPages(pageId: PageId): Promise<void>;
@@ -389,6 +419,8 @@ export interface SplashApi {
     granted: boolean,
   ): Promise<void>;
   getSiteInfo(pageId: PageId): Promise<SiteInfo | null>;
+  /** Opens the pane of macOS's System Settings that holds this permission. */
+  openPermissionSettings(permission: SystemPermission): Promise<void>;
   setSitePermission(
     origin: string,
     permission: SitePermission,

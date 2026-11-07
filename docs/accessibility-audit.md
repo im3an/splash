@@ -101,6 +101,42 @@ there is thin, so a new frame preset should be checked against it. In light, the
 placeholder is 5.27:1. The placeholders in forms that open on demand, such as adding a
 search shortcut, weren't measured separately.
 
+## Fixed: secondary text on gradient frames
+
+The numbers above cover plain frames. On a gradient, the frame stops are already as far
+as `fg-muted` allows and a field takes them further. Worst case across every preset,
+canvas colour, intensity and frame ink:
+
+| Text      | Where        | Before, light | Before, dark | After, light | After, dark |
+| --------- | ------------ | ------------- | ------------ | ------------ | ----------- |
+| fg-subtle | on the frame | 3.69          | 4.31         | 5.13         | 5.54        |
+| fg-subtle | on a field   | 3.29          | 3.58         | 4.57         | 4.61        |
+| fg-muted  | on the frame | 4.60          | 4.95         | 5.93         | 6.37        |
+| fg-muted  | on a field   | 4.10          | 4.12         | 5.28         | 5.30        |
+
+On a gradient, `fg-muted` is `#474038` in light and `#c8bfb4` in dark, and `fg-subtle` is
+`#514941` in light and `#bcb2a6` in dark. Muted stays a step past subtle, 1.16:1 and
+1.15:1, close to the plain frames' distance. Increase Contrast keeps its own values.
+
+From real pixels, Electron 45.2.3, at full intensity: `fg-subtle` in the sidebar is 5.36
+for Peach in light and 5.28 for Forest in dark; the placeholder on the address field was
+4.64 and 4.59 at the same colour.
+
+Pressed rows, which last only as long as the click, aren't counted in any of this.
+
+## Fixed: error text on any frame
+
+`--danger` is error text in the History and Downloads panels and the workspace editor,
+all straight on the frame, and it fell short on plain frames too. On a field, it reached
+3.11 in light and 3.46 in dark on a gradient, and 3.71 and 4.27 on plain frames before
+they took the accent's colour. It's now `#911a12` in light and `#ff998b` in dark on every
+theme, so every field and surface is 4.5:1 or more (appearance.test.ts). From real pixels on a field, Electron
+45.2.3: Forest in dark 4.70, Peach in light 4.85, a plain Sage frame in dark 7.36, a plain
+Blush frame in light 6.71.
+
+`--success`, `--warning` and `--info` are defined in tokens.css but nothing uses them, so
+they have no contrast to fix. Measure them against gradient frames before first using one.
+
 ## Lower priority
 
 - **Fields and selects** are 1.13–1.16:1 against their card. Their text and chevron

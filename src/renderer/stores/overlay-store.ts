@@ -10,7 +10,9 @@ export type Overlay =
   | { kind: 'toolbar-menu' }
   | { kind: 'bookmarks-menu' }
   | { kind: 'suggestions' }
-  | { kind: 'site-info' };
+  | { kind: 'site-info' }
+  /** PROTOTYPE: see src/renderer/prototype/. */
+  | { kind: 'alma-view' };
 
 interface OverlayState {
   overlay: Overlay | null;

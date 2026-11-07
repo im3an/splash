@@ -33,6 +33,7 @@ import type {
 } from './trail-store';
 
 const ACTIVE_WORKSPACE_KEY = 'session.activeWorkspaceId';
+const SAVED_AT_KEY = 'session.savedAt';
 const MAX_FAVICON_URL_LENGTH = 16_384;
 
 interface WorkspaceRow {
@@ -58,6 +59,7 @@ interface PageRow {
   collapsed: number;
   pinned: number;
   group_id: string | null;
+  emoji: string | null;
   history: string | null;
   created_at: number;
   last_active_at: number;
@@ -236,6 +238,7 @@ export class SqliteTrailStore implements TrailStore {
             collapsed: row.collapsed === 1,
             pinned: row.pinned === 1,
             ...(row.group_id ? { groupId: row.group_id } : {}),
+            ...(row.emoji ? { emoji: row.emoji } : {}),
             history: parseHistory(row.history),
             createdAt: row.created_at,
             lastActiveAt: row.last_active_at,
@@ -261,7 +264,9 @@ export class SqliteTrailStore implements TrailStore {
     }
 
     const activeWorkspaceId = this.getPreference(ACTIVE_WORKSPACE_KEY);
+    const savedAt = Number(this.getPreference(SAVED_AT_KEY));
     return {
+      ...(savedAt > 0 ? { savedAt } : {}),
       workspaces,
       pages,
       activeWorkspaceId: workspaces.some((w) => w.id === activeWorkspaceId)
@@ -294,8 +299,8 @@ export class SqliteTrailStore implements TrailStore {
     );
     const insertPage = this.db.prepare(
       `INSERT INTO pages (id, workspace_id, parent_id, position, url, title,
-         favicon_url, custom_title, note, collapsed, pinned, group_id, history, created_at, last_active_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         favicon_url, custom_title, note, collapsed, pinned, group_id, emoji, history, created_at, last_active_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.transaction(() => {
       this.db.exec('DELETE FROM pages; DELETE FROM workspaces;');
@@ -329,6 +334,7 @@ export class SqliteTrailStore implements TrailStore {
           page.collapsed ? 1 : 0,
           page.pinned ? 1 : 0,
           page.groupId ?? null,
+          page.emoji ?? null,
           page.history ? toStoredJson(page.history) : null,
           page.createdAt,
           page.lastActiveAt,
@@ -336,6 +342,9 @@ export class SqliteTrailStore implements TrailStore {
       }
       if (session.activeWorkspaceId) {
         this.setPreference(ACTIVE_WORKSPACE_KEY, session.activeWorkspaceId);
+      }
+      if (session.savedAt) {
+        this.setPreference(SAVED_AT_KEY, String(session.savedAt));
       }
       this.db.exec('DELETE FROM closed_records');
       const insertClosed = this.db.prepare(

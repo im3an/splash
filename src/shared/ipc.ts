@@ -109,6 +109,7 @@ export const preferencesSchema = z.strictObject({
   density: z.enum(['comfortable', 'compact']),
   showSiteNames: z.boolean(),
   bookmarksBar: z.boolean(),
+  almaViewButton: z.boolean(),
   showBranchLines: z.boolean(),
   trailStyle: z.enum(['branches', 'minimal']),
   reduceMotion: z.boolean(),
@@ -323,6 +324,30 @@ export const invokeContract = {
     pageId,
     input: addressInput.optional(),
   }),
+  'page:create-sibling': z.strictObject({
+    pageId,
+    input: addressInput.optional(),
+  }),
+  'page:set-emoji': z.strictObject({
+    pageId,
+    emoji: z.string().min(1).max(16).nullable(),
+  }),
+  'trail:collapse-others': z.strictObject({ pageId }),
+  'trail:set-collapsed': z.strictObject({
+    pageIds: z.array(pageId).max(5000),
+    groupIds: z.array(z.uuid()).max(500),
+    collapsed: z.boolean(),
+  }),
+  'trail:import-file': z.undefined(),
+  'trail:paste-outline': z.strictObject({ parentId: pageId.nullable() }),
+  'trail:undo-import': z.strictObject({
+    pageIds: z.array(pageId).max(5000),
+    groupId: z.uuid().nullable(),
+  }),
+  'trail:drag-out': z.union([
+    z.strictObject({ pageId }),
+    z.strictObject({ groupId: z.uuid() }),
+  ]),
   'page:close-branch': z.strictObject({ pageId }),
   'page:close-others': z.strictObject({ pageId }),
   'page:close-below': z.strictObject({ pageId }),
@@ -457,6 +482,9 @@ export const invokeContract = {
     decision: z.enum(['allow', 'block', 'ask']),
   }),
   'site:reset': z.strictObject({ origin: siteOrigin }),
+  'system:open-permission-settings': z.strictObject({
+    permission: z.enum(['camera', 'microphone', 'location']),
+  }),
   'view:freeze': z.undefined(),
   'tasks:list': z.undefined(),
   'tasks:end': z.strictObject({ pageId }),

@@ -59,6 +59,12 @@ export function TrailGroup({
         ref={rowRef}
         className="sidebar-row group"
         data-menu-open={picking || menu.openOn?.dataset.group === group.id}
+        // Dragged out of the window, it arrives as a Markdown file.
+        draggable={!renaming && count > 0}
+        onDragStart={(event) => {
+          event.preventDefault();
+          void api().dragTrailOut({ groupId: group.id });
+        }}
         onContextMenu={(event) => onMenu(event)}
         onDoubleClick={(event) => {
           event.preventDefault();

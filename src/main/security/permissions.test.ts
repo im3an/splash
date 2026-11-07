@@ -1,8 +1,11 @@
 import type { SitePermission } from '../../shared/types';
 import {
   decisionOf,
+  isAllowedOnAny,
+  refusedBySystem,
   resolvePermissionRequest,
   sitePermissionsFor,
+  systemSettingsUrl,
   webOrigin,
   type PermissionDecisions,
 } from './permissions';
@@ -110,6 +113,82 @@ describe('resolvePermissionRequest', () => {
     );
     expect(decisionOf(decisions.getPermission(ORIGIN, 'location'))).toBe(
       'block',
+    );
+  });
+});
+
+describe('what macOS refuses', () => {
+  const access = (statuses: Record<string, string>, answer = false) => ({
+    status: vi.fn((kind: 'camera' | 'microphone') => statuses[kind] ?? ''),
+    ask: vi.fn(async () => answer),
+  });
+
+  it('refuses nothing that macOS already allows', async () => {
+    const media = access({ camera: 'granted', microphone: 'granted' });
+    expect(await refusedBySystem(['camera', 'microphone'], media)).toEqual([]);
+    expect(media.ask).not.toHaveBeenCalled();
+  });
+
+  it('asks macOS when it hasn’t answered, and accepts a yes', async () => {
+    const media = access({ camera: 'not-determined' }, true);
+    expect(await refusedBySystem(['camera'], media)).toEqual([]);
+    expect(media.ask).toHaveBeenCalledWith('camera');
+  });
+
+  it('names what macOS refused, and stops asking there', async () => {
+    const media = access({ camera: 'denied', microphone: 'not-determined' });
+    expect(await refusedBySystem(['camera', 'microphone'], media)).toEqual([
+      'camera',
+    ]);
+    expect(media.ask).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves alone what macOS has no say in', async () => {
+    const media = access({});
+    expect(await refusedBySystem(['notifications', 'midi'], media)).toEqual([]);
+    expect(media.status).not.toHaveBeenCalled();
+  });
+});
+
+describe('whether a refusal came from below Splash', () => {
+  it('needs the site to be allowed in Splash', () => {
+    const decisions = memoryDecisions();
+    const urls = ['https://a.example/map'];
+    expect(isAllowedOnAny(decisions, 'location', urls)).toBe(false);
+    decisions.setPermission('https://a.example', 'location', false);
+    expect(isAllowedOnAny(decisions, 'location', urls)).toBe(false);
+    decisions.setPermission('https://a.example', 'location', true);
+    expect(isAllowedOnAny(decisions, 'location', urls)).toBe(true);
+  });
+
+  it('counts a frame’s site or the page’s, since either can hold the answer', () => {
+    const decisions = memoryDecisions();
+    decisions.setPermission('https://page.example', 'location', true);
+    expect(
+      isAllowedOnAny(decisions, 'location', [
+        'https://frame.example/',
+        'https://page.example/',
+      ]),
+    ).toBe(true);
+  });
+
+  it('ignores what isn’t a web address', () => {
+    expect(
+      isAllowedOnAny(memoryDecisions(), 'location', [undefined, 'about:blank']),
+    ).toBe(false);
+  });
+});
+
+describe('where macOS keeps each permission', () => {
+  it('opens the matching pane of System Settings', () => {
+    expect(systemSettingsUrl('location')).toBe(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices',
+    );
+    expect(systemSettingsUrl('camera')).toBe(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
+    );
+    expect(systemSettingsUrl('microphone')).toBe(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
     );
   });
 });

@@ -5,8 +5,9 @@ import type {
   PermissionDecision,
   SiteInfo,
   SitePermission,
+  SystemPermission,
 } from '../../shared/types';
-import { siteDecisionOptions } from '../lib/format';
+import { permissionNames, siteDecisionOptions } from '../lib/format';
 import { api } from '../splash-api';
 import { useOverlay } from '../stores/overlay-store';
 import { selectActivePage, useShell } from '../stores/shell-store';
@@ -122,6 +123,12 @@ export function SiteInfoPopover() {
                 </p>
               </div>
             </div>
+            {info.refusedBySystem.length > 0 && (
+              <RefusedBySystem
+                permissions={info.refusedBySystem}
+                onFailed={() => setError('Couldn’t open System Settings.')}
+              />
+            )}
             {page && page.blockedPopups.length > 0 && (
               <BlockedPopups pageId={page.id} urls={page.blockedPopups} />
             )}
@@ -272,6 +279,35 @@ function SiteCookies({ host, onChange }: { host: string; onChange(): void }) {
         )
       )}
     </div>
+  );
+}
+
+/** Allowed here, which changes nothing while macOS says no to Splash itself. */
+function RefusedBySystem({
+  permissions,
+  onFailed,
+}: {
+  permissions: SystemPermission[];
+  onFailed: () => void;
+}) {
+  return (
+    <section
+      aria-label="Refused by macOS"
+      className="flex items-center justify-between gap-3 border-b border-divider px-4 py-2.5"
+    >
+      <p className="min-w-0 text-small text-fg-muted">
+        macOS hasn’t allowed Splash to use your {permissionNames(permissions)}.
+      </p>
+      <button
+        type="button"
+        onClick={() =>
+          void api().openPermissionSettings(permissions[0]!).catch(onFailed)
+        }
+        className="button button-sm shrink-0"
+      >
+        Open System Settings
+      </button>
+    </section>
   );
 }
 

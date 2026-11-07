@@ -23,6 +23,8 @@ export interface ClosedPage {
   pinned?: boolean;
   /** The group the page was filed under, if it still exists on undo. */
   groupId?: string | null;
+  /** A trail's mark. Missing in records saved before trails had one. */
+  emoji?: string | null;
   state: PageRuntimeState;
   history: PageHistory | null;
   createdAt: number;
