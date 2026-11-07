@@ -36,6 +36,7 @@ import type {
   PageRuntimeState,
 } from './page-host';
 import { splitBounds } from './layout';
+import { liveLimit, type MemoryPressure } from './memory-pressure';
 import { TrailTree } from './trail-tree';
 import { secureUpgradeOf, typedPlainAddress } from '../security/https-only';
 import { canContinuePastCertificate } from '../../shared/certificate-errors';
@@ -224,6 +225,8 @@ export class SharedTrails {
   closed: ClosedRecord[] = [];
   closedSerial = 0;
   maxLiveViews = DEFAULT_MAX_LIVE_VIEWS;
+  /** Lowers `maxLiveViews` until it passes. */
+  memoryPressure: MemoryPressure = 'normal';
   /** Whether the saved session has been read; only the first window does. */
   loaded = false;
   /** When the session being restored was saved, until the shell has said so. */
@@ -1378,6 +1381,12 @@ export class BrowserController {
     this.enforceLiveBudget();
   }
 
+  /** The Mac has more or less memory to spare: applies at once if it's less. */
+  setMemoryPressure(pressure: MemoryPressure): void {
+    this.trails.memoryPressure = pressure;
+    this.enforceLiveBudget();
+  }
+
   /** Back within the page's history, then up the trail to its parent. */
   goBack(id: PageId): void {
     const page = this.require(id);
@@ -1716,7 +1725,7 @@ export class BrowserController {
   rebuildViews(): void {
     for (const [id, page] of this.pages) {
       if (!this.holds(id) || !page.host || page.state.error) continue;
-      if (page.host.isAudible()) continue;
+      if (page.host.isAudible() || page.host.isInUse?.()) continue;
       const onScreen = this.visibleIds.has(id) || id === this.activePageId;
       this.discard(id);
       if (onScreen) this.ensureLive(id);
@@ -2833,7 +2842,8 @@ export class BrowserController {
   /** Discards the least recently used views beyond the budget. */
   private enforceLiveBudget(): void {
     const live = [...this.pages.entries()].filter(([, page]) => page.host);
-    let excess = live.length - this.maxLiveViews;
+    let excess =
+      live.length - liveLimit(this.maxLiveViews, this.trails.memoryPressure);
     if (excess <= 0) return;
     const wanted = new Set(
       [...this.trails.viewers].flatMap((viewer) => viewer.wantedIds()),
@@ -2844,6 +2854,7 @@ export class BrowserController {
           !wanted.has(id) &&
           !this.visibleIds.has(id) &&
           !page.host?.isAudible() &&
+          !page.host?.isInUse?.() &&
           !page.state.hasFormEdits,
       )
       .sort(([, a], [, b]) => a.lastActiveAt - b.lastActiveAt);

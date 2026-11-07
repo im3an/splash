@@ -1053,7 +1053,7 @@ export function AdvancedSettings() {
       <Section title="Memory">
         <Row
           label="Pages kept awake"
-          help="Beyond this, your least recently used pages sleep. They keep their place and wake when opened. Pages playing sound stay awake."
+          help="Beyond this, your least recently used pages sleep. They keep their place and wake when opened. Pages playing sound or on a call stay awake. When your Mac runs low on memory, fewer stay awake until it recovers."
         >
           <Choice
             label="Pages kept awake"

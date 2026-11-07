@@ -50,11 +50,13 @@ export function Sidebar() {
   useLayoutEffect(() => {
     const list = listRef.current;
     if (!list || !workspaceId) return;
-    list.scrollTop = scrollPositions.current.get(workspaceId) ?? 0;
     const positions = scrollPositions.current;
-    return () => {
-      positions.set(workspaceId, list.scrollTop);
-    };
+    list.scrollTop = positions.get(workspaceId) ?? 0;
+    // Kept as it moves: by the time this effect cleans up, the next workspace's
+    // rows are in place, and a shorter list has already pulled the scroll back.
+    const remember = () => positions.set(workspaceId, list.scrollTop);
+    list.addEventListener('scroll', remember, { passive: true });
+    return () => list.removeEventListener('scroll', remember);
   }, [workspaceId]);
 
   const newGroup = async () => {

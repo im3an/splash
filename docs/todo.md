@@ -157,7 +157,9 @@ Pages and windows
       closing one loses no pages. Tested through the API, not by clicking the menu.
 - [x] Task manager: memory and CPU per process across all windows, End for a page
       (⌘K "task manager", or View › Task Manager)
-  - [ ] End a truly hung page by hand (only tested on a responsive one)
+  - [x] End a truly hung page: it shows "This page was stopped", and Reload brings
+        it back in a new process (tested in the app, through the API rather than
+        by clicking the Task Manager's button)
 - [x] PDF viewing: web and local PDFs display in Chromium's viewer (tested)
 - [ ] Save as PDF from Print **(check)**: needs the native dialog, by hand
 - [x] Drop a link on a page: opens as a child page, unless a site's drop zone or a
@@ -271,7 +273,16 @@ Media and macOS
 
 ## Phase C. Reliability you still have to prove
 
-- [ ] Hung page: real "isn't responding" bar
+- [x] Hung page: real "isn't responding" bar. Tested in the app with a page in a
+      busy loop, plus real input events: the bar appears after about 15 s.
+  - [x] Fixed: Reload on a hung page never came back, because a reload runs in the
+        hung process. Reload, back, forward and a new address now end that process
+        first and go once it has gone. Each came back in a new process and answered.
+  - [x] Fixed: Wait kept the bar away for good, so a later hang of the same page
+        showed nothing. Wait now lasts for that one hang.
+  - [x] Close works on a hung page, within 3 s, even with a `beforeunload` handler:
+        Chromium doesn't wait for a hung page's answer. So the "isn't responding"
+        dialog after 10 s wasn't reached here. It stays as a fallback, unexercised.
 - [ ] Camera and microphone prompts on a real call site (Meet, Zoom web)
 - [ ] macOS access prompts in the installed app
 - [ ] Mouse side buttons and three-finger swipe by hand
@@ -295,13 +306,32 @@ Media and macOS
   - [ ] One later run at 200 pages had 7,700 elements in the shell instead of 4,400,
         no scrolling trail, and a 56 ms new page. It didn't come back in 2 more runs.
         Cause unknown.
-  - [ ] Opening or closing a page still draws every row, because each row listens
-        to the drag library's list: 70 ms at 500 pages, the only long task left.
-        Drawing only the rows on screen would solve it.
+  - [x] Fixed: opening or closing a page drew every row. The trail now draws only
+        the rows within about 20 of the viewport; the rest hold their place. Packaged
+        builds on local pages, before → after, medians:
+    - 1,000 pages: new page 147 → 26 ms, close 142 → 24 ms, wake a sleeping page
+      67 → 24 ms, shell heap 178 → 30 MB, 21,463 → 3,045 elements, no long tasks.
+    - 3,000 pages: new page 532 → 50 ms, close 515 → 51 ms, wake 319 → 48 ms,
+      shell heap 507 → 69 MB, 64,129 → 7,045 elements.
+    - Autoscroll during a drag covers about 4x the distance in the same time.
+  - [x] Already flat, so left alone: launch 0.4 s at any size; at 1,000 pages a
+        snapshot takes 1 ms to build and the session 4 ms to save (full rewrite,
+        WAL). Moving the snapshot to per-page changes would save at most a few ms
+        per change: worth a look only if a real session shows it, past 1,000 pages.
+  - [ ] VoiceOver in a long trail. Arrow keys reach every row, but the browse cursor
+        only finds rows that are drawn, and there's no `aria-setsize`. Needs a person.
+  - [ ] Waking a sleeping page shows nothing until it paints. Beyond 12 pages most
+        visits are wakes, so a still of the page could stand in. Not built: it needs
+        a call on keeping page images, and on showing a page that can't be clicked yet.
   - [ ] Find out why the main process takes 300 MB. The built-in blocker's lists
         are the first suspect, and removing them is already planned below.
-  - [ ] 12 live pages is a fixed number. Chrome frees pages by memory pressure and
-        how long they've been idle, which could lower that 3 GB.
+  - [x] 12 live pages was a fixed number. It's still the setting, but it now halves
+        when macOS reports memory pressure and drops to 2 when critical, until it
+        passes. Pages on a call, even silent, or open in DevTools never sleep. Tested
+        with a faked pressure reading: real pressure on a Mac hasn't been seen yet.
+  - [ ] Putting idle pages to sleep with memory to spare. Left out on purpose: a page
+        in the background may be doing what you left it for (mail, chat), and sleeping
+        it stops that. Decide if the 2.6 to 3 GB for 12 awake pages is a real complaint.
 - [x] Upgrade Electron: now 45.2.3. No 45.0.1 was released; the fix for hanging
       blocking listeners (electron/electron#55234) works here.
 - [ ] **Rely on uBlock Origin for blocking, not Splash's own hooks.** Decided 6

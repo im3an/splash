@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "shell-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/imran/Developer/splash/.claude/worktrees/prototype-02-shell",
+        "run",
+        "dev:web"
+      ],
+      "port": 5174
+    }
+  ]
+}

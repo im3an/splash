@@ -114,6 +114,11 @@ export interface PageHost {
   restoreHistory(history: PageHistory): void;
   /** Pages playing sound are never discarded. */
   isAudible(): boolean;
+  /**
+   * On a call, even a silent one with the microphone muted, or open in DevTools:
+   * what sleeping would end can't be restored, so it isn't discarded either.
+   */
+  isInUse?(): boolean;
   setMuted(muted: boolean): void;
   setZoomPercent(percent: number): void;
   /** Goes back to the zoom settings say this page should have. */

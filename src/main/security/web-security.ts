@@ -25,6 +25,10 @@ function refusedByMacOS(permissions: SitePermission[]) {
   });
 }
 
+function isCapture(permission: SitePermission): boolean {
+  return permission === 'camera' || permission === 'microphone';
+}
+
 /** Each session's answers, for what a page in it reports. */
 const sessionDecisions = new WeakMap<Session, PermissionDecisions>();
 
@@ -81,6 +85,7 @@ export function configureWebSession(
           }
           const refused: SystemPermission[] = await refusedByMacOS(permissions);
           if (refused.length > 0) target.refusedBySystem(refused);
+          else if (permissions.some(isCapture)) target.capturing();
           callback(refused.length === 0);
         })
         .catch(() => callback(false));

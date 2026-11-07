@@ -1017,7 +1017,8 @@ details[open] > .sidebar-section-content {
 }
 
 /* The top of a trail: its name reads first, with a little room above it. */
-.trail-row[data-trailhead='true'] {
+/* Held places take the same room as their rows, so nothing moves as they draw. */
+:is(.trail-row, .trail-row-place)[data-trailhead='true'] {
   margin-top: var(--space-1);
 }
 .trail-row[data-trailhead='true'] .trail-title {
@@ -1031,9 +1032,11 @@ details[open] > .sidebar-section-content {
   text-align: center;
 }
 
-.trail-row[data-pinned-root='true'] {
+:is(.trail-row, .trail-row-place)[data-pinned-root='true'] {
   min-height: 38px;
   margin-bottom: 2px;
+}
+.trail-row[data-pinned-root='true'] {
   background: var(--field);
 }
 .trail-row[data-pinned-root='true'] .trail-favicon {

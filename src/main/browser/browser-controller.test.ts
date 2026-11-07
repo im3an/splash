@@ -39,6 +39,10 @@ class FakeHost implements PageHost {
   isAudible() {
     return this.audible;
   }
+  inUse = false;
+  isInUse() {
+    return this.inUse;
+  }
   muted = false;
   zoomPercent = 100;
   findQueries: string[] = [];
@@ -661,6 +665,91 @@ describe('BrowserController', () => {
       hosts[0]!.audible = true;
       controller.createPage({ input: 'b.com' });
       expect(hosts.map((h) => h.destroyed)).toEqual([false, false]);
+    });
+
+    it('never discards a page on a call or open in DevTools', () => {
+      const { controller, hosts } = setup({ maxLiveViews: 1 });
+      controller.createPage({ input: 'a.com' });
+      hosts[0]!.inUse = true;
+      controller.createPage({ input: 'b.com' });
+      expect(hosts.map((h) => h.destroyed)).toEqual([false, false]);
+      hosts[0]!.inUse = false;
+      controller.createPage({ input: 'c.com' });
+      expect(hosts[0]!.destroyed).toBe(true);
+    });
+
+    it('keeps a call going when settings rebuild the views', () => {
+      const { controller, hosts } = setup();
+      controller.createPage({ input: 'a.com' });
+      hosts[0]!.inUse = true;
+      controller.createPage({ input: 'b.com' });
+      controller.rebuildViews();
+      expect(hosts[0]!.destroyed).toBe(false);
+      expect(hosts[1]!.destroyed).toBe(true);
+    });
+
+    describe('when memory runs low', () => {
+      const open = (count: number) => {
+        const context = setup({ maxLiveViews: 12 });
+        for (let i = 0; i < count; i++) {
+          context.controller.createPage({ input: `p${i}.com` });
+        }
+        const live = () => context.hosts.filter((h) => !h.destroyed).length;
+        return { ...context, live };
+      };
+
+      it('keeps half the pages awake, the least recently used going first', () => {
+        const { controller, hosts, live } = open(12);
+        expect(live()).toBe(12);
+        controller.setMemoryPressure('warn');
+        expect(live()).toBe(6);
+        expect(hosts.slice(0, 6).every((h) => h.destroyed)).toBe(true);
+        expect(hosts.slice(6).some((h) => h.destroyed)).toBe(false);
+      });
+
+      it('keeps two when it is critical, the current page among them', () => {
+        const { controller, hosts, live } = open(12);
+        controller.setMemoryPressure('critical');
+        expect(live()).toBe(2);
+        expect(hosts.at(-1)!.destroyed).toBe(false);
+      });
+
+      it('keeps what can’t be restored, however low memory is', () => {
+        const { controller, hosts, live } = open(6);
+        hosts[0]!.audible = true;
+        hosts[1]!.inUse = true;
+        controller.setMemoryPressure('critical');
+        expect(hosts[0]!.destroyed).toBe(false);
+        expect(hosts[1]!.destroyed).toBe(false);
+        expect(live()).toBe(3);
+      });
+
+      it('holds to the lower limit as pages open, and lets go afterwards', () => {
+        const { controller, live } = open(4);
+        controller.setMemoryPressure('warn');
+        for (let i = 0; i < 4; i++) {
+          controller.createPage({ input: `more${i}.com` });
+        }
+        expect(live()).toBe(6);
+        controller.setMemoryPressure('normal');
+        for (let i = 0; i < 4; i++) {
+          controller.createPage({ input: `later${i}.com` });
+        }
+        expect(live()).toBe(10);
+      });
+
+      it('leaves sleeping pages their addresses and wakes them when opened', () => {
+        const { controller, hosts, latest } = open(4);
+        const first = latest().rootIds[0]!;
+        controller.setMemoryPressure('critical');
+        expect(latest().pages[first]).toMatchObject({
+          isDiscarded: true,
+          url: 'https://p0.com/',
+        });
+        controller.activatePage(first);
+        expect(latest().pages[first]?.isDiscarded).toBe(false);
+        expect(hosts.at(-1)!.restored?.entries[0]?.url).toBe('https://p0.com/');
+      });
     });
 
     it('ignores late events from a discarded view', () => {

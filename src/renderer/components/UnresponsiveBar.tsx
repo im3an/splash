@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Hourglass } from 'lucide-react';
 import { hostOf, pageLabel } from '../lib/format';
 import { api } from '../splash-api';
@@ -9,6 +9,13 @@ import { Reveal } from './Reveal';
 export function UnresponsiveBar() {
   const page = useShell(selectActivePage);
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
+  const stillHung = useShell((state) =>
+    waitingFor ? state.snapshot?.pages[waitingFor]?.isUnresponsive : false,
+  );
+  // Wait is for this hang. If the page hangs again later, ask again.
+  useEffect(() => {
+    if (!stillHung) setWaitingFor(null);
+  }, [stillHung]);
   const show = !!page?.isUnresponsive && waitingFor !== page.id;
   if (!show || !page) return <Reveal show={false}>{null}</Reveal>;
 

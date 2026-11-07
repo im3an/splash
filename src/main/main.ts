@@ -75,6 +75,7 @@ import { TrailWindow, visibleBounds } from './windows/browser-window';
 import { registerShellScheme, serveShell } from './windows/shell-url';
 import { ExtensionHost } from './extensions/extension-host';
 import { SharedTrails } from './browser/browser-controller';
+import { watchMemoryPressure } from './browser/memory-pressure';
 import { contentsForPage, pageHandleFor } from './browser/electron-page-host';
 import { PreferencesService } from './preferences';
 import { keepSpelling } from './spelling';
@@ -751,6 +752,14 @@ if (!app.requestSingleInstanceLock()) {
     });
     const startup = openStartupStore();
     store = startup.store;
+    if (process.platform === 'darwin') {
+      watchMemoryPressure((pressure) => {
+        trails.memoryPressure = pressure;
+        for (const trailWindow of windows) {
+          trailWindow.controller.setMemoryPressure(pressure);
+        }
+      });
+    }
     persister = new SessionPersister({
       store,
       exportSession: () => trails.lead!.exportSession(),

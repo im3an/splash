@@ -138,8 +138,8 @@ Not verified, and why:
   the packaged app. Synthetic OS mouse input didn't start a drag while the
   real cursor was over the window.
 - **Print and Save page as dialogs.** They open native panels.
-- **Camera, microphone, mouse side buttons, three-finger swipe, a genuinely
-  hung page.** These need hardware or a real call site.
+- **Camera, microphone, mouse side buttons, three-finger swipe.** These need
+  hardware or a real call site.
 
 ## How to test the beta
 

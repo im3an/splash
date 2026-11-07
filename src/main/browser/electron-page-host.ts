@@ -48,6 +48,7 @@ import {
   mayOpenFromPage,
 } from './url';
 import { requestPageClose } from './close-page';
+import { HungRenderer } from './hung-renderer';
 import {
   isBlankPopup,
   isGestureInput,
@@ -116,6 +117,8 @@ export interface PageHandle {
     opens?: ExternalApp,
   ): Promise<boolean>;
   blocked(permissions: SitePermission[]): void;
+  /** The site is now using the camera or microphone. */
+  capturing(): void;
   /** The site was allowed these, and macOS hasn't allowed them to Splash. */
   refusedBySystem(permissions: SystemPermission[]): void;
   notify(notice: Notice): void;
@@ -175,9 +178,14 @@ class ElectronPageHost implements PageHost {
   private attached = false;
   private closing = false;
   private hasFormEdits = false;
+  /** This document was given the camera or microphone. */
+  private capturing = false;
   private origin: string | null = null;
   private sourceUrl: string | null = null;
   private secureTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly hung = new HungRenderer({
+    forcefullyCrashRenderer: () => this.contents.forcefullyCrashRenderer(),
+  });
 
   constructor(
     environment: PageHostEnvironment,
@@ -214,6 +222,9 @@ class ElectronPageHost implements PageHost {
       request: (origin, permissions, opens) =>
         this.events.onPermissionRequest(origin, permissions, opens),
       blocked: (permissions) => this.events.onPermissionBlocked(permissions),
+      capturing: () => {
+        this.capturing = true;
+      },
       refusedBySystem: (permissions) =>
         this.events.onPermissionRefusedBySystem(permissions),
       notify: (notice) => this.events.onNotice(notice),
@@ -290,24 +301,28 @@ class ElectronPageHost implements PageHost {
         }
       : undefined;
     // Failures surface through `did-fail-load`; the promise only duplicates them.
-    this.contents.loadURL(url, { httpReferrer }).catch(() => undefined);
+    this.hung.leave(() => {
+      this.contents.loadURL(url, { httpReferrer }).catch(() => undefined);
+    });
   }
 
   goBack(): void {
     if (this.contents.navigationHistory.canGoBack()) {
-      this.contents.navigationHistory.goBack();
+      this.hung.leave(() => this.contents.navigationHistory.goBack());
     }
   }
 
   goForward(): void {
     if (this.contents.navigationHistory.canGoForward()) {
-      this.contents.navigationHistory.goForward();
+      this.hung.leave(() => this.contents.navigationHistory.goForward());
     }
   }
 
   reload({ ignoreCache = false }: { ignoreCache?: boolean } = {}): void {
-    if (ignoreCache) this.contents.reloadIgnoringCache();
-    else this.contents.reload();
+    this.hung.leave(() => {
+      if (ignoreCache) this.contents.reloadIgnoringCache();
+      else this.contents.reload();
+    });
   }
 
   stop(): void {
@@ -383,6 +398,10 @@ class ElectronPageHost implements PageHost {
 
   isAudible(): boolean {
     return this.contents.isCurrentlyAudible();
+  }
+
+  isInUse(): boolean {
+    return this.capturing || this.contents.isDevToolsOpened();
   }
 
   setMuted(muted: boolean): void {
@@ -730,6 +749,7 @@ class ElectronPageHost implements PageHost {
       }
       this.secureAttempt.committed();
       this.hasFormEdits = false;
+      this.capturing = false;
       emit({
         hasFormEdits: false,
         certificateException: this.environment.certificateException(committed),
@@ -824,9 +844,19 @@ class ElectronPageHost implements PageHost {
       this.view.setBorderRadius(CONTENT_RADIUS);
       this.events.onFullscreenChange(false);
     });
-    contents.on('unresponsive', () => emit({ isUnresponsive: true }));
-    contents.on('responsive', () => emit({ isUnresponsive: false }));
+    contents.on('unresponsive', () => {
+      this.hung.stoppedAnswering();
+      emit({ isUnresponsive: true });
+    });
+    contents.on('responsive', () => {
+      this.hung.answeredAgain();
+      emit({ isUnresponsive: false });
+    });
     contents.on('render-process-gone', (_event, details) => {
+      if (this.hung.processGone() === 'ended') {
+        emit({ isUnresponsive: false });
+        return;
+      }
       if (details.reason === 'clean-exit') return;
       emit({
         isLoading: false,

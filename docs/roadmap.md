@@ -70,8 +70,6 @@ listed under a phase waits.
 
 - Picture in picture as a site permission: Chromium doesn't expose it, so it
   isn't in site settings yet.
-- Verify the hang ("isn't responding") bar with a real hung page; it couldn't
-  be triggered from automation.
 - Verify camera and microphone prompts with a real call site, and the macOS
   access prompts in the installed app.
 - Code signing and notarisation for distribution.
