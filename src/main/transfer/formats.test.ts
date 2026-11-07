@@ -67,7 +67,7 @@ describe('history databases', () => {
     );
     const insert = db.prepare('INSERT INTO urls VALUES (?,?,?,?,?)');
     insert.run('https://a.test/', 'A', 3, 13_300_000_000_000_000, 0);
-    insert.run('chrome://settings/', 'Settings', 1, 13_300_000_000_000_001, 0);
+    insert.run('chrome://settings/', 'Settings', 1, 13_300_000_000_000_001n, 0);
     insert.run('https://hidden.test/', 'H', 1, 13_300_000_000_000_002, 1);
     const rows = readChromiumHistory(db);
     expect(rows).toHaveLength(1);

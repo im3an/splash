@@ -1,11 +1,72 @@
 import { execFileSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
-import { join } from 'node:path';
-import type { ForgeConfig } from '@electron-forge/shared-types';
+import { mkdtempSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import type { ForgeConfig, ForgePlatform } from '@electron-forge/shared-types';
+import { MakerBase, type MakerOptions } from '@electron-forge/maker-base';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+
+/**
+ * A drag-to-Applications disk image, made with macOS's own `hdiutil`, so the
+ * build needs no native modules. The app is copied with `ditto`, which keeps
+ * its signature and symlinks intact.
+ */
+class MakerDMG extends MakerBase<Record<string, never>> {
+  name = 'dmg';
+  defaultPlatforms: ForgePlatform[] = ['darwin'];
+
+  override isSupportedOnCurrentPlatform() {
+    return process.platform === 'darwin';
+  }
+
+  override async make({
+    dir,
+    makeDir,
+    appName,
+    packageJSON,
+    targetArch,
+  }: MakerOptions): Promise<string[]> {
+    const version = String(packageJSON.version);
+    const dmgPath = resolve(
+      makeDir,
+      'dmg',
+      targetArch,
+      `${appName}-${version}-${targetArch}.dmg`,
+    );
+    await this.ensureFile(dmgPath);
+    const staging = mkdtempSync(join(tmpdir(), 'splash-dmg-'));
+    try {
+      execFileSync('ditto', [
+        join(dir, `${appName}.app`),
+        join(staging, `${appName}.app`),
+      ]);
+      symlinkSync('/Applications', join(staging, 'Applications'));
+      execFileSync(
+        'hdiutil',
+        [
+          'create',
+          '-volname',
+          appName,
+          '-srcfolder',
+          staging,
+          '-fs',
+          'HFS+',
+          '-format',
+          'UDZO',
+          '-ov',
+          dmgPath,
+        ],
+        { stdio: 'inherit' },
+      );
+    } finally {
+      rmSync(staging, { recursive: true, force: true });
+    }
+    return [dmgPath];
+  }
+}
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -18,7 +79,14 @@ const config: ForgeConfig = {
       !['/LICENSE', '/README.md'].includes(file),
     icon: 'assets/macos/Splash',
     // Bundled extensions load from disk, outside the asar archive.
-    extraResource: ['extensions', 'assets/macos/Splash.png'],
+    // So are the licence notices Settings › About shows. Chromium's licences
+    // would otherwise sit beside the app and miss the disk image.
+    extraResource: [
+      'extensions',
+      'assets/macos/Splash.png',
+      'build/third-party-notices.txt',
+      'node_modules/electron/dist/LICENSES.chromium.html',
+    ],
     appBundleId: 'app.splash.browser',
     appCategoryType: 'public.app-category.productivity',
     darwinDarkModeSupport: true,
@@ -76,9 +144,13 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   hooks: {
-    // Before `start` and `package`: make sure the bundled extensions are there.
+    // Before `start` and `package`: make sure the bundled extensions and the
+    // licence notices are there.
     generateAssets: async () => {
       execFileSync(process.execPath, ['scripts/fetch-extensions.mjs'], {
+        stdio: 'inherit',
+      });
+      execFileSync(process.execPath, ['scripts/third-party-notices.mjs'], {
         stdio: 'inherit',
       });
     },
@@ -101,7 +173,8 @@ const config: ForgeConfig = {
       }
     },
   },
-  makers: [new MakerZIP({}, ['darwin'])],
+  // The disk image is what testers install from; the zip is for updates.
+  makers: [new MakerDMG({}), new MakerZIP({}, ['darwin'])],
   plugins: [
     new VitePlugin({
       build: [

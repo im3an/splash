@@ -1,5 +1,5 @@
 import { useIsPrivate } from '../hooks/use-is-private';
-import type { DetailedHTMLProps, HTMLAttributes } from 'react';
+import type { DetailedHTMLProps } from 'react';
 
 declare module 'react' {
   namespace JSX {

@@ -52,6 +52,19 @@ export interface LoadOptions {
   referrer?: string;
   /** Typed with no scheme, so HTTP can be offered if this HTTPS load fails. */
   plainAddress?: string;
+  /** Nobody asked for this just now, so it may not start a download. */
+  comingBack?: boolean;
+}
+
+/** A download started in a page, or was held back for coming back by itself. */
+export interface PageDownload {
+  url: string;
+  filename: string;
+  held: boolean;
+  /** The page shows a document of its own, which stays. */
+  hasDocument: boolean;
+  /** It was held, and the user hasn't heard about that on this view yet. */
+  firstHeld: boolean;
 }
 
 export interface PageHostEvents {
@@ -88,6 +101,10 @@ export interface PageHostEvents {
   onNotice(notice: Notice): void;
   /** The page put itself in full screen (a video), or left it. */
   onFullscreenChange(active: boolean): void;
+  /** The page's address, or something in it, answered with a file. */
+  onDownload(download: PageDownload): void;
+  /** The floating video's own button asked to go back to its page. */
+  onVideoReturned?(): void;
 }
 
 /**
@@ -125,6 +142,10 @@ export interface PageHost {
   applySiteZoom(): void;
   find(text: string, options: { forward: boolean; findNext: boolean }): void;
   stopFind(): void;
+  /** The user left this page: a video being watched floats, if there is one. */
+  floatVideo?(): void;
+  /** The user came back: a video floated for leaving returns to the page. */
+  sinkVideo?(): void;
   /** A still image of what the page shows, as a data URL. */
   capture(): Promise<string | null>;
   /** Runs the native beforeunload lifecycle. True means the view has closed. */

@@ -10,7 +10,10 @@ import { CookieViewer, type CookieJar } from '../privacy/cookies';
 import type { ContentBlockingHost } from '../privacy/electron-content-blocker';
 import { createSiteRules } from '../privacy/electron-site-rules';
 import type { ThreatList } from '../security/threat-list';
-import { configureWebSession } from '../security/web-security';
+import {
+  configureAppSession,
+  configureWebSession,
+} from '../security/web-security';
 import { SqliteTrailStore } from '../storage/sqlite-trail-store';
 import type { TrailStore } from '../storage/trail-store';
 import { SharedTrails, type BrowserController } from './browser-controller';
@@ -87,11 +90,24 @@ export function openPrivateProfile(options: {
       });
     },
     async discard() {
+      downloads.dispose();
+      cookies.dispose();
+      configureAppSession(web);
       blocker.detachSession(web);
       rules.uninstall();
       try {
-        await web.clearData();
-        await web.clearCache();
+        const results = await Promise.allSettled([
+          web.clearData(),
+          web.clearCache(),
+        ]);
+        for (const result of results) {
+          if (result.status === 'rejected') {
+            console.error(
+              'Could not clear a private window’s data',
+              result.reason,
+            );
+          }
+        }
       } catch (error) {
         console.error('Could not clear a private window’s data', error);
       }

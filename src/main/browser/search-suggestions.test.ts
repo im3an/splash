@@ -90,3 +90,21 @@ describe('SearchSuggestions', () => {
     vi.useRealTimers();
   });
 });
+
+it('does not repopulate a cleared cache from an outstanding request', async () => {
+  let resolve!: (value: unknown) => void;
+  const body = new Promise((done) => {
+    resolve = done;
+  });
+  const fetch = vi.fn<SuggestionFetch>(async () => ({
+    ok: true,
+    json: () => body,
+  }));
+  const suggestions = new SearchSuggestions(fetch);
+  const pending = suggestions.get('private query', 'google');
+  suggestions.clear();
+  resolve(['private query', ['answer']]);
+  expect(await pending).toEqual([]);
+  await suggestions.get('private query', 'google');
+  expect(fetch).toHaveBeenCalledTimes(2);
+});

@@ -30,6 +30,7 @@ import type {
 } from './closed-records';
 import { isSameDocumentUrl } from './link-activations';
 import type {
+  PageDownload,
   PageHistory,
   PageHost,
   PageHostFactory,
@@ -90,6 +91,10 @@ interface Page {
   lastActiveAt: number;
   /** Where "forward" leads once this page's own history runs out. */
   lastVisitedChildId: PageId | null;
+  /** What was on screen when this page opened over it, to go back to. */
+  openedOver: PageId | null;
+  /** An empty page given an address: a download leaves it empty again. */
+  startedBlank: boolean;
   /** A name the user gave the page, shown instead of its title. */
   customTitle: string | null;
   note: string | null;
@@ -312,6 +317,8 @@ export class BrowserController {
   }
   private readonly undoneCloses = new Map<number, UndoneClose>();
   private redoingClose = false;
+  /** Closing a page that a download left empty; the shell words it so. */
+  private closingForDownload = false;
 
   private get closed() {
     return this.trails.closed;
@@ -407,6 +414,7 @@ export class BrowserController {
     }
 
     if (activate || this.viewOf(workspace).activePageId === null) {
+      created.openedOver = this.viewOf(workspace).activePageId;
       this.activatePage(id);
     } else {
       this.enforceLiveBudget();
@@ -491,14 +499,23 @@ export class BrowserController {
     return this.guardRemoval([id], () => this.closePageNow(id, unpin));
   }
 
-  private closePageNow(id: PageId, unpin: boolean): void {
+  private closePageNow(
+    id: PageId,
+    unpin: boolean,
+    returnTo: PageId | null = null,
+  ): void {
     if (this.require(id).pinned && !unpin) return this.keepPinned(id);
     const workspace = this.workspaceOf(id);
     const { tree } = workspace;
     this.remember(workspace, [id], [...(tree.get(id)?.childIds ?? [])]);
     const heir = tree.successorOf(id);
     const { activePageId } = this.viewOf(workspace);
-    const successor = activePageId === id ? heir : activePageId;
+    const successor =
+      activePageId !== id
+        ? activePageId
+        : returnTo !== null && returnTo !== id && tree.has(returnTo)
+          ? returnTo
+          : heir;
     const groupId =
       tree.get(id)?.parentId === null ? this.require(id).groupId : null;
     const promoted = [...(tree.get(id)?.childIds ?? [])];
@@ -1326,7 +1343,9 @@ export class BrowserController {
   }
 
   navigate(id: PageId, input: string): void {
-    this.require(id);
+    const page = this.require(id);
+    page.startedBlank =
+      page.state.url === null && page.committedUrl === null && !page.history;
     // Typing an address here means here, whichever window has the page.
     if (id === this.activePageId) this.claim(id, true);
     const url = this.resolve(input);
@@ -2515,6 +2534,8 @@ export class BrowserController {
       createdAt: now,
       lastActiveAt: now,
       lastVisitedChildId: null,
+      openedOver: null,
+      startedBlank: false,
       customTitle: null,
       note: null,
       pinned: false,
@@ -2582,9 +2603,71 @@ export class BrowserController {
         serial: ++this.closedSerial,
         ...(shown ? { url: shown.url, faviconUrl: shown.faviconUrl } : {}),
         ...(this.redoingClose ? { redone: true } : {}),
+        ...(this.closingForDownload ? { forDownload: true } : {}),
       },
     });
     if (this.closed.length > MAX_CLOSED_RECORDS) this.closed.shift();
+  }
+
+  /**
+   * A download started in a page, or was held because the page came back
+   * by itself. A page showing a document keeps it, and its address goes back
+   * to what it shows. A page opened only for this address, which a download
+   * left empty, closes (undoably) like Chrome's tab does, and the page it
+   * opened over comes back. Anything else says the address is a file.
+   */
+  private afterDownload(id: PageId, download: PageDownload): void {
+    const page = this.pages.get(id);
+    if (!page || this.closingIds.has(id)) return;
+    if (download.hasDocument) {
+      if (page.committedUrl !== null && page.state.url !== page.committedUrl)
+        this.updateState(id, { url: page.committedUrl });
+      if (download.firstHeld) {
+        this.options.onNotice?.({
+          kind: 'download-held',
+          pageId: id,
+          host: hostOf(page.committedUrl) ?? 'This page',
+          filename: download.filename,
+        });
+      }
+      return;
+    }
+    const kept =
+      page.pinned ||
+      page.customTitle !== null ||
+      page.note !== null ||
+      page.host?.captureHistory() != null;
+    if (!download.held && page.startedBlank && !kept) {
+      // Typed into an empty page: it stays, empty and ready for another.
+      page.startedBlank = false;
+      page.state = { ...page.state, url: null, isLoading: false, error: null };
+      this.syncVisibleHost();
+      this.changed();
+      return;
+    }
+    page.state = {
+      ...page.state,
+      title: page.state.title || download.filename,
+      isLoading: false,
+      error: {
+        kind: 'file-download',
+        code: 0,
+        description: download.filename,
+        url: download.url,
+      },
+    };
+    if (download.held || kept) {
+      this.syncVisibleHost();
+      this.changed();
+      return;
+    }
+    // Reopened, it says what it was instead of asking the site again.
+    this.closingForDownload = true;
+    try {
+      this.closePageNow(id, false, page.openedOver);
+    } finally {
+      this.closingForDownload = false;
+    }
   }
 
   /**
@@ -2742,6 +2825,9 @@ export class BrowserController {
           viewer.activatePage(id);
         }
       },
+      onDownload: (download) => {
+        if (isCurrent()) at().afterDownload(id, download);
+      },
       onNotice: (notice) => at().options.onNotice?.(notice),
       onFullscreenChange: (active) => {
         if (!isCurrent()) return;
@@ -2808,7 +2894,8 @@ export class BrowserController {
       page.state = { ...page.state, isLoading: true };
     } else if (page.state.url !== null && page.state.error === null) {
       page.host = this.spawnHost(id);
-      page.host.load(page.state.url);
+      // Nobody asked for it just now, so if it answers with a file, it waits.
+      page.host.load(page.state.url, { comingBack: true });
       page.state = { ...page.state, isLoading: true };
     }
   }

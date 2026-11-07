@@ -188,6 +188,17 @@ describe('local files', () => {
     expect(detail).toContain('anyone on your network');
   });
 
+  it('name the file when an address answers with one', () => {
+    const { title, detail } = describeError({
+      kind: 'file-download',
+      code: 0,
+      description: 'report.mov',
+      url: 'https://files.example/report.mov',
+    });
+    expect(title).toBe('“report.mov” is a file, not a page');
+    expect(detail).toContain('Download it');
+  });
+
   it('name what’s wrong with a certificate', () => {
     const failure = (code: number) =>
       describeError({

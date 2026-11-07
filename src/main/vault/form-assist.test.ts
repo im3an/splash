@@ -76,9 +76,12 @@ const field = (over: Partial<FormFieldReport> = {}): FormFieldReport => ({
 });
 
 const itemIds = () =>
-  (options.showMenu.mock.lastCall?.[0] as { id: string; kind: string }[]).map(
-    (item) => item.kind,
-  );
+  (
+    (options.showMenu.mock.lastCall?.[0] ?? []) as {
+      id: string;
+      kind: string;
+    }[]
+  ).map((item) => item.kind);
 
 beforeEach(() => {
   vi.useFakeTimers();

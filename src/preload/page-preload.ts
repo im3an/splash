@@ -8,6 +8,7 @@ import {
   LINK_ACTIVATED,
   LINK_DROPPED,
   NAVIGATION_BUTTON,
+  VIDEO_UNFLOATED,
 } from '../shared/page-bridge';
 
 /*
@@ -88,6 +89,17 @@ window.addEventListener(
     if (!event.isTrusted) return;
     if (event.button === 3) ipcRenderer.send(NAVIGATION_BUTTON, 'back');
     if (event.button === 4) ipcRenderer.send(NAVIGATION_BUTTON, 'forward');
+  },
+  { capture: true },
+);
+
+// The floating window's close button pauses its video; its back button leaves
+// it playing. The pause arrives just after the event, so this waits a moment.
+document.addEventListener(
+  'leavepictureinpicture',
+  (event) => {
+    const video = event.target as HTMLVideoElement;
+    setTimeout(() => ipcRenderer.send(VIDEO_UNFLOATED, !video.paused), 100);
   },
   { capture: true },
 );

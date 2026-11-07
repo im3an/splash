@@ -14,6 +14,7 @@ import {
   ShortcutSettings,
   WorkspaceSettings,
 } from './sections';
+import { AboutSettings } from './AboutSettings';
 import { ExtensionSettings } from './ExtensionSettings';
 import { SettingsNavigation } from './navigation';
 import { PasswordSettings } from './PasswordSettings';
@@ -76,6 +77,7 @@ const SECTIONS: {
     body: ShortcutSettings,
   },
   { id: 'advanced', label: 'Advanced', body: AdvancedSettings },
+  { id: 'about', label: 'About', title: 'About Splash', body: AboutSettings },
 ];
 
 /** The Settings window: sections on the left, the chosen one on the right. */

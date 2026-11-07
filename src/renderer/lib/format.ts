@@ -286,6 +286,13 @@ export function describeError(error: PageError): {
         'Splash tried HTTPS and it didn’t work, so nothing was sent unencrypted. Over HTTP, anyone on your network could read or change what you send and see.',
     };
   }
+  if (error.kind === 'file-download') {
+    return {
+      title: `“${error.description}” is a file, not a page`,
+      detail:
+        'Pages that come back by themselves don’t start downloads, so Splash didn’t fetch it. Download it if you still want it.',
+    };
+  }
   if (error.kind === 'dangerous-site') {
     return {
       title: `${hostOf(error.url)} was reported as dangerous`,

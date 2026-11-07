@@ -15,6 +15,31 @@ describe('undoMessage', () => {
     );
   });
 
+  it('says why a page a download left empty closed', () => {
+    expect(
+      undoMessage({
+        kind: 'pages',
+        label: 'report.mov',
+        pageCount: 1,
+        serial: 1,
+        forDownload: true,
+      }),
+    ).toBe('Downloading “report.mov”, so its empty page closed.');
+  });
+
+  it('offers to reload a page whose download was held', () => {
+    const toast = noticeToast({
+      kind: 'download-held',
+      pageId: 'p1',
+      host: 'files.example',
+      filename: 'report.mov',
+    });
+    expect(toast.message).toBe(
+      'files.example tried to download “report.mov” as it came back. Splash held it.',
+    );
+    expect(toast.actions.map((action) => action.label)).toEqual(['Reload']);
+  });
+
   it('describes pages and empty workspaces', () => {
     expect(
       undoMessage({ kind: 'pages', label: 'Docs', pageCount: 1, serial: 1 }),
@@ -158,6 +183,24 @@ describe('a permission macOS refused', () => {
     ]);
     await toast.actions[0]!.run();
     expect(openPermissionSettings).toHaveBeenCalledWith('location');
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('the default browser offer', () => {
+  it('asks once, with the one button that asks macOS', async () => {
+    const becomeDefaultBrowser = vi.fn(async () => undefined);
+    vi.stubGlobal('window', {
+      splash: { becomeDefaultBrowser } as unknown as SplashApi,
+    });
+    const toast = noticeToast({ kind: 'default-browser-offer' });
+    expect(toast.message).toBe('Open links from other apps in Splash?');
+    expect(toast.detail).toContain('Settings › General');
+    expect(toast.actions.map((action) => action.label)).toEqual([
+      'Make Default',
+    ]);
+    await toast.actions[0]!.run();
+    expect(becomeDefaultBrowser).toHaveBeenCalledOnce();
     vi.unstubAllGlobals();
   });
 });

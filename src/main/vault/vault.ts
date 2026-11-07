@@ -1,4 +1,4 @@
-import { getDomain } from 'tldts';
+import { getDomain } from 'tldts-experimental';
 import {
   cardBrand,
   type AddressFields,

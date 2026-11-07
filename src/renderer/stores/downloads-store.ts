@@ -39,15 +39,32 @@ function receive(downloads: DownloadSummary[], restored = false): void {
       ).length;
   useDownloads.setState((state) => ({
     downloads,
-    unseenProblems: state.unseenProblems + newProblems,
+    unseenProblems:
+      downloads.length === 0 ? 0 : state.unseenProblems + newProblems,
     // Nothing is left to see once the list is empty.
     unseenFinished:
       downloads.length === 0 ? 0 : state.unseenFinished + newlyFinished,
   }));
 }
 
-export function connectDownloads(splash: SplashApi): () => void {
-  const unsubscribe = splash.onDownloads((downloads) => receive(downloads));
-  void splash.listDownloads().then((downloads) => receive(downloads, true));
-  return unsubscribe;
+export function connectDownloads(
+  splash: Pick<SplashApi, 'onDownloads' | 'listDownloads'>,
+): () => void {
+  let connected = true;
+  let receivedUpdate = false;
+  const unsubscribe = splash.onDownloads((downloads) => {
+    if (!connected) return;
+    receivedUpdate = true;
+    receive(downloads);
+  });
+  void splash
+    .listDownloads()
+    .then((downloads) => {
+      if (connected && !receivedUpdate) receive(downloads, true);
+    })
+    .catch((error: unknown) => console.warn('Could not load downloads', error));
+  return () => {
+    connected = false;
+    unsubscribe();
+  };
 }

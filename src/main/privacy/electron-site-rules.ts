@@ -147,6 +147,7 @@ export function createSiteRules(
     },
     uninstall() {
       answering.delete(session);
+      session.webRequest.onBeforeSendHeaders(null);
     },
     forResponse(details) {
       const isDocument =

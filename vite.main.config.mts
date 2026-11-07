@@ -52,8 +52,8 @@ export default defineConfig({
         ),
       },
       {
-        // adm-zip has open advisories with no fix, among them writing through
-        // symlinks; the web store library only uses it to unpack an archive.
+        // Keep extraction behind our bounded, path-checked implementation.
+        // The web store library only uses adm-zip to unpack an archive.
         find: /^adm-zip$/,
         replacement: fileURLToPath(
           new URL('./src/main/extensions/safe-zip.ts', import.meta.url),

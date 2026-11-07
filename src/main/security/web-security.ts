@@ -112,6 +112,7 @@ export function configureWebSession(
 
 /** The shell UI is our own code and needs no web permissions at all. */
 export function configureAppSession(session: Session): void {
+  sessionDecisions.delete(session);
   session.setPermissionRequestHandler((_contents, _permission, callback) => {
     callback(false);
   });

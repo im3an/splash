@@ -371,6 +371,8 @@ export function enableContentBlocking(
     },
     detachSession(target) {
       decisions.delete(target);
+      target.webRequest.onBeforeRequest(null);
+      target.webRequest.onHeadersReceived(null);
     },
     blockedOn: (pageId) =>
       blockers.reduce((sum, { blocker }) => sum + blocker.blockedOn(pageId), 0),

@@ -15,6 +15,7 @@ describe('liveLimit', () => {
     expect(liveLimit(12, 'warn')).toBe(6);
     expect(liveLimit(5, 'warn')).toBe(3);
     expect(liveLimit(2, 'warn')).toBe(2);
+    expect(liveLimit(1, 'warn')).toBe(1);
   });
 
   it('keeps only two when memory is critical', () => {
@@ -76,6 +77,27 @@ describe('watchMemoryPressure', () => {
     const { changes, tick } = await watch(['warn', null, 'warn']);
     await tick(2);
     expect(changes).toEqual(['warn']);
+  });
+
+  it('does not overlap slow readings and recovers after rejection', async () => {
+    let reject!: (reason: Error) => void;
+    const read = vi
+      .fn<() => Promise<MemoryPressure | null>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, fail) => {
+            reject = fail;
+          }),
+      )
+      .mockResolvedValue('warn');
+    const changed = vi.fn();
+    const stop = watchMemoryPressure(changed, { read, intervalMs: 100 });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(read).toHaveBeenCalledTimes(1);
+    reject(new Error('unavailable'));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(changed).toHaveBeenCalledWith('warn');
+    stop();
   });
 
   it('stops', async () => {

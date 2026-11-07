@@ -141,6 +141,64 @@ Not verified, and why:
 - **Camera, microphone, mouse side buttons, three-finger swipe.** These need
   hardware or a real call site.
 
+## Shipping pass: 7 November 2026
+
+- **Disk image.** `npm run make` now writes
+  `out/make/dmg/arm64/Splash-<version>-arm64.dmg` beside the zip: Splash.app
+  and an Applications shortcut to drag it onto. It's made with macOS's own
+  `hdiutil`, so the build needs no native modules.
+- **Settings › About** (new, last in the list): version, the GPL with its
+  full text and a Source Code link, a privacy statement listing everything
+  Splash connects to (search suggestions, filter and safety lists, site icons,
+  the Chrome Web Store), and the open-source software it ships: uBlock Origin,
+  Electron and Chromium, and the licences of all 44 bundled packages.
+  `scripts/third-party-notices.mjs` writes those from `package-lock.json`
+  before every start and build; the app carries them in `Contents/Resources`.
+- **Diagnostics.** Crash reports are kept on the Mac and never uploaded.
+  Save Report… in About writes a plain-text report: versions, Mac model and
+  memory, processes, extensions, crash dates and recent warnings and errors.
+  Web addresses show only their site, the home folder shows as `~`, and email
+  addresses are hidden. Show in Finder opens the crash reports.
+- **Default browser offer.** On the third day Splash is used, the installed
+  app asks once in a toast whether to open links from other apps; Make Default
+  hands over to macOS's own prompt. It never asks on a launch that already
+  says "Welcome back", in a development build, or again afterwards.
+
+Verified: `npm run check` (127 files, 1,825 tests). A DMG built from a
+snapshot of the checkout mounts with Splash.app and an Applications link, and
+`codesign --verify --deep --strict` passes on the app inside. Run from the DMG
+on a fresh profile, Splash counted its first day, and with two earlier days
+seeded it showed the offer on the third and recorded it as made. About read
+both licence texts from inside the app. In a development build, Save Report…
+(save panel stubbed to a scratch path) wrote a report in which a logged
+`https://bank.example/account/123?token=abc` came out as `https://bank.example/…`.
+
+Not verified: pressing Make Default (it would change this Mac's default
+browser), the real save panel, and a real crash report in the list.
+
+### Installing a beta build
+
+The app is signed ad hoc, not with a Developer ID. Gatekeeper rejects that
+(`spctl --assess` says "rejected"), and on macOS 27 Finder checks an app as it
+copies it out of a disk image: dragging Splash to Applications fails with
+"Could not install. This Mac could not verify the app". Until Splash has a
+Developer ID and is notarised, install it from Terminal with the disk image
+open, which copies it without that check:
+
+```bash
+ditto /Volumes/Splash/Splash.app /Applications/Splash.app
+```
+
+Tested 7 November on macOS 27.0.1: the copy keeps a valid signature and opens
+normally. A copy downloaded from the internet also carries a quarantine mark;
+if macOS then won't open it, remove the mark:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Splash.app
+```
+
+Drag-to-install needs Developer ID signing and notarisation.
+
 ## How to test the beta
 
 Build and open it:

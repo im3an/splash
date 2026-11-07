@@ -163,7 +163,7 @@ export function bridgeFormAssist(options: FormAssistBridgeOptions): void {
   ipcMain.on(FORM_DISMISS, (event) => {
     if (event.senderFrame) assist.dismiss(targetOf(event.senderFrame));
   });
-  ipcMain.on(FORM_KEY, (event, key: unknown) => {
+  ipcMain.on(FORM_KEY, (_event, key: unknown) => {
     if (key === 'up' || key === 'down' || key === 'enter') options.key(key);
   });
   ipcMain.on(FORM_SUBMITTED, (event, raw: unknown) => {

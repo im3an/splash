@@ -9,7 +9,13 @@ import {
 } from 'electron';
 import { eventChannels } from '../../shared/api';
 import { DEFAULT_APPEARANCE, frameColor } from '../../shared/appearance';
-import type { SiteSettings } from '../../shared/types';
+import type { AboutLink, SiteSettings } from '../../shared/types';
+import {
+  crashReportCount,
+  exportDiagnostics,
+  showCrashReports,
+} from '../diagnostics/electron-diagnostics';
+import { openChromiumLicences, readLicence } from '../diagnostics/licences';
 import type { DownloadManager } from '../downloads/download-manager';
 import type { ExtensionHost } from '../extensions/extension-host';
 import type { IpcTarget } from '../ipc/register-ipc';
@@ -53,8 +59,15 @@ export interface SettingsWindowOptions {
   browserWindow(): TrailWindow | null;
 }
 
+/** Where Settings › About's links go. */
+const ABOUT_LINKS: Record<AboutLink, string> = {
+  source: 'https://github.com/im3an/splash',
+  'ublock-source': 'https://github.com/gorhill/uBlock',
+  gpl: 'https://www.gnu.org/licenses/gpl-3.0.html',
+};
+
 /** Whether Splash is the default for web links, and whether it can become so. */
-function defaultBrowserStatus() {
+export function defaultBrowserStatus() {
   return {
     isDefault:
       app.isDefaultProtocolClient('https') &&
@@ -215,10 +228,27 @@ export class SettingsWindow {
         },
         'settings:about': () => ({
           version: app.getVersion(),
+          crashReports: crashReportCount(),
           electron: process.versions.electron,
           chromium: process.versions.chrome,
           dataFolder: app.getPath('userData'),
         }),
+        'settings:licence': ({ name }) => readLicence(name),
+        'settings:open-chromium-licences': () => openChromiumLicences(),
+        'settings:open-about-link': ({ link }) => {
+          const target = this.options.browserWindow();
+          if (!target) return;
+          target.controller.createPage({ url: ABOUT_LINKS[link] });
+          target.window.show();
+          target.window.focus();
+        },
+        'settings:export-diagnostics': () =>
+          exportDiagnostics(this.window, () =>
+            (this.options.extensions()?.list() ?? []).map(
+              ({ name, version, enabled }) => ({ name, version, enabled }),
+            ),
+          ),
+        'settings:show-crash-reports': () => showCrashReports(),
         'settings:edit-workspace': ({ workspaceId }) => {
           const target = this.options.browserWindow();
           if (!target) return;

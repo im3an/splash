@@ -64,6 +64,7 @@ const api: SplashApi = {
     subscribe(eventChannels.credentialPrompt, listener),
   windowInfo: () => invoke('window:info'),
   newPrivateWindow: () => invoke('window:new-private'),
+  becomeDefaultBrowser: () => invoke('app:make-default-browser'),
   chooseFiles: () => invoke('file:choose'),
   openSettingsSection: (section) =>
     invoke('app:open-settings-section', { section }),
@@ -226,6 +227,11 @@ const api: SplashApi = {
   makeDefaultBrowser: () => invoke('settings:make-default-browser'),
   openDataFolder: () => invoke('settings:open-data-folder'),
   about: () => invoke('settings:about'),
+  licence: (name) => invoke('settings:licence', { name }),
+  openChromiumLicences: () => invoke('settings:open-chromium-licences'),
+  openAboutLink: (link) => invoke('settings:open-about-link', { link }),
+  exportDiagnostics: () => invoke('settings:export-diagnostics'),
+  showCrashReports: () => invoke('settings:show-crash-reports'),
   editWorkspace: (workspaceId) =>
     invoke('settings:edit-workspace', { workspaceId }),
   deleteWorkspace: (workspaceId) =>

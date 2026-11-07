@@ -371,14 +371,29 @@ Media and macOS
 
 ## Phase D. Shipping
 
-- [ ] Developer ID signing and notarisation
-- [ ] DMG installer
+- [ ] Developer ID signing and notarisation. Needs your Apple Developer account.
+      Without it the DMG can't be installed by dragging on macOS 27 (Finder: "This
+      Mac could not verify the app"); testers have to copy it with `ditto`.
+      then `osxSign`/`osxNotarize` replace the ad-hoc re-sign in `forge.config.mts`.
+- [x] DMG installer: `npm run make` writes `out/make/dmg/arm64/Splash-<version>-arm64.dmg`
+      (app + Applications shortcut, made with `hdiutil`, no native modules)
+  - [ ] `hdiutil create` and `attach` print a deprecation warning on macOS 27; move to
+        `diskutil image` once it's on every supported macOS
 - [ ] arm64 + x64 (universal) build
-- [ ] Auto-update
-- [ ] Diagnostics: crash reports or exportable log, opt-in
-- [ ] First-run welcome that explains trails
-- [ ] Default browser prompt at the right moment
-- [ ] Privacy statement and licence notice for uBlock Origin (GPL-3.0)
+- [ ] Auto-update. Squirrel.Mac only accepts signed apps, and it needs a place to
+      host releases: blocked on signing and on choosing a host.
+- [x] Diagnostics: crash reports stay on the Mac (never uploaded); Settings › About ›
+      Save Report… writes a text report with addresses cut down to their site
+- [ ] First-run welcome that explains trails (today: the palette and an empty-trail note)
+- [x] Default browser prompt at the right moment: once, on the third day Splash is
+      used, never on a launch that already says "Welcome back", never again after
+  - [ ] By hand: press Make Default in an installed copy and answer macOS's prompt
+- [x] Privacy statement and licence notices: Settings › About lists everything
+      Splash connects to, shows the GPL and the licences of all 44 shipped packages,
+      and links uBlock Origin's and Chromium's
+  - [ ] Decide: the "Source Code" button points to github.com/im3an/splash, which is
+        private. Make it public, or name another way to get the source (GPL-3.0
+        needs one for anyone given the app)
 
 ## Phase E. Splash's own gaps
 

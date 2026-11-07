@@ -7,7 +7,9 @@ export type PageErrorKind =
   /** HTTPS failed where HTTP might work; `url` is the plain HTTP address. */
   | 'no-secure-connection'
   /** On the phishing and malware lists; nothing was requested from `url`. */
-  | 'dangerous-site';
+  | 'dangerous-site'
+  /** `url` answers with a file; `description` is its name. */
+  | 'file-download';
 
 export interface PageError {
   kind: PageErrorKind;
@@ -385,8 +387,16 @@ export interface ExtensionInfo {
   warnings: string[];
 }
 
+/** Licence texts Settings › About can show. */
+export type LicenceName = 'splash' | 'third-party';
+
+/** Addresses Settings › About links to, opened as Splash pages. */
+export type AboutLink = 'source' | 'ublock-source' | 'gpl';
+
 export interface AboutInfo {
   version: string;
+  /** Crash reports kept on this Mac; they're never uploaded. */
+  crashReports: number;
   electron: string;
   chromium: string;
   dataFolder: string;
@@ -474,6 +484,8 @@ export interface ClosedSummary {
   faviconUrl?: string | null;
   /** A redo closed it again; the shell confirms that itself. */
   redone?: boolean;
+  /** A download left the page empty, so it closed; `label` is the file. */
+  forDownload?: boolean;
 }
 
 /** Two pages of one workspace shown side by side. */
@@ -587,6 +599,8 @@ export type Notice =
   | { kind: 'helper-ended'; extension: string }
   /** The window's interface crashed and was reloaded; pages kept running. */
   | { kind: 'shell-recovered' }
+  /** Splash has been used for a few days and could open links from other apps. */
+  | { kind: 'default-browser-offer' }
   /** Paste and Go, with no text on the clipboard. */
   | { kind: 'nothing-to-paste' }
   /** A page's link needs an app this Mac doesn't have. */
@@ -620,6 +634,8 @@ export type Notice =
       /** Where it landed, for redo. */
       at: TrailPosition;
     }
+  /** A page that came back by itself tried to download a file, and waits. */
+  | { kind: 'download-held'; pageId: PageId; host: string; filename: string }
   | {
       /** Closing a pinned page kept it in the trail. */
       kind: 'kept-pinned';

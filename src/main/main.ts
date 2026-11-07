@@ -32,6 +32,8 @@ import {
 } from './browser/private-profile';
 import { buildTaskList, type LivePage } from './browser/task-list';
 import { keepOpenedFiles } from './browser/opened-files';
+import { DefaultBrowserOffer } from './browser/default-browser-offer';
+import { startDiagnostics } from './diagnostics/electron-diagnostics';
 import {
   allowLocalFile,
   forgetLocalFiles,
@@ -47,7 +49,10 @@ import {
   type ContentBlockingHost,
 } from './privacy/electron-content-blocker';
 import { createSiteRules } from './privacy/electron-site-rules';
-import { SettingsWindow } from './windows/settings-window';
+import {
+  SettingsWindow,
+  defaultBrowserStatus,
+} from './windows/settings-window';
 import { registerIpc } from './ipc/register-ipc';
 import { installApplicationMenu } from './menus/application-menu';
 import { dockMenuTemplate } from './menus/dock-menu';
@@ -83,6 +88,8 @@ import type { DownloadManager } from './downloads/download-manager';
 import { createDownloadManager } from './downloads/electron-downloads';
 
 app.setName('Splash');
+// Before anything else, so a crash at startup is kept too.
+startDiagnostics();
 registerShellScheme();
 // Reproducible beta QA uses a separate profile and never touches daily
 // browsing. Development builds only: an installed app ignores the variable.
@@ -110,6 +117,7 @@ let autofillMenu: AutofillMenu;
 let privateProfile: PrivateProfile | null = null;
 let extensions: ExtensionHost | null = null;
 let settings: SettingsWindow | null = null;
+let defaultBrowserOffer: DefaultBrowserOffer | null = null;
 /** Links macOS handed over before a window was ready. */
 const pendingUrls: string[] = [];
 /** Files macOS handed over before a window was ready. */
@@ -390,6 +398,12 @@ function windowActions(trailWindow: () => TrailWindow) {
     openSettings: () => openSettings(),
     openSettingsSection: openSettings,
     openPrivateWindow,
+    offerDefaultBrowser: () => defaultBrowserOffer?.take() ?? false,
+    makeDefaultBrowser: () => {
+      if (!app.isPackaged) return;
+      app.setAsDefaultProtocolClient('http');
+      app.setAsDefaultProtocolClient('https');
+    },
     chooseFiles: () => void chooseFiles(),
     openFiles: (files: string[]) => openDroppedFiles(trailWindow(), files),
     answerCredentialPrompt: (
@@ -777,6 +791,11 @@ if (!app.requestSingleInstanceLock()) {
     });
     // Before any window restores its pages, which may include opened files.
     keepOpenedFiles(store);
+    defaultBrowserOffer = new DefaultBrowserOffer({
+      store,
+      status: defaultBrowserStatus,
+    });
+    defaultBrowserOffer.countLaunch();
     configureAppSession(session.defaultSession);
     serveShell(session.defaultSession);
     configureWebSession(session.fromPartition(WEB_PARTITION), store);

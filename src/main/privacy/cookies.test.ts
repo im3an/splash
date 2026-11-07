@@ -136,6 +136,35 @@ describe('CookieViewer', () => {
     expect(restored?.value).toBe('secret-value');
   });
 
+  it('forgets expired cookie values even if the wall clock moves back', async () => {
+    vi.useFakeTimers();
+    try {
+      const { undoToken } = await viewer.delete('example.com');
+      await vi.advanceTimersByTimeAsync(60_001);
+      expect(await viewer.restore(undoToken!)).toBe(false);
+      expect(stored).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('discards undo values and timers with the profile', async () => {
+    vi.useFakeTimers();
+    try {
+      const { undoToken } = await viewer.delete('example.com');
+      expect(vi.getTimerCount()).toBe(1);
+      viewer.dispose();
+      expect(vi.getTimerCount()).toBe(0);
+      expect(await viewer.restore(undoToken!)).toBe(false);
+      expect(await viewer.delete('other.org')).toEqual({
+        deleted: 0,
+        undoToken: null,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('refuses a late or repeated undo', async () => {
     const first = await viewer.delete('example.com');
     now += 60_001;

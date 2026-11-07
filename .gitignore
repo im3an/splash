@@ -160,3 +160,9 @@ out/
 # Duplicate export of assets/brand, kept locally only
 /assets/Splash-brand-kit/
 /assets/Splash-brand-kit.zip
+
+# The landing page: its own git repository.
+sites/splash-landing/
+
+# Generated before start and packaging by scripts/third-party-notices.mjs.
+/build/

@@ -116,6 +116,7 @@ export const preferencesSchema = z.strictObject({
   addressBar: z.enum(['toolbar', 'sidebar']),
   downloads: z.enum(['folder', 'ask']),
   awakePages: z.number().int().min(2).max(100),
+  autoPictureInPicture: z.boolean(),
   newPage: z.enum(['search', 'start', 'homepage']),
   homepage: z
     .url()
@@ -298,6 +299,7 @@ export const invokeContract = {
     paths: z.array(z.string().min(1).max(4096)).min(1).max(50),
   }),
   'app:open-settings-section': z.strictObject({ section: settingsSection }),
+  'app:make-default-browser': z.undefined(),
   'page:picture-in-picture': z.strictObject({ pageId }),
   'auth:challenge': z.undefined(),
   'auth:respond': z
@@ -546,6 +548,15 @@ export const invokeContract = {
   'settings:make-default-browser': z.undefined(),
   'settings:open-data-folder': z.undefined(),
   'settings:about': z.undefined(),
+  'settings:licence': z.strictObject({
+    name: z.enum(['splash', 'third-party']),
+  }),
+  'settings:open-chromium-licences': z.undefined(),
+  'settings:open-about-link': z.strictObject({
+    link: z.enum(['source', 'ublock-source', 'gpl']),
+  }),
+  'settings:export-diagnostics': z.undefined(),
+  'settings:show-crash-reports': z.undefined(),
   'settings:edit-workspace': z.strictObject({
     workspaceId: workspaceId.nullable(),
   }),
@@ -623,9 +634,3 @@ export const sendContract = {
 
 export type InvokeChannel = keyof typeof invokeContract;
 export type SendChannel = keyof typeof sendContract;
-export type InvokeInput<C extends InvokeChannel> = z.input<
-  (typeof invokeContract)[C]
->;
-export type SendInput<C extends SendChannel> = z.input<
-  (typeof sendContract)[C]
->;

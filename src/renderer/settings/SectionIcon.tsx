@@ -2,6 +2,7 @@ import {
   ArrowLeftRight,
   Download,
   Hand,
+  Info,
   KeyRound,
   Keyboard,
   Layers,
@@ -30,7 +31,8 @@ export type SectionIconName =
   | 'transfer'
   | 'downloads'
   | 'shortcuts'
-  | 'advanced';
+  | 'advanced'
+  | 'about';
 
 const ICONS: Record<SectionIconName, LucideIcon> = {
   general: SlidersHorizontal,
@@ -45,6 +47,7 @@ const ICONS: Record<SectionIconName, LucideIcon> = {
   downloads: Download,
   shortcuts: Keyboard,
   advanced: Settings,
+  about: Info,
 };
 
 export function SectionIcon({

@@ -18,6 +18,7 @@ import {
   FILE_DROPPED,
   FORM_EDITED,
   FRAME_GESTURE,
+  VIDEO_UNFLOATED,
   LINK_DROPPED,
   LINK_ACTIVATED,
   NAVIGATION_BUTTON,
@@ -49,6 +50,7 @@ import {
 } from './url';
 import { requestPageClose } from './close-page';
 import { HungRenderer } from './hung-renderer';
+import { PageDownloads } from './page-downloads';
 import {
   isBlankPopup,
   isGestureInput,
@@ -57,7 +59,11 @@ import {
 } from './popup-policy';
 import { stepZoom } from './zoom';
 import { SECURE_ATTEMPT_LIMIT_MS, SecureAttempt } from '../security/https-only';
-import { togglePictureInPicture } from './picture-in-picture';
+import {
+  floatPlayingVideo,
+  sinkFloatingVideo,
+  togglePictureInPicture,
+} from './picture-in-picture';
 import { CONTENT_RADIUS } from '../../shared/geometry';
 
 /** Chromium's ERR_ABORTED: a load was superseded by another navigation. */
@@ -126,6 +132,8 @@ export interface PageHandle {
   flaggedDangerous(url: string): void;
   /** Its main-frame request for `plain` is going to `secure` instead. */
   upgraded(plain: string, secure: string): void;
+  /** A download is starting from this page. False means it mustn't. */
+  downloadStarting(url: string, filename: string): boolean;
   /** Where it is in its window, while it's on screen. */
   place(): { window: BaseWindow; bounds: Rectangle } | null;
 }
@@ -170,6 +178,7 @@ class ElectronPageHost implements PageHost {
   private readonly environment: PageHostEnvironment;
   private readonly links = new LinkActivations();
   private readonly gestures = new UserGestures();
+  private readonly downloads = new PageDownloads();
   private readonly secureAttempt = new SecureAttempt();
   /** The HTTPS address showing the warning, and the HTTP one it stands for. */
   private failedUpgrade: { secure: string; plain: string } | null = null;
@@ -180,6 +189,8 @@ class ElectronPageHost implements PageHost {
   private hasFormEdits = false;
   /** This document was given the camera or microphone. */
   private capturing = false;
+  private videoFloats = false;
+  private wantsFloat = false;
   private origin: string | null = null;
   private sourceUrl: string | null = null;
   private secureTimer: ReturnType<typeof setTimeout> | null = null;
@@ -235,6 +246,7 @@ class ElectronPageHost implements PageHost {
         this.secureAttempt.begin(plain, secure);
         this.watchSecureAttempt(secure);
       },
+      downloadStarting: (url, filename) => this.downloadStarting(url, filename),
       place: () =>
         this.attached
           ? { window: this.window, bounds: this.view.getBounds() }
@@ -246,6 +258,20 @@ class ElectronPageHost implements PageHost {
 
   private get contents(): WebContents {
     return this.nativeContents;
+  }
+
+  private downloadStarting(url: string, filename: string): boolean {
+    const verdict = this.downloads.starting();
+    // The address answered, with a file. There's nothing left to fall back from.
+    this.stopWatchingSecureAttempt();
+    this.secureAttempt.committed();
+    // The answer may close this page's view, which can't happen from inside
+    // Chromium's call into `will-download`.
+    setImmediate(() => {
+      if (this.contents.isDestroyed()) return;
+      this.events.onDownload({ url, filename, ...verdict });
+    });
+    return !verdict.held;
   }
 
   /**
@@ -277,7 +303,7 @@ class ElectronPageHost implements PageHost {
   ): void {
     this.stopWatchingSecureAttempt();
     if (this.environment.plainHttpAllowed(plain)) {
-      this.load(plain);
+      this.load(plain, { comingBack: this.downloads.isHolding });
       return;
     }
     this.contents.stop();
@@ -289,6 +315,8 @@ class ElectronPageHost implements PageHost {
   }
 
   load(url: string, options: LoadOptions = {}): void {
+    if (options.comingBack) this.downloads.comingBack();
+    else this.downloads.userActed();
     this.sourceUrl = url.startsWith('view-source:') ? url : null;
     if (options.plainAddress && this.environment.httpsOnly()) {
       this.secureAttempt.begin(options.plainAddress, url);
@@ -308,17 +336,20 @@ class ElectronPageHost implements PageHost {
 
   goBack(): void {
     if (this.contents.navigationHistory.canGoBack()) {
+      this.downloads.userActed();
       this.hung.leave(() => this.contents.navigationHistory.goBack());
     }
   }
 
   goForward(): void {
     if (this.contents.navigationHistory.canGoForward()) {
+      this.downloads.userActed();
       this.hung.leave(() => this.contents.navigationHistory.goForward());
     }
   }
 
   reload({ ignoreCache = false }: { ignoreCache?: boolean } = {}): void {
+    this.downloads.userActed();
     this.hung.leave(() => {
       if (ignoreCache) this.contents.reloadIgnoringCache();
       else this.contents.reload();
@@ -384,15 +415,16 @@ class ElectronPageHost implements PageHost {
 
   restoreHistory(history: PageHistory): void {
     const active = history.entries[history.index]?.url;
+    this.downloads.comingBack();
     if (active?.startsWith('view-source:')) {
-      this.load(active);
+      this.load(active, { comingBack: true });
       return;
     }
     this.contents.navigationHistory
       .restore({ entries: history.entries, index: history.index })
       .catch(() => {
         if (!this.contents.isDestroyed() && active && isPageUrl(active))
-          this.load(active);
+          this.load(active, { comingBack: true });
       });
   }
 
@@ -401,7 +433,26 @@ class ElectronPageHost implements PageHost {
   }
 
   isInUse(): boolean {
-    return this.capturing || this.contents.isDevToolsOpened();
+    return (
+      this.capturing || this.videoFloats || this.contents.isDevToolsOpened()
+    );
+  }
+
+  floatVideo(): void {
+    this.wantsFloat = true;
+    void floatPlayingVideo(this.contents).then((floated) => {
+      if (!floated || this.contents.isDestroyed()) return;
+      this.videoFloats = true;
+      // Already back: nobody wants it out any more.
+      if (!this.wantsFloat) this.sinkVideo();
+    });
+  }
+
+  sinkVideo(): void {
+    this.wantsFloat = false;
+    if (!this.videoFloats) return;
+    this.videoFloats = false;
+    void sinkFloatingVideo(this.contents);
   }
 
   setMuted(muted: boolean): void {
@@ -512,7 +563,9 @@ class ElectronPageHost implements PageHost {
     const emit = this.events.onStateChange;
 
     contents.on('input-event', (_event, input) => {
-      if (isGestureInput(input.type)) this.gestures.record();
+      if (!isGestureInput(input.type)) return;
+      this.gestures.record();
+      this.downloads.userActed();
     });
     contents.setWindowOpenHandler(({ url, disposition, features }) => {
       if (isExternalAppUrl(url)) {
@@ -567,7 +620,14 @@ class ElectronPageHost implements PageHost {
 
     // `input-event` above doesn't see clicks inside a frame from another site.
     contents.ipc.on(FRAME_GESTURE, (event) => {
-      if (event.senderFrame?.parent) this.gestures.record();
+      if (!event.senderFrame?.parent) return;
+      this.gestures.record();
+      this.downloads.userActed();
+    });
+    contents.ipc.on(VIDEO_UNFLOATED, (_event, playing: unknown) => {
+      const floated = this.videoFloats;
+      this.videoFloats = false;
+      if (floated && playing === true) this.events.onVideoReturned?.();
     });
     contents.ipc.on(LINK_DROPPED, (_event, href: unknown) => {
       if (
@@ -740,6 +800,7 @@ class ElectronPageHost implements PageHost {
       emit({ isLoading: false, ...this.navigationState() }),
     );
     contents.on('did-navigate', (_event, committed, status) => {
+      this.downloads.committed();
       this.stopWatchingSecureAttempt();
       // The secure address answered only to say it has nothing there: the
       // plain one may well be the site.
@@ -819,7 +880,7 @@ class ElectronPageHost implements PageHost {
         const plain = this.secureAttempt.failed(code);
         // Typed without a scheme, on a site the user already chose HTTP for.
         if (plain && this.environment.plainHttpAllowed(plain)) {
-          this.load(plain);
+          this.load(plain, { comingBack: this.downloads.isHolding });
           return;
         }
         this.failedUpgrade = plain ? { secure: url, plain } : null;

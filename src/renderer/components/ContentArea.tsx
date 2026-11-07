@@ -356,9 +356,11 @@ function PageFailed({ page }: { page: PageSnapshot }) {
           <span className="block truncate" title={error.url}>
             {error.url}
           </span>
-          {error.kind !== 'crashed' && error.kind !== 'dangerous-site' && (
-            <span className="block wrap-anywhere">{error.description}</span>
-          )}
+          {error.kind !== 'crashed' &&
+            error.kind !== 'dangerous-site' &&
+            error.kind !== 'file-download' && (
+              <span className="block wrap-anywhere">{error.description}</span>
+            )}
         </p>
       )}
       {error.kind === 'dangerous-site' ? (
@@ -396,12 +398,25 @@ function PageFailed({ page }: { page: PageSnapshot }) {
                   : 'Continue anyway'}
               </button>
             )}
+          {error.kind === 'file-download' && (
+            <button
+              type="button"
+              onClick={() => void api().closePage(page.id)}
+              className="button button-lg"
+            >
+              Close page
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void api().reload(page.id)}
             className="button button-raised button-lg"
           >
-            {error.kind === 'crashed' ? 'Reload' : 'Try again'}
+            {error.kind === 'crashed'
+              ? 'Reload'
+              : error.kind === 'file-download'
+                ? 'Download'
+                : 'Try again'}
           </button>
         </PageStateActions>
       )}

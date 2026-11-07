@@ -11,6 +11,7 @@ import type { OutlineItem, TrailOutline } from '../transfer/trail-markdown';
 
 class FakeHost implements PageHost {
   loaded: string[] = [];
+  comingBack: (boolean | undefined)[] = [];
   referrers: (string | undefined)[] = [];
   plainAddresses: (string | undefined)[] = [];
   bounds: Rectangle | null = null;
@@ -25,6 +26,7 @@ class FakeHost implements PageHost {
 
   load(url: string, options?: LoadOptions) {
     this.loaded.push(url);
+    this.comingBack.push(options?.comingBack);
     this.referrers.push(options?.referrer);
     this.plainAddresses.push(options?.plainAddress);
     this.history = { entries: [{ url, title: '' }], index: 0 };
@@ -163,6 +165,20 @@ describe('BrowserController', () => {
       url: 'https://example.com/',
       isLoading: true,
     });
+  });
+
+  it('ends loading when a navigation answers with a download', () => {
+    const { controller, hosts, latest } = setup();
+    const id = controller.createPage({ url: 'https://example.com/file' });
+    hosts[0]!.events.onDownload({
+      url: 'https://example.com/file',
+      filename: 'file.zip',
+      held: false,
+      hasDocument: false,
+      firstHeld: false,
+    });
+    expect(latest().pages[id]?.isLoading).toBe(false);
+    expect(latest().pages[id]?.url).toBe('https://example.com/file');
   });
 
   it('only shows the active page', () => {
@@ -2893,5 +2909,143 @@ describe('trails', () => {
     it('says nothing when nothing was restored', () => {
       expect(setup().controller.takeComeBack()).toBeNull();
     });
+  });
+});
+
+describe('pages that answer with a file', () => {
+  const FILE = 'https://files.example/report.mov';
+
+  /** What Chromium reports for a view whose only navigation became a download. */
+  function answerWithFile(
+    host: FakeHost,
+    { held = false, hasDocument = false } = {},
+  ) {
+    if (!hasDocument) host.history = null;
+    host.events.onDownload({
+      url: FILE,
+      filename: 'report.mov',
+      held,
+      hasDocument,
+      firstHeld: held,
+    });
+  }
+
+  it('closes a page opened only for the file, and goes back to its opener', () => {
+    const { controller, hosts, latest } = setup();
+    const opener = controller.createPage({ input: 'a.com' });
+    controller.createPage({ input: 'b.com', parentId: opener });
+    controller.activatePage(opener);
+    const file = controller.createPage({ url: FILE, parentId: opener });
+    answerWithFile(hosts.at(-1)!);
+    expect(latest().pages[file]).toBeUndefined();
+    expect(latest().activePageId).toBe(opener);
+    expect(hosts.at(-1)!.destroyed).toBe(true);
+    expect(latest().lastClosed).toMatchObject({
+      label: 'report.mov',
+      forDownload: true,
+      pageCount: 1,
+    });
+  });
+
+  it('can be undone, and says what it was without asking the site again', () => {
+    const { controller, hosts, latest } = setup();
+    controller.createPage({ input: 'a.com' });
+    const file = controller.createPage({ url: FILE });
+    answerWithFile(hosts.at(-1)!);
+    const loads = hosts.length;
+    expect(controller.undoClose(latest().lastClosed!.serial)).toBe(true);
+    expect(latest().activePageId).toBe(file);
+    expect(latest().pages[file]).toMatchObject({
+      title: 'report.mov',
+      error: { kind: 'file-download', url: FILE, description: 'report.mov' },
+    });
+    expect(hosts).toHaveLength(loads);
+  });
+
+  it('downloads from the file page when asked, and closes it again', () => {
+    const { controller, hosts, latest } = setup();
+    controller.createPage({ input: 'a.com' });
+    const file = controller.createPage({ url: FILE });
+    answerWithFile(hosts.at(-1)!);
+    controller.undoClose(latest().lastClosed!.serial);
+    controller.reload(file);
+    const host = hosts.at(-1)!;
+    expect(host.loaded).toEqual([FILE]);
+    expect(host.comingBack).toEqual([undefined]);
+    answerWithFile(host);
+    expect(latest().pages[file]).toBeUndefined();
+  });
+
+  it('keeps a page with a document where it was', () => {
+    const { controller, hosts, latest } = setup();
+    const id = controller.createPage({ input: 'a.com' });
+    hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+    controller.navigate(id, FILE);
+    expect(latest().pages[id]?.url).toBe(FILE);
+    answerWithFile(hosts[0]!, { hasDocument: true });
+    expect(latest().pages[id]).toMatchObject({
+      url: 'https://a.com/',
+      error: null,
+    });
+    expect(latest().lastClosed).toBeNull();
+  });
+
+  it('leaves an empty page empty when a typed address was a file', () => {
+    const { controller, hosts, latest } = setup();
+    const id = controller.createPage();
+    controller.navigate(id, FILE);
+    answerWithFile(hosts[0]!);
+    expect(latest().pages[id]).toMatchObject({ url: null, error: null });
+    expect(latest().lastClosed).toBeNull();
+  });
+
+  it('keeps pinned and named pages, saying the address is a file', () => {
+    const { controller, hosts, latest } = setup();
+    controller.createPage({ input: 'a.com' });
+    const id = controller.createPage({ url: FILE });
+    controller.renamePage(id, 'Weekly report');
+    answerWithFile(hosts.at(-1)!);
+    expect(latest().pages[id]?.error?.kind).toBe('file-download');
+    expect(latest().lastClosed).toBeNull();
+  });
+
+  it('wakes restored pages without letting them start a download', () => {
+    const first = setup();
+    first.controller.createPage({ input: 'a.com' });
+    const file = first.controller.createPage({ url: FILE });
+    first.hosts.at(-1)!.history = null;
+    const session = first.controller.exportSession();
+
+    const restored = setup();
+    restored.controller.restoreSession(session);
+    const host = restored.hosts[0]!;
+    expect(host.loaded).toEqual([FILE]);
+    expect(host.comingBack).toEqual([true]);
+    answerWithFile(host, { held: true });
+    expect(restored.latest().pages[file]?.error?.kind).toBe('file-download');
+    expect(restored.latest().activePageId).toBe(file);
+  });
+
+  it('says once that a page that came back by itself tried to download', () => {
+    const { controller, hosts, notices, latest } = setup();
+    const id = controller.createPage({ input: 'a.com' });
+    hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+    answerWithFile(hosts[0]!, { held: true, hasDocument: true });
+    hosts[0]!.events.onDownload({
+      url: FILE,
+      filename: 'report.mov',
+      held: true,
+      hasDocument: true,
+      firstHeld: false,
+    });
+    expect(notices).toEqual([
+      {
+        kind: 'download-held',
+        pageId: id,
+        host: 'a.com',
+        filename: 'report.mov',
+      },
+    ]);
+    expect(latest().pages[id]?.error).toBeNull();
   });
 });

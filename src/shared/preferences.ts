@@ -72,6 +72,8 @@ export interface Preferences {
   downloads: 'folder' | 'ask';
   /** Pages kept awake; beyond this the least recently used ones sleep. */
   awakePages: number;
+  /** A playing video floats in its own small window when you leave its page. */
+  autoPictureInPicture: boolean;
   /**
    * What a new page shows: the location field alone, a start page of bookmarks
    * and recent pages, or the homepage.
@@ -214,6 +216,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   addressBar: 'toolbar',
   downloads: 'folder',
   awakePages: 12,
+  autoPictureInPicture: true,
   newPage: 'start',
   homepage: null,
   startup: 'restore',

@@ -22,7 +22,6 @@ import type {
   DefaultBrowserStatus,
   SiteSettings,
 } from '../../shared/types';
-import { Brand } from '../components/Brand';
 import { toolbarLabels } from '../components/ToolbarActions';
 import { api } from '../splash-api';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
@@ -1071,17 +1070,6 @@ export function AdvancedSettings() {
           <Button onClick={() => void api().openDataFolder()}>Show</Button>
         </Row>
       </Section>
-      {about && (
-        <Section title="About">
-          <div className="pb-4">
-            <Brand size={32} />
-          </div>
-          <Row
-            label={`Splash ${about.version}`}
-            help={`Electron ${about.electron} · Chromium ${about.chromium}`}
-          />
-        </Section>
-      )}
     </>
   );
 }

@@ -85,12 +85,24 @@ export interface CookieViewerOptions {
 
 /** Lists the web session's cookies and deletes them by site or one at a time. */
 export class CookieViewer {
+  private disposed = false;
   private readonly undo = new Map<
     string,
-    { cookies: StoredCookie[]; expires: number }
+    {
+      cookies: StoredCookie[];
+      expires: number;
+      timer: ReturnType<typeof setTimeout>;
+    }
   >();
 
   constructor(private readonly options: CookieViewerOptions) {}
+
+  /** Releases values and timers when a private profile is discarded. */
+  dispose(): void {
+    this.disposed = true;
+    for (const entry of this.undo.values()) clearTimeout(entry.timer);
+    this.undo.clear();
+  }
 
   /** Every site, or only the site that `host` belongs to. */
   async list(host?: string): Promise<CookieSite[]> {
@@ -104,6 +116,7 @@ export class CookieViewer {
     site: string,
     only?: { name: string; domain: string; path: string },
   ): Promise<CookieDeletion> {
+    if (this.disposed) return { deleted: 0, undoToken: null };
     const { jar, now, createToken } = this.options;
     const stored = await jar.get({});
     const doomed = stored.filter(
@@ -118,11 +131,18 @@ export class CookieViewer {
       doomed.map((cookie) => jar.remove(urlOf(cookie), cookie.name)),
     );
     await jar.flushStore();
-    if (doomed.length === 0) return { deleted: 0, undoToken: null };
+    if (this.disposed || doomed.length === 0)
+      return { deleted: doomed.length, undoToken: null };
     const undoToken = createToken();
+    // Expiry must release the saved values even when Undo is never pressed.
+    const timer = setTimeout(() => this.undo.delete(undoToken), UNDO_WINDOW_MS);
+    timer.unref?.();
+    const previous = this.undo.get(undoToken);
+    if (previous) clearTimeout(previous.timer);
     this.undo.set(undoToken, {
       cookies: doomed,
       expires: now() + UNDO_WINDOW_MS,
+      timer,
     });
     return { deleted: doomed.length, undoToken };
   }
@@ -131,6 +151,7 @@ export class CookieViewer {
   async restore(token: string): Promise<boolean> {
     const entry = this.undo.get(token);
     this.undo.delete(token);
+    if (entry) clearTimeout(entry.timer);
     if (!entry || entry.expires < this.options.now()) return false;
     const { jar } = this.options;
     await Promise.all(

@@ -76,12 +76,12 @@ export type CredentialAnswer = 'save' | 'never' | 'dismiss';
 
 export function cardBrand(number: string): string {
   const digits = number.replace(/\D/g, '');
-  if (/^4/.test(digits)) return 'Visa';
+  if (digits.startsWith('4')) return 'Visa';
   if (/^(5[1-5]|2[2-7])/.test(digits)) return 'Mastercard';
   if (/^3[47]/.test(digits)) return 'American Express';
   if (/^6(011|5)/.test(digits)) return 'Discover';
   if (/^3(0[0-5]|[68])/.test(digits)) return 'Diners Club';
-  if (/^35/.test(digits)) return 'JCB';
+  if (digits.startsWith('35')) return 'JCB';
   return 'Card';
 }
 

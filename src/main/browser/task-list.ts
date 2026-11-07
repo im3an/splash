@@ -53,7 +53,9 @@ export function buildTaskList(
 
   const groups = new Map<number, LivePage[]>();
   for (const page of pages) {
-    groups.set(page.pid, [...(groups.get(page.pid) ?? []), page]);
+    const group = groups.get(page.pid);
+    if (group) group.push(page);
+    else groups.set(page.pid, [page]);
   }
   // Main processes first, so a frame in another page's process isn't
   // counted twice or taken from the page that really lives there.

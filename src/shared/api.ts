@@ -3,6 +3,8 @@ import type {
   ClosedSummary,
   GroupIcon,
   AboutInfo,
+  AboutLink,
+  LicenceName,
   ClearDataRequest,
   ContentBlockingStatus,
   ContentInsets,
@@ -73,6 +75,7 @@ export interface InvokeOutputs {
   'file:choose': void;
   'file:open-dropped': void;
   'app:open-settings-section': void;
+  'app:make-default-browser': void;
   'page:picture-in-picture': void;
   'extensions:manage': void;
   'extensions:list': ExtensionInfo[];
@@ -194,6 +197,11 @@ export interface InvokeOutputs {
   'settings:make-default-browser': DefaultBrowserStatus;
   'settings:open-data-folder': void;
   'settings:about': AboutInfo;
+  'settings:licence': string;
+  'settings:open-chromium-licences': void;
+  'settings:open-about-link': void;
+  'settings:export-diagnostics': boolean;
+  'settings:show-crash-reports': void;
   'settings:edit-workspace': void;
   'settings:delete-workspace': void;
   'preferences:get': Preferences;
@@ -257,6 +265,8 @@ export interface SplashApi {
   ): () => void;
   windowInfo(): Promise<{ isPrivate: boolean }>;
   newPrivateWindow(): Promise<void>;
+  /** Asks macOS to make Splash the default browser; macOS confirms. */
+  becomeDefaultBrowser(): Promise<void>;
   chooseFiles(): Promise<void>;
   openSettingsSection(section: SettingsSection): Promise<void>;
   togglePictureInPicture(pageId: PageId): Promise<void>;
@@ -491,6 +501,12 @@ export interface SplashApi {
   makeDefaultBrowser(): Promise<DefaultBrowserStatus>;
   openDataFolder(): Promise<void>;
   about(): Promise<AboutInfo>;
+  licence(name: LicenceName): Promise<string>;
+  openChromiumLicences(): Promise<void>;
+  openAboutLink(link: AboutLink): Promise<void>;
+  /** Saves a diagnostics report where the user chooses; false if cancelled. */
+  exportDiagnostics(): Promise<boolean>;
+  showCrashReports(): Promise<void>;
   /** Opens the workspace editor in the browser window (null: new workspace). */
   editWorkspace(workspaceId: WorkspaceId | null): Promise<void>;
   deleteWorkspace(workspaceId: WorkspaceId): Promise<void>;

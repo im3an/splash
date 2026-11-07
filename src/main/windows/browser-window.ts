@@ -129,6 +129,9 @@ export interface TrailWindowOptions {
   isPrivate: boolean;
   openSettingsSection(section: SettingsSection): void;
   openPrivateWindow(): void;
+  /** True once, when it's time to offer being the default browser. */
+  offerDefaultBrowser(): boolean;
+  makeDefaultBrowser(): void;
   chooseFiles(): void;
   /** Files dragged from the Finder onto this window. */
   openFiles(paths: string[]): void;
@@ -474,6 +477,9 @@ export class TrailWindow {
             ? null
             : this.controller.takeComeBack();
           if (comeBack) setImmediate(() => this.notify(comeBack));
+          // One question at a time: the offer waits for a quieter launch.
+          else if (!options.isPrivate && options.offerDefaultBrowser())
+            setImmediate(() => this.notify({ kind: 'default-browser-offer' }));
           return this.controller.snapshot();
         },
         'storage:status': () => this.storageStatus(),
@@ -481,6 +487,7 @@ export class TrailWindow {
         'window:new-private': () => {
           options.openPrivateWindow();
         },
+        'app:make-default-browser': () => options.makeDefaultBrowser(),
         'file:choose': () => options.chooseFiles(),
         'file:open-dropped': ({ paths }) => options.openFiles(paths),
         'app:open-settings-section': ({ section }) =>

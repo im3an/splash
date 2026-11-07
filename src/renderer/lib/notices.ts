@@ -7,6 +7,8 @@ import type { ToastInput } from '../stores/toast-store';
 
 const UNDO_MS = 9000;
 const CONFIRM_MS = 4000;
+/** Long enough to read and decide; asked only once. */
+const OFFER_MS = 15000;
 const MAX_NAME = 24;
 
 /** Long names are shortened so the count and the shortcut always show. */
@@ -33,6 +35,8 @@ export function undoMessage(closed: ClosedSummary): string {
       ? `Deleted group ${name} and its ${pages}.`
       : `Deleted group ${name}.`;
   }
+  if (closed.forDownload)
+    return `Downloading ${name}, so its empty page closed.`;
   return closed.pageCount > 1
     ? `Closed ${name} and ${closed.pageCount - 1} more.`
     : `Closed ${name}.`;
@@ -123,6 +127,8 @@ export function noticeMessage(notice: Notice): string {
       return notice.pinned
         ? `Pinned “${shortName(notice.label)}” to the top of the trail.`
         : `Unpinned “${shortName(notice.label)}”.`;
+    case 'download-held':
+      return `${notice.host} tried to download “${shortName(notice.filename)}” as it came back. Splash held it.`;
     case 'kept-pinned':
       return notice.asleep
         ? `“${shortName(notice.label)}” is pinned, so it went to sleep instead.`
@@ -137,6 +143,8 @@ export function noticeMessage(notice: Notice): string {
       return `No app on this Mac opens “${notice.scheme}:” links.`;
     case 'nothing-to-paste':
       return 'There’s no text on the clipboard to open.';
+    case 'default-browser-offer':
+      return 'Open links from other apps in Splash?';
     case 'shell-recovered':
       return 'Splash’s window had a problem and reloaded. Your pages are as you left them.';
     case 'copied':
@@ -191,6 +199,20 @@ export function noticeToast(notice: Notice): ToastInput {
         detail: 'It opens web pages, PDFs, images, text, audio and video.',
         durationMs: UNDO_MS,
         actions: [],
+      };
+    case 'default-browser-offer':
+      return {
+        message,
+        detail:
+          'They’d open as new pages here. You can change this in Settings › General.',
+        durationMs: OFFER_MS,
+        actions: [
+          {
+            label: 'Make Default',
+            title: 'macOS asks you to confirm',
+            run: () => api().becomeDefaultBrowser(),
+          },
+        ],
       };
     case 'helper-ended':
       return {
@@ -323,6 +345,21 @@ export function noticeToast(notice: Notice): ToastInput {
             icon: 'undo',
             run: () => api().setPinned(pageId, !pinned, origin),
             redo: () => api().setPinned(pageId, pinned, at),
+          },
+        ],
+      };
+    }
+    case 'download-held': {
+      const { pageId } = notice;
+      return {
+        message,
+        detail: 'Reloading the page lets it start the download.',
+        durationMs: UNDO_MS,
+        actions: [
+          {
+            label: 'Reload',
+            title: 'Reload the page and let it download',
+            run: () => void api().reload(pageId),
           },
         ],
       };

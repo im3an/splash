@@ -15,7 +15,7 @@ export function liveLimit(setting: number, pressure: MemoryPressure): number {
     case 'normal':
       return setting;
     case 'warn':
-      return Math.max(2, Math.ceil(setting / 2));
+      return Math.min(setting, Math.max(2, Math.ceil(setting / 2)));
     case 'critical':
       return Math.min(setting, 2);
   }
@@ -40,6 +40,7 @@ function readPressure(): Promise<MemoryPressure | null> {
     execFile(
       '/usr/sbin/sysctl',
       ['-n', 'kern.memorystatus_vm_pressure_level'],
+      { timeout: 5000 },
       (error, stdout) => resolve(error ? null : parsePressureLevel(stdout)),
     );
   });
@@ -61,11 +62,20 @@ export function watchMemoryPressure(
 ): () => void {
   let current: MemoryPressure = 'normal';
   let stopped = false;
+  let reading = false;
   const check = async () => {
-    const next = await read();
-    if (stopped || next === null || next === current) return;
-    current = next;
-    onChange(next);
+    if (stopped || reading) return;
+    reading = true;
+    try {
+      const next = await read();
+      if (stopped || next === null || next === current) return;
+      current = next;
+      onChange(next);
+    } catch {
+      // A failed reading leaves the last known pressure unchanged.
+    } finally {
+      reading = false;
+    }
   };
   void check();
   const timer = setInterval(() => void check(), intervalMs);
