@@ -16,7 +16,6 @@ import {
   useShell,
 } from '../stores/shell-store';
 import { AddressBar } from './AddressBar';
-import { DownloadsButton } from './DownloadsButton';
 import { ToolbarActions } from './ToolbarActions';
 import { Toast } from './Toast';
 
@@ -68,7 +67,6 @@ export function Toolbar() {
       )}
       {/* With the sidebar hidden, its feedback moves up here. */}
       <Toast placement="toolbar" />
-      {!sidebarOpen && <DownloadsButton />}
     </header>
   );
 }

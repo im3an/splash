@@ -19,7 +19,11 @@ import {
   saveToolbar,
   toggleBookmark,
 } from '../lib/collections';
-import { selectActivePage, useShell } from '../stores/shell-store';
+import {
+  selectActivePage,
+  selectAddressInSidebar,
+  useShell,
+} from '../stores/shell-store';
 import { useAiPanel } from '../stores/ai-store';
 import { useOverlay } from '../stores/overlay-store';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
@@ -40,6 +44,7 @@ export function ToolbarActions() {
   const aiOpen = useAiPanel((state) => state.open);
   const page = useShell(selectActivePage);
   const preferences = useShell((state) => state.preferences);
+  const inSidebar = useShell(selectAddressInSidebar);
   const actions =
     preferences?.toolbarActions ?? DEFAULT_PREFERENCES.toolbarActions;
   const saved = preferences?.collections?.some(
@@ -224,6 +229,11 @@ export function ToolbarActions() {
           </button>
         );
       })}
+      {/*
+       * Not pinned: it still comes up while a download needs following. The
+       * sidebar's narrow row has no room for it, so there it sits a row above.
+       */}
+      {!actions.includes('downloads') && !inSidebar && <DownloadsButton />}
       <button
         type="button"
         className="icon-button data-[on=true]:text-accent"

@@ -452,7 +452,7 @@ Vivaldi style power features
 - [ ] Tab (page) search across titles, URLs and page text
 - [ ] Notes with screenshots and links; capture a page region
 - [ ] Rich history view: a timeline, per-day, grouped by trail
-- [ ] Download manager with categories and a progress popover
+- [x] Download manager with categories and a progress popover
 
 Brave / privacy style
 

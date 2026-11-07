@@ -291,6 +291,8 @@ export interface DownloadSummary {
   state: DownloadState;
   receivedBytes: number;
   totalBytes: number;
+  /** How fast it's arriving right now; 0 unless it's progressing. */
+  bytesPerSecond: number;
   startedAt: number;
   /** Why it stopped, in plain words, for interrupted downloads. */
   problem: string | null;

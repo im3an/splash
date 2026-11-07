@@ -26,6 +26,7 @@ import { AddressSuggestions } from './AddressSuggestions';
 import { CommandPalette } from './CommandPalette';
 import { canContinuePastCertificate } from '../../shared/certificate-errors';
 import { ErrorBoundary } from './ErrorBoundary';
+import { DownloadsPopover } from './DownloadsPopover';
 import { SiteInfoPopover } from './SiteInfoPopover';
 import { StartPage } from './StartPage';
 import { AlmaViewPrototype } from '../prototype/AlmaViewPrototype';
@@ -223,6 +224,8 @@ function OverlayContent({
       return <AddressSuggestions />;
     case 'site-info':
       return <SiteInfoPopover />;
+    case 'downloads':
+      return <DownloadsPopover />;
     case 'alma-view':
       return import.meta.env.DEV ? <AlmaViewPrototype /> : null;
     default:

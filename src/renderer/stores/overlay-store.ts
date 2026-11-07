@@ -11,6 +11,7 @@ export type Overlay =
   | { kind: 'bookmarks-menu' }
   | { kind: 'suggestions' }
   | { kind: 'site-info' }
+  | { kind: 'downloads' }
   /** PROTOTYPE: see src/renderer/prototype/. */
   | { kind: 'alma-view' };
 
@@ -31,6 +32,21 @@ const nextFrame = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
 /**
+ * A page that has never painted, like the blank one a link to a file leaves,
+ * never answers a capture. A hung one may not either. Neither has a still worth
+ * waiting for, and the overlay shouldn't depend on it.
+ */
+const CAPTURE_PATIENCE_MS = 400;
+
+const captureStills = () =>
+  Promise.race([
+    api().freezePage(),
+    new Promise<Record<PageId, string>>((resolve) =>
+      setTimeout(() => resolve({}), CAPTURE_PATIENCE_MS),
+    ),
+  ]);
+
+/**
  * A live page view always paints above the shell, so overlays work by
  * freezing: the shell shows a still of the page, then the view steps aside
  * until the overlay closes.
@@ -47,7 +63,7 @@ export const useOverlay = create<OverlayState>()((set, get) => ({
       set({ overlay, leaving: false });
       return;
     }
-    const stills = await api().freezePage();
+    const stills = await captureStills();
     if (request !== requestSerial) return;
     set({ overlay, frozenPages: stills });
     // Let the still paint before the live view leaves.

@@ -10,6 +10,7 @@ class FakeItem extends EventEmitter implements DownloadItemLike {
   state: 'progressing' | 'completed' | 'cancelled' | 'interrupted' =
     'progressing';
   received = 0;
+  speed = 0;
   savePath = '';
   paused = false;
   resumable = false;
@@ -43,6 +44,9 @@ class FakeItem extends EventEmitter implements DownloadItemLike {
   }
   getTotalBytes() {
     return this.total;
+  }
+  getCurrentBytesPerSecond() {
+    return this.speed;
   }
   isPaused() {
     return this.paused;
@@ -137,6 +141,44 @@ describe('DownloadManager', () => {
     expect(changed).toHaveBeenCalled();
   });
 
+  it('reports speed only while bytes can be arriving', () => {
+    const { manager } = setup();
+    const item = new FakeItem();
+    const id = manager.track(item, null);
+    const speed = () => manager.list().find((d) => d.id === id)?.bytesPerSecond;
+    expect(speed()).toBe(0);
+    item.speed = 2000;
+    item.progress(400);
+    expect(speed()).toBe(2000);
+    item.pause();
+    item.progress(400);
+    expect(speed()).toBe(0);
+    item.resume();
+    item.progress(500);
+    expect(speed()).toBe(2000);
+    item.finish();
+    expect(speed()).toBe(0);
+  });
+
+  it('gives saved downloads from before speeds existed a speed of 0', () => {
+    const { bytesPerSecond: _omitted, ...older } = {
+      id: 'old',
+      pageId: null,
+      url: 'https://x.example/report.pdf',
+      filename: 'report.pdf',
+      savePath: '/dl/report.pdf',
+      state: 'completed' as const,
+      receivedBytes: 100,
+      totalBytes: 100,
+      bytesPerSecond: 0,
+      startedAt: 1,
+      problem: null,
+      runnable: false,
+    };
+    const { manager } = setup({}, [older as DownloadSummary]);
+    expect(manager.list()[0]?.bytesPerSecond).toBe(0);
+  });
+
   it('explains interruptions and retries them', async () => {
     const { manager, options } = setup();
     const resumable = new FakeItem();
@@ -188,6 +230,7 @@ describe('DownloadManager', () => {
         state: 'progressing',
         receivedBytes: 10,
         totalBytes: 100,
+        bytesPerSecond: 50,
         startedAt: 1,
         problem: null,
         runnable: false,
@@ -201,6 +244,7 @@ describe('DownloadManager', () => {
         state: 'completed',
         receivedBytes: 100,
         totalBytes: 100,
+        bytesPerSecond: 0,
         startedAt: 2,
         problem: null,
         runnable: false,

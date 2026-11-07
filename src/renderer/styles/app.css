@@ -449,6 +449,34 @@ body::before {
     animation: load-sweep 1.15s var(--ease-out) infinite;
   }
 
+  /* A download's progress, under its name. */
+  .download-bar {
+    position: relative;
+    height: 3px;
+    margin-block: 4px 3px;
+    overflow: hidden;
+    border-radius: var(--radius-full);
+    background: var(--hairline);
+  }
+  .download-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
+    transition: width var(--duration-base) var(--ease-out);
+  }
+  .download-bar[data-paused] > span {
+    background: var(--fg-subtle);
+  }
+  /* Eased both ways, so the fill spends the cycle on the track, not past it. */
+  .download-bar[data-sweeping] > span {
+    width: 35%;
+    animation: load-sweep 1.4s ease-in-out infinite;
+  }
+  .download-bar[data-sweeping][data-paused] > span {
+    animation: none;
+  }
+
   .spinner {
     width: 12px;
     height: 12px;
@@ -768,6 +796,14 @@ body::before {
   .load-indicator::after {
     width: 100%;
     animation: load-breathe 1.6s ease-in-out infinite;
+  }
+  .download-bar[data-sweeping] > span {
+    width: 100%;
+    animation: load-breathe 1.6s ease-in-out infinite;
+  }
+  .download-bar[data-sweeping][data-paused] > span {
+    width: 35%;
+    animation: none;
   }
   .spinner,
   .animate-spin {

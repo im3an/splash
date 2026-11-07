@@ -16,6 +16,7 @@ export interface DownloadItemLike {
   getState(): 'progressing' | 'completed' | 'cancelled' | 'interrupted';
   getReceivedBytes(): number;
   getTotalBytes(): number;
+  getCurrentBytesPerSecond(): number;
   isPaused(): boolean;
   canResume(): boolean;
   pause(): void;
@@ -92,6 +93,7 @@ export class DownloadManager {
       state: 'progressing',
       receivedBytes: 0,
       totalBytes: item.getTotalBytes(),
+      bytesPerSecond: 0,
       startedAt: this.options.now(),
       problem: null,
       runnable: isRunnableFile(item.getFilename()),
@@ -211,6 +213,8 @@ export class DownloadManager {
           : entry.summary.filename,
         receivedBytes: item.getReceivedBytes(),
         totalBytes: item.getTotalBytes(),
+        bytesPerSecond:
+          state === 'progressing' ? item.getCurrentBytesPerSecond() : 0,
         problem: state === 'interrupted' ? interruptionProblem(item) : null,
       },
       done || state !== 'progressing',
@@ -232,13 +236,10 @@ export class DownloadManager {
 
   /** Corrects a saved entry for what happened while Splash was closed. */
   private reconcile(saved: DownloadSummary): DownloadSummary {
+    // Nothing is arriving after a restart, and older records have no speed.
+    const stopped = { ...saved, pageId: null, bytesPerSecond: 0 };
     if (saved.state === 'progressing' || saved.state === 'paused') {
-      return {
-        ...saved,
-        state: 'interrupted',
-        problem: QUIT_PROBLEM,
-        pageId: null,
-      };
+      return { ...stopped, state: 'interrupted', problem: QUIT_PROBLEM };
     }
     if (
       saved.state === 'completed' &&
@@ -246,13 +247,12 @@ export class DownloadManager {
       !this.options.exists(saved.savePath)
     ) {
       return {
-        ...saved,
+        ...stopped,
         state: 'missing',
         problem: 'The file was moved or deleted. Retry downloads it again.',
-        pageId: null,
       };
     }
-    return { ...saved, pageId: null };
+    return stopped;
   }
 
   private persist(summary: DownloadSummary): void {

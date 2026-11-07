@@ -1,6 +1,7 @@
 import type {
   ThreatListStatus,
   ContentBlockingStatus,
+  DownloadSummary,
   PageError,
   PageSnapshot,
   PermissionDecision,
@@ -382,6 +383,50 @@ export function formatBytes(bytes: number): string {
     unit++;
   }
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
+/** "3.2 MB/s" */
+export function formatSpeed(bytesPerSecond: number): string {
+  return `${formatBytes(Math.round(bytesPerSecond))}/s`;
+}
+
+/** "8 s left", "4 min left", "1 h 5 min left" */
+export function formatTimeLeft(seconds: number): string {
+  const whole = Math.ceil(seconds);
+  if (whole < 60) return `${whole} s left`;
+  const minutes = Math.round(whole / 60);
+  if (minutes < 60) return `${minutes} min left`;
+  const rest = minutes % 60;
+  return `${Math.floor(minutes / 60)} h ${rest > 0 ? `${rest} min ` : ''}left`;
+}
+
+/** How long is left at this speed, when both the size and the speed are known. */
+export function secondsLeft(
+  received: number,
+  total: number,
+  bytesPerSecond: number,
+): number | null {
+  if (total <= 0 || bytesPerSecond <= 0) return null;
+  return Math.max(0, total - received) / bytesPerSecond;
+}
+
+/** "2 in progress · 1 paused · 8 s left", or null when nothing is running. */
+export function downloadsSummary(
+  downloads: readonly DownloadSummary[],
+): string | null {
+  const running = downloads.filter((d) => d.state === 'progressing');
+  const paused = downloads.filter((d) => d.state === 'paused').length;
+  const parts: string[] = [];
+  if (running.length > 0) parts.push(`${running.length} in progress`);
+  if (paused > 0) parts.push(`${paused} paused`);
+  // One with an unknown size or a stall makes any total a guess, so say none.
+  const lefts = running.map((d) =>
+    secondsLeft(d.receivedBytes, d.totalBytes, d.bytesPerSecond),
+  );
+  if (running.length > 0 && lefts.every((left) => left !== null)) {
+    parts.push(formatTimeLeft(Math.max(...(lefts as number[]))));
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 const DAY = 24 * 60 * 60 * 1000;

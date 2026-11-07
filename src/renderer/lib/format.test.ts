@@ -1,13 +1,18 @@
+import type { DownloadSummary } from '../../shared/types';
 import { page } from '../test-fixtures';
 import {
   addressParts,
   describeError,
   displayUrl,
+  downloadsSummary,
   filterListsSummary,
   formatBytes,
+  formatSpeed,
+  formatTimeLeft,
   pageLabel,
   pageParts,
   permissionNames,
+  secondsLeft,
   securityOf,
   urlParts,
 } from './format';
@@ -313,6 +318,62 @@ describe('formatBytes', () => {
     expect(formatBytes(1_500)).toBe('1.5 KB');
     expect(formatBytes(12_300_000)).toBe('12 MB');
     expect(formatBytes(3_200_000_000)).toBe('3.2 GB');
+  });
+});
+
+describe('download progress', () => {
+  it('formats speed', () => {
+    expect(formatSpeed(3_200_000)).toBe('3.2 MB/s');
+    expect(formatSpeed(512.4)).toBe('512 B/s');
+  });
+
+  it('formats time left', () => {
+    expect(formatTimeLeft(7.2)).toBe('8 s left');
+    expect(formatTimeLeft(59)).toBe('59 s left');
+    expect(formatTimeLeft(240)).toBe('4 min left');
+    expect(formatTimeLeft(3599)).toBe('1 h left');
+    expect(formatTimeLeft(3900)).toBe('1 h 5 min left');
+  });
+
+  it('knows the time left only with a size and a speed', () => {
+    expect(secondsLeft(100, 500, 100)).toBe(4);
+    expect(secondsLeft(100, 0, 100)).toBeNull();
+    expect(secondsLeft(100, 500, 0)).toBeNull();
+    expect(secondsLeft(600, 500, 100)).toBe(0);
+  });
+
+  const download = (patch: Partial<DownloadSummary>) =>
+    ({
+      state: 'progressing',
+      receivedBytes: 0,
+      totalBytes: 1000,
+      bytesPerSecond: 100,
+      ...patch,
+    }) as DownloadSummary;
+
+  it('sums up what is running, led by the slowest', () => {
+    expect(
+      downloadsSummary([
+        download({}),
+        download({ totalBytes: 2000 }),
+        download({ state: 'paused' }),
+        download({ state: 'completed' }),
+      ]),
+    ).toBe('2 in progress · 1 paused · 20 s left');
+  });
+
+  it('leaves out a time it can only guess', () => {
+    expect(downloadsSummary([download({}), download({ totalBytes: 0 })])).toBe(
+      '2 in progress',
+    );
+    expect(downloadsSummary([download({ bytesPerSecond: 0 })])).toBe(
+      '1 in progress',
+    );
+  });
+
+  it('says nothing when nothing is running', () => {
+    expect(downloadsSummary([download({ state: 'completed' })])).toBeNull();
+    expect(downloadsSummary([])).toBeNull();
   });
 });
 

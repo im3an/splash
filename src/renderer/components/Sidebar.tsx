@@ -10,6 +10,7 @@ import {
 } from '../stores/shell-store';
 import { SidebarResize } from './SidebarResize';
 import { AddressBar } from './AddressBar';
+import { DownloadsButton } from './DownloadsButton';
 import { ToolbarActions } from './ToolbarActions';
 import { SavedGroups, useGroupRename } from './SavedGroups';
 import { SidebarPanel } from './SidebarPanel';
@@ -35,6 +36,9 @@ export function Sidebar() {
   const toggleSidebar = useShell((state) => state.toggleSidebar);
   // Only while open: the toolbar has the address field while this is shut.
   const addressHere = useShell(selectAddressInSidebar);
+  const downloadsPinned = useShell((state) =>
+    state.preferences?.toolbarActions.includes('downloads'),
+  );
   const workspaceId = useShell((state) => state.snapshot?.activeWorkspaceId);
   // Switching workspaces slides the trail the way the foot's order goes.
   const slide = useWorkspaceSlide();
@@ -85,6 +89,7 @@ export function Sidebar() {
         {/* Power-user row: every tool one click away, beside the window controls. */}
         <div className="drag flex h-(--toolbar-height) shrink-0 items-center gap-0.5 pl-[calc(var(--traffic-lights)-var(--gutter))]">
           <span className="flex-1" />
+          {addressHere && !downloadsPinned && <DownloadsButton />}
           <button
             type="button"
             onClick={newGroup}

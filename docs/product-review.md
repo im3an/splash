@@ -84,7 +84,7 @@ in `docs/beta-readiness.md`, not from today.
 
 ### Browser basics
 
-- Downloads: progress on the row, failure reasons, retry, reveal in Finder, unsafe-file warning, ask-where or fixed folder, ⌥⌘L.
+- Downloads: progress bar, speed and time left on the row, filter by kind of file, a progress popover from the toolbar, failure reasons, retry, reveal in Finder, unsafe-file warning, ask-where or fixed folder, ⌥⌘L.
 - Print, Save Page As (MHTML), View Source, DevTools.
 - Full screen from a video.
 - Right-click menu: open link as child or in the background, download, copy image, Look Up, Search for, spelling suggestions, Inspect.
