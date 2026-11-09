@@ -1,0 +1,92 @@
+/* Closed beta: one form, shown inline in the closing section and in a dialog from every CTA.
+   Uses the page's own tokens (--ink, --paper, --hair…), so it sits in either page without its own palette. */
+
+.beta { width: min(440px, 100%); margin: 0 auto; text-align: left; }
+.beta [hidden] { display: none !important; }
+.beta h3 { margin: 0 0 8px; font: 500 26px/1.15 var(--sans); letter-spacing: -0.03em; color: var(--ink); text-wrap: balance; }
+.beta .beta-lede { margin: 0 0 20px; font-size: 16px; line-height: 1.55; color: var(--ink-60); text-wrap: pretty; }
+.beta-label { display: block; margin: 0 0 8px; font-size: 14px; font-weight: 500; color: var(--ink-88); }
+.beta-row { display: flex; gap: 8px; }
+.beta-input {
+  flex: 1; min-width: 0; height: 50px; padding: 0 16px; border-radius: 14px; border: 1px solid var(--line, rgb(34 29 23 / .26));
+  background: #fff; color: var(--ink); font: 17px/1 var(--sans); letter-spacing: -0.01em;
+  transition: border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+.beta-input:focus { outline: none; border-color: var(--ink-60); box-shadow: 0 0 0 4px rgb(34 29 23 / .08); }
+.beta-input[aria-invalid="true"] { border-color: #b3261e; box-shadow: 0 0 0 4px rgb(179 38 30 / .1); }
+.beta-submit {
+  flex: none; height: 50px; padding: 0 22px; border: 0; border-radius: 14px; cursor: pointer;
+  background: var(--ink); color: #fbf7f2; font: 500 16px/1 var(--sans); letter-spacing: -0.01em; white-space: nowrap;
+  transition: background-color var(--fast) var(--ease), transform var(--fast) var(--ease), opacity var(--fast) var(--ease);
+}
+.beta-submit:hover { background: #3a3129; }
+.beta-submit:active { transform: scale(.985); }
+.beta-submit[disabled] { opacity: .6; cursor: progress; }
+.beta-error { min-height: 20px; margin: 8px 0 0; font-size: 14px; color: #b3261e; }
+.beta-error:empty { min-height: 0; margin: 0; }
+.beta-fine { margin: 14px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-60); }
+.beta-fine b { font-weight: 500; color: var(--ink-72); }
+.beta-note { margin: 12px 0 0; padding: 10px 12px; border-radius: 12px; background: rgb(180 84 45 / .08); font-size: 14px; line-height: 1.5; color: var(--ink-72); }
+.beta-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+/* Step 2: one question at a time, answered with a tap */
+.beta-progress { display: flex; align-items: center; justify-content: space-between; margin: 0 0 14px; font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-45); }
+.beta-q { margin: 0 0 12px; font-size: 18px; font-weight: 500; letter-spacing: -0.015em; color: var(--ink); }
+.beta-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.beta-chip {
+  height: 42px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--line, rgb(34 29 23 / .26)); background: #fff; cursor: pointer;
+  font: 15px/1 var(--sans); color: var(--ink-88);
+  transition: background-color var(--fast) var(--ease), border-color var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+.beta-chip:hover { border-color: var(--ink-45); }
+.beta-chip:active { transform: scale(.98); }
+.beta-chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fbf7f2; }
+.beta-skip { border: 0; background: none; padding: 4px 0; cursor: pointer; font: 14px/1 var(--sans); color: var(--ink-60); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line, rgb(34 29 23 / .26)); }
+.beta-skip:hover { color: var(--ink); }
+
+/* Step 3: done, and a link to pass on */
+.beta-check { display: grid; place-items: center; width: 44px; height: 44px; margin: 0 0 16px; border-radius: 50%; background: rgb(180 84 45 / .1); color: var(--accent); }
+.beta-check svg { width: 22px; height: 22px; }
+.beta-share { margin-top: 20px; padding: 16px; border-radius: 16px; background: #f2ede6; }
+.beta-share p { margin: 0 0 10px; font-size: 15px; line-height: 1.5; color: var(--ink-72); }
+.beta-link { display: flex; gap: 8px; }
+.beta-link output { flex: 1; min-width: 0; height: 42px; padding: 0 12px; border-radius: 10px; background: #fff; border: 1px solid var(--hair); font: 13px/42px var(--mono); color: var(--ink-72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.beta-link button { flex: none; height: 42px; padding: 0 14px; border: 0; border-radius: 10px; cursor: pointer; background: var(--ink); color: #fbf7f2; font: 500 14px/1 var(--sans); }
+.beta-again { margin: 16px 0 0; font-size: 14px; color: var(--ink-60); }
+
+.beta-step { animation: beta-in 320ms var(--ease); }
+@keyframes beta-in { from { opacity: 0; translate: 0 6px; } }
+
+/* The dialog: a centred card on wide screens, a sheet from the bottom on phones */
+.beta-dialog {
+  width: min(520px, 100% - 32px); max-width: none; margin: auto; padding: 0; border: 0; border-radius: 24px;
+  background: var(--paper); color: var(--ink-88);
+  box-shadow: 0 1px 2px rgb(34 29 23 / .06), 0 24px 60px -12px rgb(34 29 23 / .35);
+}
+.beta-dialog::backdrop { background: rgb(34 29 23 / .32); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.beta-dialog[open] { animation: beta-pop 260ms var(--ease); }
+@keyframes beta-pop { from { opacity: 0; scale: .97; } }
+.beta-dialog .beta { width: auto; padding: 36px 36px 32px; }
+.beta-close {
+  position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 36px; height: 36px;
+  border: 0; border-radius: 10px; background: none; cursor: pointer; color: var(--ink-60);
+}
+.beta-close:hover { background: var(--paper-2); color: var(--ink); }
+.beta-close svg { width: 18px; height: 18px; }
+
+/* The closing section holds the same form inline, on its paper arc, under the headline */
+.ready .arc-static { height: auto; padding-bottom: clamp(72px, 9vw, 120px); }
+.ready .beta-inline { width: min(440px, 100% - 2 * var(--gutter)); }
+.ready > .beta-inline { margin: clamp(36px, 4vw, 52px) auto 0; }
+
+@media (max-width: 560px) {
+  .beta-row { flex-direction: column; }
+  .beta-input { flex: none; }
+  .beta-submit { width: 100%; }
+  .beta-dialog { width: 100%; margin: auto 0 0; border-radius: 24px 24px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .beta-dialog .beta { padding: 32px 20px 24px; }
+  @keyframes beta-pop { from { translate: 0 40px; opacity: 0; } }
+}
+@media (prefers-reduced-motion: reduce) {
+  .beta-step, .beta-dialog[open] { animation: none; }
+}

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <defs>
+    <path id="ring" d="M60 60m-46 0a46 46 0 1 1 92 0a46 46 0 1 1-92 0"/>
+  </defs>
+  <circle cx="60" cy="60" r="57" stroke="#221d17" stroke-width="1"/>
+  <circle cx="60" cy="60" r="35" stroke="#221d17" stroke-width="1"/>
+  <text font-family="'Geist Mono', ui-monospace, monospace" font-size="8.6" letter-spacing="2.1" fill="#221d17">
+    <textPath href="#ring">SPLASH · A TRAIL BROWSER · FOR MACOS ·</textPath>
+  </text>
+  <g transform="translate(44 43) scale(1)">
+    <path fill="#221d17" d="M16 3.5c-1.6 2-6.75 8.4-6.75 12.6a6.75 6.75 0 0 0 13.5 0C22.75 11.9 17.6 5.5 16 3.5Z"/>
+    <path stroke="#221d17" stroke-width="3" stroke-linecap="round" d="M5.5 25.5c3 2.1 6.6 3.25 10.5 3.25s7.5-1.15 10.5-3.25"/>
+  </g>
+</svg>
