@@ -1036,7 +1036,6 @@ const TrailRow = memo(function TrailRow({
       ) : (
         <span
           className="trail-label min-w-0 flex-1"
-          title={label}
           onDoubleClick={(event) => {
             event.stopPropagation();
             startRename(row.id);

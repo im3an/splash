@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { FolderPlus, PanelLeft, Plus } from 'lucide-react';
 import { api } from '../splash-api';
 import { useLinkDrag } from '../stores/drag-store';
@@ -8,6 +8,7 @@ import {
   selectFlatTrail,
   useShell,
 } from '../stores/shell-store';
+import { installTitleMarquee } from '../lib/title-marquee';
 import { SidebarResize } from './SidebarResize';
 import { AddressBar } from './AddressBar';
 import { DownloadsButton } from './DownloadsButton';
@@ -44,6 +45,12 @@ export function Sidebar() {
   const slide = useWorkspaceSlide();
   const flat = useShell(selectFlatTrail);
   const listRef = useRef<HTMLElement>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  // Long page titles scroll into view on hover.
+  useEffect(() => {
+    const aside = asideRef.current;
+    return aside ? installTitleMarquee(aside) : undefined;
+  }, []);
   const scrollPositions = useRef(new Map<string, number>());
 
   // Each workspace keeps its own scroll position in the trail.
@@ -75,6 +82,7 @@ export function Sidebar() {
 
   return (
     <aside
+      ref={asideRef}
       aria-label="Sidebar"
       aria-hidden={!open}
       inert={!open}

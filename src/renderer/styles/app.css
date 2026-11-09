@@ -967,6 +967,17 @@ details:not([open]) > summary .sidebar-section-label > svg,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Scrolling on hover: no ellipsis, and the text fades out at both edges. */
+.trail-label > .trail-title[data-marquee='true'] {
+  text-overflow: clip;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 6px,
+    black calc(100% - 10px),
+    transparent
+  );
+}
 .trail-site {
   flex-shrink: 0;
   max-width: 45%;
@@ -1083,6 +1094,25 @@ details[open] > .sidebar-section-content {
 .sidebar-resize:focus-visible::after,
 .sidebar-resize[data-resizing='true']::after {
   background: var(--accent);
+}
+/*
+ * The trail's handle fills the whole gap between the sidebar and the page
+ * card, with its line down the middle. Fixed, so the aside's overflow
+ * clipping doesn't cut it off at the sidebar's edge.
+ */
+.trail-resize {
+  position: fixed;
+  left: var(--sidebar-width);
+  right: auto;
+  width: var(--gutter);
+  z-index: 1;
+}
+.trail-resize::after {
+  right: auto;
+  left: calc(50% - 1px);
+  width: 2px;
+  bottom: var(--gutter);
+  border-radius: var(--radius-full);
 }
 :root:has(.sidebar-resize[data-resizing='true']) aside,
 :root:has(.sidebar-resize[data-resizing='true']) aside > div {

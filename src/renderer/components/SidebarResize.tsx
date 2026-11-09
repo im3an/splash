@@ -41,8 +41,10 @@ export function SidebarResize() {
       aria-valuemax={MAX}
       aria-valuenow={draft ?? saved}
       tabIndex={0}
-      title="Drag to resize. Double-click to reset. Use arrow keys when focused."
-      className="sidebar-resize"
+      // No title: the page is a native view above this window, so a tooltip
+      // here gets cut off at the page's edge.
+      aria-description="Drag to resize. Double-click to reset. Arrow keys resize when focused."
+      className="sidebar-resize trail-resize"
       data-resizing={draft !== null}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
