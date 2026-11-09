@@ -91,11 +91,7 @@ export function StartPage({ pageId }: { pageId: PageId }) {
         <div className="flex justify-center">
           <Brand size={32} />
         </div>
-        {empty && (
-          <p className="text-center leading-copy text-fg-muted">
-            Your bookmarks, pinned pages and recent pages will show up here.
-          </p>
-        )}
+        {empty && <Welcome />}
         {favorites.length > 0 && (
           <StartSection title="Bookmarks">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-1">
@@ -154,6 +150,72 @@ export function StartPage({ pageId }: { pageId: PageId }) {
         )}
       </div>
     </div>
+  );
+}
+
+const WELCOME_STEPS: { title: string; body: ReactNode }[] = [
+  {
+    title: 'Follow a link',
+    body: 'It opens beneath the page it came from, so the sidebar shows how you got there.',
+  },
+  {
+    title: 'Start a new trail',
+    body: (
+      <>
+        <kbd className="keycap">⌘T</kbd> opens a page at the top, for the next
+        topic.
+      </>
+    ),
+  },
+  {
+    title: 'Find anything again',
+    body: (
+      <>
+        <kbd className="keycap">⌘K</kbd> searches your pages, history and the
+        web.
+      </>
+    ),
+  },
+];
+
+/**
+ * A first run has nothing to list, so the start page explains trails instead.
+ * It goes once there's history, a bookmark or a pinned page to show.
+ */
+function Welcome() {
+  return (
+    <section
+      aria-labelledby="welcome-title"
+      className="flex flex-col gap-5 px-2"
+    >
+      <div className="flex flex-col gap-1.5 text-center">
+        <h1 id="welcome-title" className="text-title font-medium text-fg">
+          Welcome to Splash
+        </h1>
+        <p className="leading-copy text-fg-muted">
+          The pages you open grow into trails in the sidebar.
+        </p>
+      </div>
+      <ol className="flex flex-col gap-3">
+        {WELCOME_STEPS.map((step, index) => (
+          <li key={step.title} className="flex gap-3">
+            <span
+              aria-hidden
+              className="grid size-6 shrink-0 place-items-center rounded-full bg-elevated text-small text-fg-muted tabular-nums shadow-row"
+            >
+              {index + 1}
+            </span>
+            <p className="leading-copy text-fg-muted">
+              <span className="font-medium text-fg">{step.title}.</span>{' '}
+              {step.body}
+            </p>
+          </li>
+        ))}
+      </ol>
+      <p className="text-center text-small leading-copy text-fg-subtle">
+        Your bookmarks, pinned pages and recent pages will show up here.
+      </p>
+    </section>
   );
 }
 

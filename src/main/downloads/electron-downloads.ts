@@ -5,6 +5,7 @@ import { pageHandleFor } from '../browser/electron-page-host';
 import type { PreferencesService } from '../preferences';
 import type { TrailStore } from '../storage/trail-store';
 import { DownloadManager } from './download-manager';
+import { quarantineDownload } from './quarantine';
 
 /** The download manager, wired to the browsing session and macOS. */
 export function createDownloadManager(
@@ -23,6 +24,9 @@ export function createDownloadManager(
       return;
     }
     manager.track(item, page?.pageId ?? null);
+    item.once('done', (_done, state) => {
+      if (state === 'completed') void quarantineDownload(item.getSavePath());
+    });
   };
   const manager = new DownloadManager({
     onDispose: () => {

@@ -1,5 +1,6 @@
 import {
   adsAndTrackingLists,
+  Config,
   fetchLists,
   fetchResources,
   FiltersEngine,
@@ -9,6 +10,7 @@ import {
 } from '@ghostery/adblocker';
 import { parse } from 'tldts-experimental';
 import type { ContentBlockingStatus } from '../../shared/types';
+import { STAND_IN_SECRET, standInBody, standInUrl } from './stand-ins';
 
 /** Filter lists older than this are downloaded again in the background. */
 export const LIST_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
@@ -28,6 +30,8 @@ export interface BlockerOptions {
   lists?: string[];
   /** Whether the lists' scriptlets run in pages. On unless turned off. */
   scriptlets?: boolean;
+  /** The host stand-ins are served under; this launch's secret if left out. */
+  standInSecret?: string;
 }
 
 /** The parts of a web request that blocking looks at. */
@@ -81,8 +85,22 @@ function requestFor(details: BlockableRequest, pageUrl: string | null) {
  * cookie notices with `COOKIE_NOTICE_LISTS`. Until the lists have loaded,
  * every request goes through.
  */
+/**
+ * The lists' `$removeparam` rules on their own, unoptimised. Ghostery's
+ * optimiser fuses rules that differ only in the parameter into one, which keeps
+ * the first rule's parameter only (2.20.3 still does). Unoptimised, they cost
+ * about 10 µs a request, so only addresses you go to are cleaned.
+ */
+function trackingParameters(engine: FiltersEngine): FiltersEngine {
+  return new FiltersEngine({
+    networkFilters: engine.removeparams.getFilters(),
+    config: new Config({ ...engine.config, enableOptimizations: false }),
+  });
+}
+
 export class ContentBlocker {
   private engine: FiltersEngine | null = null;
+  private parameters: FiltersEngine | null = null;
   private status: ContentBlockingStatus = {
     state: 'loading',
     updatedAt: null,
@@ -93,14 +111,20 @@ export class ContentBlocker {
   private readonly blocked = new Map<string, number>();
 
   private readonly lists: string[];
+  private readonly standInSecret: string;
   private readonly scriptlets: boolean;
 
   constructor(
     private readonly source: FilterListSource,
-    { lists = adsAndTrackingLists, scriptlets = true }: BlockerOptions = {},
+    {
+      lists = adsAndTrackingLists,
+      scriptlets = true,
+      standInSecret = STAND_IN_SECRET,
+    }: BlockerOptions = {},
   ) {
     this.lists = lists;
     this.scriptlets = scriptlets;
+    this.standInSecret = standInSecret;
   }
 
   /**
@@ -112,6 +136,7 @@ export class ContentBlocker {
     if (cached) {
       try {
         this.engine = FiltersEngine.deserialize(cached.data);
+        this.parameters = trackingParameters(this.engine);
         this.status = {
           state: 'ready',
           updatedAt: cached.savedAt,
@@ -155,6 +180,7 @@ export class ContentBlocker {
       const engine = FiltersEngine.parse(lists.join('\n'));
       engine.updateResources(resources, String(resources.length));
       this.engine = engine;
+      this.parameters = trackingParameters(engine);
       this.status = {
         state: 'ready',
         updatedAt: this.source.now(),
@@ -188,10 +214,37 @@ export class ContentBlocker {
       return {};
     }
     if (!this.engine) return {};
-    const { match, redirect } = this.engine.match(requestFor(details, pageUrl));
+    const { match, redirect, filter } = this.engine.match(
+      requestFor(details, pageUrl),
+    );
     if (!match && !redirect) return {};
     if (pageId) this.blocked.set(pageId, (this.blocked.get(pageId) ?? 0) + 1);
-    return redirect ? { redirectURL: redirect.dataUrl } : { cancel: true };
+    return redirect && filter
+      ? {
+          redirectURL: standInUrl(
+            this.standInSecret,
+            filter.getRedirectResource(),
+          ),
+        }
+      : { cancel: true };
+  }
+
+  /** The resource a stand-in address names, ready to answer with. */
+  standIn(name: string): ReturnType<typeof standInBody> | null {
+    if (!this.engine) return null;
+    return standInBody(this.engine.resources.getResource(name));
+  }
+
+  /**
+   * A page's address without the tracking parameters the lists name
+   * (`$removeparam`, such as `fbclid` and `gclid`), or null if it has none.
+   */
+  cleanedAddress(details: BlockableRequest): string | null {
+    if (!this.engine || !this.parameters) return null;
+    const request = requestFor(details, details.url);
+    const { match, redirect } = this.engine.match(request);
+    if (match || redirect) return null;
+    return this.parameters.match(request).rewrite?.url ?? null;
   }
 
   /** Extra Content-Security-Policy directives for a document, if any. */

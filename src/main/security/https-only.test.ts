@@ -4,6 +4,7 @@ import {
   httpsUpgradeFor,
   popupFallback,
   popupUpgraded,
+  POPUP_MEMORY,
   secureUpgradeOf,
   SecureAttempt,
   typedPlainAddress,
@@ -238,6 +239,19 @@ describe('popups', () => {
     expect(popupFallback(secure, -107)).toBe(plain);
     expect(wantsSecurePopup(plain)).toBe(false);
     expect(popupFallback(secure, -107)).toBe(null);
+  });
+
+  it('forgets the oldest tries instead of keeping every popup until quit', () => {
+    const first = 'https://first-of-many.test/';
+    popupUpgraded('http://first-of-many.test/', first);
+    for (let i = 0; i < POPUP_MEMORY; i++) {
+      popupUpgraded(`http://many-${i}.test/`, `https://many-${i}.test/`);
+    }
+    expect(popupFallback(first, -107)).toBe(null);
+    const last = POPUP_MEMORY - 1;
+    expect(popupFallback(`https://many-${last}.test/`, -107)).toBe(
+      `http://many-${last}.test/`,
+    );
   });
 });
 

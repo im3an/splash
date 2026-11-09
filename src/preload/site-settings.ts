@@ -5,6 +5,7 @@ import {
   PASSKEY_REQUESTED,
   type PageSettings,
 } from '../shared/page-bridge';
+import { holdAudioContexts, holdAutoplayInShadowRoots } from './autoplay';
 import { watchLocationRefusals } from './location-refusals';
 
 /*
@@ -256,6 +257,8 @@ if (settings?.blockCookies) {
 }
 if (settings?.blockAutoplay) {
   contextBridge.executeInMainWorld({ func: holdPlayCalls });
+  contextBridge.executeInMainWorld({ func: holdAudioContexts });
+  contextBridge.executeInMainWorld({ func: holdAutoplayInShadowRoots });
   holdAutoplayAttribute();
 }
 if (settings?.blockScripts) showNoscriptContent();

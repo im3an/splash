@@ -378,7 +378,7 @@ export function HistoryPanel() {
         >
           {closedRows.length > 0 && (
             <div role="group" aria-label="Recently closed">
-              <h3 className="sticky top-0 z-10 bg-frame px-2.5 pt-3 pb-1 text-caption font-medium text-fg-subtle">
+              <h3 className="sticky top-0 z-10 frame-backdrop px-2.5 pt-3 pb-1 text-caption font-medium text-fg-subtle">
                 Recently closed
               </h3>
               <div className="flex flex-col gap-px">
@@ -424,7 +424,7 @@ export function HistoryPanel() {
           )}
           {groups.map((group) => (
             <div key={group.label} role="group" aria-label={group.label}>
-              <h3 className="sticky top-0 z-10 bg-frame px-2.5 pt-3 pb-1 text-caption font-medium text-fg-subtle">
+              <h3 className="sticky top-0 z-10 frame-backdrop px-2.5 pt-3 pb-1 text-caption font-medium text-fg-subtle">
                 {group.label}
               </h3>
               <div className="flex flex-col gap-px">

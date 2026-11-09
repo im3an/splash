@@ -21,6 +21,21 @@ const RUNNABLE_EXTENSIONS = new Set([
   'scpt',
   'applescript',
   'action',
+  // Disk images and installers hold apps, and run scripts when installed.
+  'dmg',
+  'iso',
+  'xip',
+  // Changes system settings: VPNs, root certificates, device management.
+  'mobileconfig',
+  // Run actions, or open a local app or file chosen by whoever made them.
+  'shortcut',
+  'fileloc',
+  'inetloc',
+  'scptd',
+  'prefpane',
+  'osax',
+  'kext',
+  'jnlp',
   'exe',
   'msi',
   'bat',

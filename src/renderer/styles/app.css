@@ -124,6 +124,16 @@ body::before {
   background: var(--frame-grain, none), var(--frame-image, none);
   pointer-events: none;
 }
+/*
+ * For sticky headers over the sidebar: the same frame, gradient and grain as
+ * body::before, fixed to the window so they line up with what scrolls under.
+ * A plain bg-frame shows as a flat band across a workspace's gradient.
+ */
+.frame-backdrop {
+  background-color: var(--frame);
+  background-image: var(--frame-grain, none), var(--frame-image, none);
+  background-attachment: fixed;
+}
 :root[data-frame-swap='a'] body::before {
   animation: frame-in-a var(--duration-slow) var(--ease-out);
 }

@@ -8,6 +8,14 @@ import { MakerZIP } from '@electron-forge/maker-zip';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import {
+  diskImageSteps,
+  packagerSigning,
+  signingFrom,
+} from './src/build/signing';
+
+/** Developer ID and notarisation when the environment names them; else ad hoc. */
+const signing = signingFrom(process.env);
 
 /**
  * A drag-to-Applications disk image, made with macOS's own `hdiutil`, so the
@@ -61,6 +69,11 @@ class MakerDMG extends MakerBase<Record<string, never>> {
         ],
         { stdio: 'inherit' },
       );
+      for (const [command, args] of signing
+        ? diskImageSteps(signing, dmgPath)
+        : []) {
+        execFileSync(command, args, { stdio: 'inherit' });
+      }
     } finally {
       rmSync(staging, { recursive: true, force: true });
     }
@@ -88,6 +101,7 @@ const config: ForgeConfig = {
       'node_modules/electron/dist/LICENSES.chromium.html',
     ],
     appBundleId: 'app.splash.browser',
+    ...(signing ? packagerSigning(signing) : {}),
     appCategoryType: 'public.app-category.productivity',
     darwinDarkModeSupport: true,
     extendInfo: {
@@ -157,9 +171,10 @@ const config: ForgeConfig = {
     // Packaging rewrites Info.plist after Electron's ad-hoc signature, which
     // leaves it invalid and under Electron's identity. Re-sign so macOS sees
     // a valid app.splash.browser, which camera, microphone and the keychain
-    // depend on. Replace this with `osxSign` once there's a Developer ID.
+    // depend on. A Developer ID build is signed by `osxSign` instead, and
+    // re-signing it here would throw that signature away.
     postPackage: async (_config, { platform, outputPaths }) => {
-      if (platform !== 'darwin') return;
+      if (platform !== 'darwin' || signing) return;
       for (const outputPath of outputPaths) {
         const app = readdirSync(outputPath).find((name) =>
           name.endsWith('.app'),

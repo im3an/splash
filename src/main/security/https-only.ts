@@ -70,10 +70,24 @@ export function wwwSibling(origin: string): string {
   return url.origin;
 }
 
+/**
+ * How many popup addresses are remembered. A try that succeeded is never
+ * reported, so without a limit every upgraded popup would stay until quit.
+ */
+export const POPUP_MEMORY = 200;
+
 /** Plain addresses a popup already failed to reach over HTTPS. */
 const plainPopupAddresses = new Set<string>();
 /** Secure addresses being tried for a popup, and what it actually asked for. */
 const popupAttempts = new Map<string, string>();
+
+/** Drops the oldest entries until at most `POPUP_MEMORY` are left. */
+function trimOldest(entries: Set<string> | Map<string, string>): void {
+  for (const key of entries.keys()) {
+    if (entries.size <= POPUP_MEMORY) break;
+    entries.delete(key);
+  }
+}
 
 /** Whether a popup's request for this plain address should try HTTPS first. */
 export function wantsSecurePopup(url: string): boolean {
@@ -81,7 +95,10 @@ export function wantsSecurePopup(url: string): boolean {
 }
 
 export function popupUpgraded(plain: string, secure: string): void {
+  // Moved to the end, so a try made again counts as the newest.
+  popupAttempts.delete(secure);
   popupAttempts.set(secure, plain);
+  trimOldest(popupAttempts);
 }
 
 /**
@@ -94,6 +111,7 @@ export function popupFallback(secure: string, code: number): string | null {
   if (!plain || !fallsBackToHttp(code)) return null;
   popupAttempts.delete(secure);
   plainPopupAddresses.add(plain);
+  trimOldest(plainPopupAddresses);
   return plain;
 }
 

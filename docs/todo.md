@@ -192,19 +192,28 @@ Privacy and security
       and `cookieStore` in cross-site frames.
   - [ ] Decide: on by default? Off for now, because there's no Storage Access
         API support, so some embedded sign-ins and players would simply break.
-  - [ ] Popups don't run preloads in subframes, so only the headers apply there.
+  - [x] Popups now run the privacy preloads in their frames too, as pages do. Tested
+        in the app: before, another site's frame in a popup could still read
+        `document.cookie` and `cookieStore`; now it can't.
 - [x] Per-site JavaScript, images and autoplay, in site settings. JavaScript and
       images follow the page's site and cover what it embeds. Blocking JavaScript
       shows `<noscript>` content and clears the site's service workers.
-  - [ ] Autoplay doesn't cover Web Audio (`AudioContext`) or media inside a
-        shadow root started by the `autoplay` attribute
+  - [x] Autoplay covers Web Audio too: an `AudioContext` starts held, and
+        `resume()` waits for your first interaction, as in Chrome. Media a script's
+        shadow root starts with the `autoplay` attribute is stopped as well. Tested
+        in the app: no audio time passed before a click, and it ran after one.
+  - [ ] Shadow roots written into the HTML (`<template shadowrootmode>`) aren't
+        covered, only those a script attaches
   - [ ] Changes apply on reload ("Reload to apply"), not live
 - [x] Dangerous-site warning, on by default, using malware-filter's public lists
       (OpenPhish, PhishTank, URLhaus; about 24,000 hosts, refreshed every 12
       hours). Checked on this Mac, so no address is sent anywhere, and nothing
       is requested from the site. "Continue anyway" is remembered per site and
       revocable in Settings. The list source is CC BY-SA 4.0.
-  - [ ] Popup windows aren't checked; only a page's own address is
+  - [x] Popup windows are checked too, when they open and wherever they go next.
+        A popup has nowhere to show the warning, so it closes and the address opens
+        as a page under the one that opened it, with the warning and "Continue
+        anyway". Tested in the app with a fake listed host.
   - [ ] Weaker than Google Safe Browsing: new phishing sites appear later. Its
         free API is non-commercial only, and it would need a paid key to ship.
 - [x] Client certificate prompt. **Was a privacy bug:** Electron's default sends
@@ -323,8 +332,19 @@ Media and macOS
   - [ ] Waking a sleeping page shows nothing until it paints. Beyond 12 pages most
         visits are wakes, so a still of the page could stand in. Not built: it needs
         a call on keeping page images, and on showing a page that can't be clicked yet.
-  - [ ] Find out why the main process takes 300 MB. The built-in blocker's lists
-        are the first suspect, and removing them is already planned below.
+  - [x] Found out what the main process holds. Measured as macOS's physical
+        footprint, a packaged build now takes 95 to 102 MB 30 s after launch, with
+        lists from the cache. The 300 MB was resident size, which counts shared
+        system libraries, or a first run.
+    - The Dock icon was the biggest single part: setting it kept the 1024-pixel
+      PNG as a 32 MB bitmap, 38 MB in all (measured in a bare Electron app). A
+      packaged Splash has the same icon in its bundle, so it's no longer set;
+      a development run sets a 512-pixel copy.
+    - The built-in blocker's lists are small: 12 MB of JS heap and 15 MB of
+      buffers. Removing them saves little memory.
+    - A first run parses the downloaded lists: the heap grows to 112 MB, and
+      macOS keeps about 85 MB of it compressed afterwards. Later launches don't.
+    - The rest is Chromium itself (about 50 MB) and V8 (about 30 MB).
   - [x] 12 live pages was a fixed number. It's still the setting, but it now halves
         when macOS reports memory pressure and drops to 2 when critical, until it
         passes. Pages on a call, even silent, or open in DevTools never sleep. Tested
@@ -365,16 +385,31 @@ Media and macOS
     screen. There was no run without a blocker, so this doesn't show either one
     is what stopped ads. uBlock Origin also blocked one `videoplayback` request
     per video.
-  - Difference found: uBlock Origin serves working stand-ins for `gpt.js` and
-    `analytics.js`; the built-in blocker's redirects for them fail with
-    `ERR_UNSAFE_REDIRECT`, so the page sees a failed script.
+  - [x] Difference found: uBlock Origin serves working stand-ins for `gpt.js` and
+        `analytics.js`; the built-in blocker's redirects for them failed with
+        `ERR_UNSAFE_REDIRECT`, because Chromium refuses a redirect to `data:`.
+        Fixed: stand-ins now come from Splash's own `splash-stand-in:` scheme,
+        under a host that changes every launch so pages can't probe for it, and
+        it bypasses a page's CSP as extension resources do in Chrome. Tested in
+        the app with the real lists: `gpt.js` gave a working `googletag`, with and
+        without a strict CSP, and nothing reached the network.
 
 ## Phase D. Shipping
 
-- [ ] Developer ID signing and notarisation. Needs your Apple Developer account.
-      Without it the DMG can't be installed by dragging on macOS 27 (Finder: "This
-      Mac could not verify the app"); testers have to copy it with `ditto`.
-      then `osxSign`/`osxNotarize` replace the ad-hoc re-sign in `forge.config.mts`.
+When to go to testers and to the public, and how updates reach installed copies:
+[release-plan.md](release-plan.md). Step by step, with who does what:
+[deploy-todo.md](deploy-todo.md).
+
+- [ ] Developer ID signing and notarisation. Needs your Apple Developer account
+      (as an individual, decided 9 November). Without it the DMG can't be installed
+      by dragging on macOS 27 (Finder: "This Mac could not verify the app"); testers
+      have to copy it with `ditto`.
+  - [x] Prepared: `SPLASH_SIGNING_IDENTITY` and `SPLASH_NOTARY_PROFILE` switch on
+        `osxSign`/`osxNotarize` in place of the ad-hoc re-sign, and sign, notarise
+        and staple the DMG (`src/build/signing.ts`). A wrong certificate stops the
+        build. Your steps: release-plan.md, "Steps for you".
+  - [ ] First build with the real certificate: does Splash start, do camera,
+        microphone and uBlock Origin work under the hardened runtime?
 - [x] DMG installer: `npm run make` writes `out/make/dmg/arm64/Splash-<version>-arm64.dmg`
       (app + Applications shortcut, made with `hdiutil`, no native modules)
   - [ ] `hdiutil create` and `attach` print a deprecation warning on macOS 27; move to
@@ -384,7 +419,14 @@ Media and macOS
       host releases: blocked on signing and on choosing a host.
 - [x] Diagnostics: crash reports stay on the Mac (never uploaded); Settings › About ›
       Save Report… writes a text report with addresses cut down to their site
-- [ ] First-run welcome that explains trails (today: the palette and an empty-trail note)
+- [x] First-run welcome that explains trails. With no pages, "Start a trail" says it
+      in a sentence. The first New page then shows "Welcome to Splash" with three
+      steps on the start page: follow a link, ⌘T for a new trail, ⌘K to find
+      anything. It goes once there's history, a bookmark or a pinned page to
+      list, and doesn't flash while history loads. Checked on a fresh profile in
+      dark and light (9 November).
+  - [ ] Someone who clears history on quit and has no bookmarks sees it on every
+        launch. Fine for now; give it a dismissed flag if a tester minds.
 - [x] Default browser prompt at the right moment: once, on the third day Splash is
       used, never on a launch that already says "Welcome back", never again after
   - [ ] By hand: press Make Default in an installed copy and answer macOS's prompt
@@ -502,7 +544,15 @@ Vivaldi style power features
 Brave / privacy style
 
 - [ ] Per-site shields panel (what was blocked, toggles)
-- [ ] Block fingerprinting, tracking parameters stripped from URLs (utm\_\*, fbclid)
+- [x] Tracking parameters come off the address you go to, before the request
+      leaves: the 220 `$removeparam` rules in uBlock Origin's privacy list, which
+      the built-in blocker already loads (`fbclid`, `gclid`, `_gl`, …). Off with
+      blocking for a site. Tested in the app: the server never saw `fbclid`.
+  - Ghostery's optimiser fuses those rules and keeps one parameter (2.20.1 to
+    2.20.3), so they run unoptimised on their own, for addresses you go to only:
+    about 10 µs more a request otherwise. What a page loads keeps its parameters.
+  - `utm_*` stays: uBlock Origin's list leaves it, as it rarely tracks a person.
+- [ ] Block fingerprinting
 - [ ] Bounce-tracking protection and storage partitioning
 - [ ] Tor / VPN private window (optional, later)
 - [ ] Built-in DNS over HTTPS with a provider choice

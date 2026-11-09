@@ -125,6 +125,18 @@ export interface TransferOptions {
   trash(file: string): Promise<void>;
 }
 
+/** Undo offers and Trash offers kept; older ones have long left the screen. */
+const MAX_OFFERS = 20;
+
+/** Keeps `key` as the newest entry, dropping the oldest past the limit. */
+function keepNewest<T>(entries: Map<string, T>, key: string, value: T): void {
+  entries.set(key, value);
+  for (const old of entries.keys()) {
+    if (entries.size <= MAX_OFFERS) break;
+    entries.delete(old);
+  }
+}
+
 /** Brings bookmarks, history and logins in from other browsers. */
 export class Transfer {
   private readonly undos = new Map<string, () => void>();
@@ -379,7 +391,7 @@ export class Transfer {
     }
     const done = vault.importLogins(parsed.logins);
     const trashToken = this.options.createId();
-    this.csvFiles.set(trashToken, file);
+    keepNewest(this.csvFiles, trashToken, file);
     const details = [
       ...(done.unchanged > 0
         ? [`${count(done.unchanged, 'login')} already saved.`]
@@ -469,7 +481,8 @@ export class Transfer {
 
   private offerUndo(undo: () => void): string {
     const token = this.options.createId();
-    this.undos.set(token, undo);
+    // An undo can hold every imported history row; old ones aren't kept.
+    keepNewest(this.undos, token, undo);
     return token;
   }
 

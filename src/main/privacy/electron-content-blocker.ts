@@ -22,6 +22,8 @@ import type { TrailStore } from '../storage/trail-store';
 import { AUTOCONSENT } from '../../shared/page-bridge';
 import { autoconsentReply } from './autoconsent';
 import type { SiteRules } from './electron-site-rules';
+import { STAND_IN_SCHEME, STAND_IN_SECRET, standInName } from './stand-ins';
+import { popupHandleFor } from '../windows/popup-window';
 import { withoutSetCookie } from './site-rules';
 import {
   bundleScriptlets,
@@ -170,6 +172,12 @@ export function enableContentBlocking(
       : null;
   };
 
+  /** A popup a page opened, which the dangerous-site warning covers too. */
+  const popupOf = (webContentsId: number | undefined) =>
+    webContentsId === undefined
+      ? null
+      : popupHandleFor(webContents.fromId(webContentsId));
+
   /** A popup a page opened, whose first address HTTPS-only mode also covers. */
   const isPopup = (webContentsId: number | undefined) => {
     const contents =
@@ -220,17 +228,34 @@ export function enableContentBlocking(
     // these hooks and SiteRules' are registered, uBlock Origin sees no network
     // requests, so the blocker here does that work. Removing only some of them
     // changes nothing: see docs/todo.md before retiring any.
+    target.protocol.handle(STAND_IN_SCHEME, (request) => {
+      const name = standInName(request.url, STAND_IN_SECRET);
+      const resource =
+        name === null
+          ? null
+          : blockers.map(({ blocker }) => blocker.standIn(name)).find(Boolean);
+      return resource
+        ? new Response(resource.body, {
+            headers: { 'content-type': resource.contentType },
+          })
+        : new Response(null, { status: 404 });
+    });
     target.webRequest.onBeforeRequest(
       { urls: ['<all_urls>'] },
       (details, callback) => {
+        // A stand-in this hook sent the page to: never redirect it again.
+        if (details.url.startsWith(`${STAND_IN_SCHEME}:`)) {
+          callback({});
+          return;
+        }
         const page = pageOf(details.webContentsId);
         // Before anything leaves for the site; the page shows the warning.
-        if (
-          page &&
-          details.resourceType === 'mainFrame' &&
-          siteRules.isDangerous(details.url)
-        ) {
-          page.handle.flaggedDangerous(details.url);
+        const flagged =
+          details.resourceType === 'mainFrame'
+            ? (page?.handle ?? popupOf(details.webContentsId))
+            : null;
+        if (flagged && siteRules.isDangerous(details.url)) {
+          flagged.flaggedDangerous(details.url);
           callback({ cancel: true });
           return;
         }
@@ -256,6 +281,17 @@ export function enableContentBlocking(
           if (response.cancel || response.redirectURL) {
             callback(response);
             return;
+          }
+        }
+        // Tracking parameters come off a page's own address too, unless
+        // blocking is off for the site it's going to.
+        if (details.resourceType === 'mainFrame') {
+          for (const blocker of blockersOn(details.url, from)) {
+            const cleaned = blocker.cleanedAddress(details);
+            if (cleaned) {
+              callback({ redirectURL: cleaned });
+              return;
+            }
           }
         }
         callback({});
@@ -373,6 +409,7 @@ export function enableContentBlocking(
       decisions.delete(target);
       target.webRequest.onBeforeRequest(null);
       target.webRequest.onHeadersReceived(null);
+      target.protocol.unhandle(STAND_IN_SCHEME);
     },
     blockedOn: (pageId) =>
       blockers.reduce((sum, { blocker }) => sum + blocker.blockedOn(pageId), 0),

@@ -7,6 +7,7 @@ import {
   BrowserWindow,
   dialog,
   Menu,
+  nativeImage,
   nativeTheme,
   safeStorage,
   session,
@@ -19,6 +20,7 @@ import {
   type WebContents,
 } from 'electron';
 import { eventChannels } from '../shared/api';
+import { showBrandInDock } from './dock-icon';
 import type { TaskList } from '../shared/types';
 import { Transfer } from './transfer/transfer';
 import { bridgeFormAssist } from './vault/electron-form-assist';
@@ -756,7 +758,12 @@ if (!app.requestSingleInstanceLock()) {
     const brandIcon = app.isPackaged
       ? path.join(process.resourcesPath, 'Splash.png')
       : path.join(app.getAppPath(), 'assets/macos/Splash.png');
-    app.dock?.setIcon(brandIcon);
+    showBrandInDock({
+      isPackaged: app.isPackaged,
+      dock: app.dock,
+      load: (file) => nativeImage.createFromPath(file),
+      iconPath: brandIcon,
+    });
     app.setAboutPanelOptions({
       applicationName: 'Splash',
       applicationVersion: app.getVersion(),
