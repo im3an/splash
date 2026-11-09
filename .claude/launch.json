@@ -5,12 +5,38 @@
       "name": "shell-web",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
-        "--prefix",
-        "/Users/imran/Developer/splash/.claude/worktrees/prototype-02-shell",
         "run",
         "dev:web"
       ],
       "port": 5174
+    },
+    {
+      "name": "splash-site",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4321",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "/Users/imran/Developer/splash/sites/splash-site"
+      ],
+      "port": 4321
+    },
+    {
+      "name": "splash-site-hero",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4327",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        "/Users/imran/Developer/splash/sites/splash-site"
+      ],
+      "port": 4327
     }
   ]
 }
