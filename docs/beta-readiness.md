@@ -30,7 +30,8 @@ Browsing
   app, and remember the answer per site. With no app for a link, Splash says
   so.
 - **⌘Z undoes trail changes**: closes, moves, renames, moves to another
-  workspace and Close Other Pages. In a text field ⌘Z still undoes typing.
+  workspace and Close Other Pages, and ⇧⌘Z redoes them. With focus in a page they
+  work while the toast shows. In a text field both keys still edit the typing.
 - **Filter the trail** (⌥⌘F): matching pages and their ancestors, matches
   marked, Return opens the first match, Escape clears, and an empty result
   offers "Search everywhere ⌘K".
@@ -81,7 +82,7 @@ Fixes found while testing this pass
 | A branch close is canceled      | Branch remains in the trail                 | Declined page stays live; approved views can restore from history |
 | A page can't load               | Named error page with Try again             | Address kept; offline pages retry when back online                |
 | A link wants another app        | Prompt naming the app; Open / Don't open    | Choice remembered per site; no app: a notice                      |
-| Any trail change                | Toast with Undo                             | ⌘Z undoes it while the shell has focus                            |
+| Any trail change                | Toast with Undo                             | ⌘Z undoes it, from a page too while the toast shows               |
 | A preference write fails        | Failure message; no success broadcast       | Previous settings remain authoritative                            |
 | Saved preferences are damaged   | Recovery notice on startup                  | Valid fields/library recovered; raw original backed up            |
 | The database needs an upgrade   | None                                        | Copy kept as `splash.db.pre-v<N>` beside it                       |
@@ -130,14 +131,73 @@ What was run, and what it showed:
 Not verified, and why:
 
 - **⌘Z through the Edit menu.** Menu accelerators can't be driven over the
-  DevTools protocol. The undo stack and the shell's handler are unit-tested;
-  pressing ⌘Z by hand is part of the test list below.
+  DevTools protocol, so real key presses were sent to a test copy from outside
+  it, with focus in a page and in a page's field. Pressing ⌘Z by hand is still part
+  of the test list below.
 - **Drags with the real mouse.** Rows were dragged with DOM pointer events in
   the packaged app. Synthetic OS mouse input didn't start a drag while the
   real cursor was over the window.
 - **Print and Save page as dialogs.** They open native panels.
-- **Camera, microphone, mouse side buttons, three-finger swipe, a genuinely
-  hung page.** These need hardware or a real call site.
+- **Camera, microphone, mouse side buttons, three-finger swipe.** These need
+  hardware or a real call site.
+
+## Shipping pass: 7 November 2026
+
+- **Disk image.** `npm run make` now writes
+  `out/make/dmg/arm64/Splash-<version>-arm64.dmg` beside the zip: Splash.app
+  and an Applications shortcut to drag it onto. It's made with macOS's own
+  `hdiutil`, so the build needs no native modules.
+- **Settings › About** (new, last in the list): version, the GPL with its
+  full text and a Source Code link, a privacy statement listing everything
+  Splash connects to (search suggestions, filter and safety lists, site icons,
+  the Chrome Web Store), and the open-source software it ships: uBlock Origin,
+  Electron and Chromium, and the licences of all 44 bundled packages.
+  `scripts/third-party-notices.mjs` writes those from `package-lock.json`
+  before every start and build; the app carries them in `Contents/Resources`.
+- **Diagnostics.** Crash reports are kept on the Mac and never uploaded.
+  Save Report… in About writes a plain-text report: versions, Mac model and
+  memory, processes, extensions, crash dates and recent warnings and errors.
+  Web addresses show only their site, the home folder shows as `~`, and email
+  addresses are hidden. Show in Finder opens the crash reports.
+- **Default browser offer.** On the third day Splash is used, the installed
+  app asks once in a toast whether to open links from other apps; Make Default
+  hands over to macOS's own prompt. It never asks on a launch that already
+  says "Welcome back", in a development build, or again afterwards.
+
+Verified: `npm run check` (127 files, 1,825 tests). A DMG built from a
+snapshot of the checkout mounts with Splash.app and an Applications link, and
+`codesign --verify --deep --strict` passes on the app inside. Run from the DMG
+on a fresh profile, Splash counted its first day, and with two earlier days
+seeded it showed the offer on the third and recorded it as made. About read
+both licence texts from inside the app. In a development build, Save Report…
+(save panel stubbed to a scratch path) wrote a report in which a logged
+`https://bank.example/account/123?token=abc` came out as `https://bank.example/…`.
+
+Not verified: pressing Make Default (it would change this Mac's default
+browser), the real save panel, and a real crash report in the list.
+
+### Installing a beta build
+
+The app is signed ad hoc, not with a Developer ID. Gatekeeper rejects that
+(`spctl --assess` says "rejected"), and on macOS 27 Finder checks an app as it
+copies it out of a disk image: dragging Splash to Applications fails with
+"Could not install. This Mac could not verify the app". Until Splash has a
+Developer ID and is notarised, install it from Terminal with the disk image
+open, which copies it without that check:
+
+```bash
+ditto /Volumes/Splash/Splash.app /Applications/Splash.app
+```
+
+Tested 7 November on macOS 27.0.1: the copy keeps a valid signature and opens
+normally. A copy downloaded from the internet also carries a quarantine mark;
+if macOS then won't open it, remove the mark:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Splash.app
+```
+
+Drag-to-install needs Developer ID signing and notarisation.
 
 ## How to test the beta
 
@@ -185,7 +245,6 @@ expected.
 
 ## Remaining bugs and limitations
 
-- Trail edits have no redo.
 - Custom accents from the colour wheel aren't checked for contrast.
 - Light-theme accents reach 3.3–6.7 : 1 on the tinted frames, enough for
   icons and monograms (3 : 1) but not for small text; accent is never used
@@ -193,8 +252,7 @@ expected.
 - The packaged log shows "Cannot find module 'electron-chrome-extensions/
   preload'" at startup. The library falls back, and Splash registers its own
   preload; it's noise, not a failure.
-- Open File (⌘O) and picture in picture from the context menu are missing.
-- Close pages below (in the page menu) is not implemented.
+- Picture in picture from the context menu is missing.
 
 ## Distribution and device gates
 
@@ -204,8 +262,11 @@ expected.
   device/call-site pass in the installed application.
 - Real mouse side buttons, three-finger navigation, and a genuinely hung
   third-party renderer need hardware/manual verification.
-- Browser import, password management, cross-device sync and Chrome Web Store
-  installation are not provided by this beta.
+- Browser import, password management and cross-device sync are not provided by
+  this beta.
+- Chrome Web Store downloads are checked against their CRX3 signatures before
+  unpacking, but installed files aren't re-checked afterwards. Removing an
+  extension leaves its stored data in the profile.
 - Closing recovery does not guarantee restoration of unsaved web content after
   a renderer crash, system crash or force quit.
 

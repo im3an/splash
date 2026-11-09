@@ -27,7 +27,7 @@ export function PermissionBar() {
         aria-label="Permission request"
         className="shell-bar"
       >
-        <Icon size={15} strokeWidth={1.75} className="shrink-0 text-accent" />
+        <Icon size={15} className="shrink-0 text-accent" />
         <p className="min-w-0 flex-1 truncate">
           <span className="font-medium">{hostOf(request.origin)}</span>
           <span className="text-fg-muted">

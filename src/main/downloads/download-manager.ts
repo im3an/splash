@@ -1,3 +1,5 @@
+import { basename } from 'node:path';
+import { isActiveDownload } from '../../shared/downloads';
 import type {
   DownloadAction,
   DownloadState,
@@ -16,12 +18,14 @@ export interface DownloadItemLike {
   getState(): 'progressing' | 'completed' | 'cancelled' | 'interrupted';
   getReceivedBytes(): number;
   getTotalBytes(): number;
+  getCurrentBytesPerSecond(): number;
   isPaused(): boolean;
   canResume(): boolean;
   pause(): void;
   resume(): void;
   cancel(): void;
   on(event: 'updated' | 'done', listener: () => void): unknown;
+  off(event: 'updated' | 'done', listener: () => void): unknown;
 }
 
 export interface DownloadManagerOptions {
@@ -38,6 +42,8 @@ export interface DownloadManagerOptions {
   confirmOpenRunnable(download: DownloadSummary): Promise<boolean>;
   createId(): string;
   now(): number;
+  /** Detaches the session that supplied these downloads. */
+  onDispose?(): void;
 }
 
 const QUIT_PROBLEM = 'Splash quit before it finished.';
@@ -51,6 +57,7 @@ function interruptionProblem(item: DownloadItemLike): string {
 interface Entry {
   summary: DownloadSummary;
   item: DownloadItemLike | null;
+  release?(): void;
 }
 
 /**
@@ -61,6 +68,7 @@ interface Entry {
 export class DownloadManager {
   private readonly entries = new Map<string, Entry>();
   private readonly listeners = new Set<() => void>();
+  private disposed = false;
 
   constructor(private readonly options: DownloadManagerOptions) {
     for (const saved of this.safely(() => options.store.loadDownloads()) ??
@@ -73,13 +81,19 @@ export class DownloadManager {
 
   /** Starts tracking a download Chromium is about to begin. */
   track(item: DownloadItemLike, pageId: PageId | null): string {
+    if (this.disposed) throw new Error('Download manager is disposed');
     const id = this.options.createId();
     if (!this.options.askWhereToSave()) {
+      const reserved = new Set(
+        [...this.entries.values()]
+          .filter(({ item }) => item !== null)
+          .map(({ summary }) => summary.savePath),
+      );
       item.setSavePath(
         uniqueFilePath(
           this.options.downloadsFolder(),
           item.getFilename(),
-          this.options.exists,
+          (path) => reserved.has(path) || this.options.exists(path),
         ),
       );
     }
@@ -92,14 +106,24 @@ export class DownloadManager {
       state: 'progressing',
       receivedBytes: 0,
       totalBytes: item.getTotalBytes(),
+      bytesPerSecond: 0,
       startedAt: this.options.now(),
       problem: null,
       runnable: isRunnableFile(item.getFilename()),
     };
-    this.entries.set(id, { summary, item });
+    const updated = () => this.refresh(id);
+    const done = () => this.refresh(id, true);
+    this.entries.set(id, {
+      summary,
+      item,
+      release: () => {
+        item.off('updated', updated);
+        item.off('done', done);
+      },
+    });
     this.persist(summary);
-    item.on('updated', () => this.refresh(id));
-    item.on('done', () => this.refresh(id, true));
+    item.on('updated', updated);
+    item.on('done', done);
     this.changed();
     return id;
   }
@@ -112,7 +136,11 @@ export class DownloadManager {
   }
 
   get activeCount(): number {
-    return this.list().filter((d) => d.state === 'progressing').length;
+    let count = 0;
+    for (const { summary } of this.entries.values()) {
+      if (summary.state === 'progressing') count++;
+    }
+    return count;
   }
 
   async act(id: string, action: DownloadAction): Promise<void> {
@@ -156,7 +184,7 @@ export class DownloadManager {
         }
         return;
       case 'remove':
-        if (summary.state === 'progressing') item?.cancel();
+        if (isActiveDownload(summary)) item?.cancel();
         this.remove(id);
         return;
     }
@@ -165,7 +193,7 @@ export class DownloadManager {
   /** Removes every download that is no longer running from the list. */
   clearFinished(): void {
     for (const summary of this.list()) {
-      if (summary.state !== 'progressing' && summary.state !== 'paused') {
+      if (!isActiveDownload(summary)) {
         this.remove(summary.id);
       }
     }
@@ -176,7 +204,26 @@ export class DownloadManager {
     return () => this.listeners.delete(listener);
   }
 
+  /** Ends a discarded profile's downloads before its store is closed. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.options.onDispose?.();
+    this.listeners.clear();
+    const entries = [...this.entries.values()];
+    this.entries.clear();
+    for (const entry of entries) {
+      entry.release?.();
+      try {
+        entry.item?.cancel();
+      } catch (error) {
+        console.warn('Could not cancel a discarded download', error);
+      }
+    }
+  }
+
   private remove(id: string): void {
+    this.entries.get(id)?.release?.();
     this.entries.delete(id);
     this.safely(() => this.options.store.deleteDownload(id));
     this.changed();
@@ -199,23 +246,30 @@ export class DownloadManager {
     if (!entry?.item) return;
     const { item } = entry;
     const raw = item.getState();
+    const savePath = item.getSavePath() || entry.summary.savePath;
+    const filename = savePath ? basename(savePath) : entry.summary.filename;
     const state: DownloadState =
       raw === 'progressing' && item.isPaused() ? 'paused' : raw;
     this.update(
       id,
       {
         state,
-        savePath: item.getSavePath() || entry.summary.savePath,
-        filename: item.getSavePath()
-          ? (item.getSavePath().split('/').pop() ?? entry.summary.filename)
-          : entry.summary.filename,
+        savePath,
+        filename,
+        runnable: entry.summary.runnable || isRunnableFile(filename),
         receivedBytes: item.getReceivedBytes(),
         totalBytes: item.getTotalBytes(),
+        bytesPerSecond:
+          state === 'progressing' ? item.getCurrentBytesPerSecond() : 0,
         problem: state === 'interrupted' ? interruptionProblem(item) : null,
       },
       done || state !== 'progressing',
     );
-    if (done && state !== 'interrupted') entry.item = null;
+    if (done && state !== 'interrupted') {
+      entry.release?.();
+      delete entry.release;
+      entry.item = null;
+    }
   }
 
   private update(
@@ -232,13 +286,16 @@ export class DownloadManager {
 
   /** Corrects a saved entry for what happened while Splash was closed. */
   private reconcile(saved: DownloadSummary): DownloadSummary {
+    // Nothing is arriving after a restart, and older records have no speed.
+    const stopped = {
+      ...saved,
+      pageId: null,
+      bytesPerSecond: 0,
+      runnable:
+        saved.runnable || isRunnableFile(saved.savePath ?? saved.filename),
+    };
     if (saved.state === 'progressing' || saved.state === 'paused') {
-      return {
-        ...saved,
-        state: 'interrupted',
-        problem: QUIT_PROBLEM,
-        pageId: null,
-      };
+      return { ...stopped, state: 'interrupted', problem: QUIT_PROBLEM };
     }
     if (
       saved.state === 'completed' &&
@@ -246,13 +303,12 @@ export class DownloadManager {
       !this.options.exists(saved.savePath)
     ) {
       return {
-        ...saved,
+        ...stopped,
         state: 'missing',
         problem: 'The file was moved or deleted. Retry downloads it again.',
-        pageId: null,
       };
     }
-    return { ...saved, pageId: null };
+    return stopped;
   }
 
   private persist(summary: DownloadSummary): void {

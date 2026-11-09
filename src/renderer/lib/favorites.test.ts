@@ -7,12 +7,7 @@ import {
 import { splitPartner } from '../stores/drag-store';
 import { useShell } from '../stores/shell-store';
 import { sampleSnapshot } from '../test-fixtures';
-import {
-  favoritesOf,
-  moveFavorite,
-  openGroupRoot,
-  saveTrailAsGroup,
-} from './collections';
+import { favoritesOf, moveFavorite } from './collections';
 
 function collection(
   id: string,
@@ -63,30 +58,6 @@ describe('favorites', () => {
     await moveFavorite('c', 0);
     expect(urls(read())).toEqual(['c', 'a', 'b']);
     expect(read().find((item) => item.id === 'old')!.links).toEqual([]);
-  });
-});
-
-describe('saved groups', () => {
-  it('saves a trail as a group named after its first page', async () => {
-    const read = setup();
-    const id = await saveTrailAsGroup(sampleSnapshot(), 'b');
-    const group = read().find((item) => item.id === id)!;
-    expect(group).toMatchObject({ kind: 'group', name: 'b' });
-    expect(group.links.map((link) => link.url)).toEqual([
-      'https://b.example/',
-      'https://d.example/',
-    ]);
-  });
-  it('finds a group already open as a trail', () => {
-    const snapshot = sampleSnapshot();
-    const open = ['https://a.example/', 'https://d.example/'];
-    const elsewhere = ['https://a.example/', 'https://e.example/'];
-    expect(openGroupRoot(snapshot, collection('g', 'a', open, 'group'))).toBe(
-      'a',
-    );
-    expect(
-      openGroupRoot(snapshot, collection('g', 'a', elsewhere, 'group')),
-    ).toBeNull();
   });
 });
 

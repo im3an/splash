@@ -1,8 +1,14 @@
+import { extname, isAbsolute } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { DEFAULT_PREFERENCES } from '../../shared/preferences';
 import {
-  DEFAULT_PREFERENCES,
-  searchEngine,
-  type SearchEngineId,
-} from '../../shared/preferences';
+  commandOnly,
+  defaultEngine,
+  fillSearchUrl,
+  keywordSearch,
+  shortcutOrigin,
+  type SearchSettings,
+} from '../../shared/search';
 
 const NAVIGABLE_PROTOCOLS = new Set(['http:', 'https:']);
 
@@ -80,10 +86,136 @@ export function isSourceUrl(value: string): boolean {
   );
 }
 
-/** What a page may show: web content, its source, or a bundled extension's own page. */
+/** Where the file lives on this Mac, or null for anything else. */
+function localFilePath(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'file:' && url.host === '' ? url.pathname : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isLocalFileUrl(value: string): boolean {
+  return localFilePath(value) !== null;
+}
+
+/**
+ * Files the user chose themselves. Nothing else on disk is reachable, and
+ * only by path: a page's own #part or ?query doesn't make it another file.
+ */
+const openedFiles = new Set<string>();
+let openedFilesChanged: ((urls: string[]) => void) | null = null;
+
+function announceOpenedFiles(): void {
+  openedFilesChanged?.([...openedFiles].map((path) => `file://${path}`));
+}
+
+const unrememberedFiles = new Set<string>();
+
+export function allowLocalFile(
+  value: string,
+  { remember = true }: { remember?: boolean } = {},
+): void {
+  const path = localFilePath(value);
+  if (path === null || openedFiles.has(path)) return;
+  // A private window's files leave no trace once Splash quits.
+  if (!remember) {
+    unrememberedFiles.add(path);
+    return;
+  }
+  openedFiles.add(path);
+  announceOpenedFiles();
+}
+
+/** Forgets every opened file but those in `keep`. */
+export function forgetLocalFiles(keep: readonly string[]): void {
+  const kept = new Set(keep.map(localFilePath));
+  for (const path of openedFiles) {
+    if (!kept.has(path)) openedFiles.delete(path);
+  }
+  announceOpenedFiles();
+}
+
+/** Tells `listener` the whole list whenever it changes, so it can be saved. */
+export function watchOpenedFiles(listener: (urls: string[]) => void): void {
+  openedFilesChanged = listener;
+}
+
+function isOpenedFile(value: string): boolean {
+  const path = localFilePath(value);
+  return (
+    path !== null && (openedFiles.has(path) || unrememberedFiles.has(path))
+  );
+}
+
+/**
+ * Whether an opened file may lead to `target`: only files in its own folder
+ * or below, as a saved set of documents does. Encoded slashes are refused so
+ * a path can't climb out after Chromium decodes it.
+ */
+export function mayFollowFileLink(current: string, target: string): boolean {
+  const path = localFilePath(target);
+  if (path === null || !isOpenedFile(current)) return false;
+  if (/%2f|%5c/i.test(path)) return false;
+  const from = localFilePath(current)!;
+  return path.startsWith(from.slice(0, from.lastIndexOf('/') + 1));
+}
+
+/** What a page can show itself. Anything else would only start a download. */
+const OPENABLE_EXTENSIONS = [
+  'html',
+  'htm',
+  'xhtml',
+  'mhtml',
+  'mht',
+  'pdf',
+  'txt',
+  'json',
+  'xml',
+  'svg',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'avif',
+  'bmp',
+  'mp4',
+  'webm',
+  'mov',
+  'm4v',
+  'mp3',
+  'm4a',
+  'wav',
+  'ogg',
+  'flac',
+];
+
+export const OPENABLE_FILE_FILTER = {
+  name: 'Web pages, PDFs, images, text, audio and video',
+  extensions: OPENABLE_EXTENSIONS,
+};
+
+/** The address of a file a page can show, or null for any other path. */
+export function localFileUrl(file: string): string | null {
+  if (!isAbsolute(file)) return null;
+  const extension = extname(file).slice(1).toLowerCase();
+  return OPENABLE_EXTENSIONS.includes(extension)
+    ? pathToFileURL(file).href
+    : null;
+}
+
+/**
+ * What a page may show: web content, its source, a bundled extension's own
+ * page, or a file the user opened.
+ */
 export function isPageUrl(value: string): boolean {
   return (
-    isNavigableUrl(value) || isSourceUrl(value) || isExtensionPageUrl(value)
+    isNavigableUrl(value) ||
+    isSourceUrl(value) ||
+    isExtensionPageUrl(value) ||
+    isOpenedFile(value)
   );
 }
 
@@ -98,9 +230,20 @@ export function mayOpenFromPage(value: string): boolean {
 
 export function searchUrl(
   query: string,
-  engine: SearchEngineId = DEFAULT_PREFERENCES.searchEngine,
+  search: SearchSettings = DEFAULT_PREFERENCES,
 ): string {
-  return searchEngine(engine).url + encodeURIComponent(query);
+  return fillSearchUrl(defaultEngine(search).url, query);
+}
+
+/**
+ * What to go to for text from the clipboard: an address wrapped over several
+ * lines joins back up; anything else with line breaks is one search.
+ */
+export function clipboardAddressInput(text: string): string {
+  const trimmed = text.trim().slice(0, 8192);
+  if (!/\n/.test(trimmed)) return trimmed;
+  const joined = trimmed.replace(/\s*\n\s*/g, '');
+  return /\s/.test(joined) ? trimmed.replace(/\s+/g, ' ') : joined;
 }
 
 function looksLikeHost(hostname: string): boolean {
@@ -112,16 +255,21 @@ function looksLikeHost(hostname: string): boolean {
 }
 
 /**
- * Turns whatever the user typed into the address bar into an http(s) URL.
- * Anything that is not recognisably a web address becomes a search, so this
- * never produces a `file:`, `javascript:` or other privileged URL.
+ * Turns whatever the user typed into the address bar into an http(s) URL. A
+ * keyword first (`yt cats`) searches with that shortcut. Anything else that is
+ * not recognisably a web address becomes a search, so this never produces a
+ * `file:`, `javascript:` or other privileged URL.
  */
 export function resolveAddressInput(
   raw: string,
-  engine: SearchEngineId = DEFAULT_PREFERENCES.searchEngine,
+  settings: SearchSettings = DEFAULT_PREFERENCES,
 ): string {
   const input = raw.trim();
-  const search = () => searchUrl(input, engine);
+  const keyed = keywordSearch(input, settings.searchShortcuts);
+  if (keyed) return fillSearchUrl(keyed.shortcut.url, keyed.query);
+  const command = commandOnly(input, settings.searchShortcuts);
+  if (command) return shortcutOrigin(command);
+  const search = () => searchUrl(input, settings);
   if (input === '' || /\s/.test(input)) return search();
   if (isSourceUrl(input)) return input;
 

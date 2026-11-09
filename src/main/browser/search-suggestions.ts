@@ -1,4 +1,4 @@
-import type { SearchEngineId } from '../../shared/preferences';
+import type { SearchEngineId } from '../../shared/search';
 
 /**
  * Where each engine answers "what might I be searching for?", all in the
@@ -60,6 +60,7 @@ const CACHE_SIZE = 64;
  */
 export class SearchSuggestions {
   private readonly cache = new Map<string, string[]>();
+  private generation = 0;
 
   constructor(
     private readonly fetch: SuggestionFetch,
@@ -78,6 +79,7 @@ export class SearchSuggestions {
       return cached;
     }
 
+    const generation = this.generation;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -86,6 +88,7 @@ export class SearchSuggestions {
       });
       if (!response.ok) return [];
       const suggestions = parseSuggestions(await response.json());
+      if (generation !== this.generation) return [];
       this.cache.set(key, suggestions);
       if (this.cache.size > CACHE_SIZE) {
         this.cache.delete(this.cache.keys().next().value!);
@@ -99,6 +102,7 @@ export class SearchSuggestions {
   }
 
   clear(): void {
+    this.generation++;
     this.cache.clear();
   }
 }

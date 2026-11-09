@@ -1,5 +1,6 @@
 import type {
   DownloadSummary,
+  PageGroup,
   PageId,
   SitePermission,
   SplitView,
@@ -20,6 +21,7 @@ export interface StoredWorkspace {
   appearance?: WorkspaceAppearance;
   activePageId: PageId | null;
   split?: SplitView | null;
+  groups?: PageGroup[];
   createdAt: number;
 }
 
@@ -34,6 +36,9 @@ export interface StoredPage {
   note: string | null;
   collapsed: boolean;
   pinned: boolean;
+  groupId?: string | null;
+  /** A trail's mark, on its top-level page. */
+  emoji?: string | null;
   history: PageHistory | null;
   createdAt: number;
   lastActiveAt: number;
@@ -50,6 +55,8 @@ export interface StoredSession {
   activeWorkspaceId: WorkspaceId | null;
   /** Undo history for closed pages and workspaces, oldest first. */
   closed?: ClosedRecord[];
+  /** When this was saved, which is about when Splash was last in use. */
+  savedAt?: number;
 }
 
 export interface HistoryMatch {
@@ -73,6 +80,18 @@ export interface PermissionRecord {
   origin: string;
   permission: SitePermission;
   granted: boolean;
+}
+
+/** A saved login, address or card, sealed by `Vault`. */
+export interface VaultRow {
+  id: string;
+  kind: 'login' | 'address' | 'card';
+  /** The site a login belongs to; `null` for the others. */
+  origin: string | null;
+  secret: Uint8Array;
+  createdAt: number;
+  updatedAt: number;
+  lastUsedAt: number | null;
 }
 
 export interface TrailStore {
@@ -112,6 +131,21 @@ export interface TrailStore {
   deleteHistory(since: number): HistoryRow[];
   /** Puts deleted history back (undo). */
   restoreHistory(rows: HistoryRow[]): void;
+  /**
+   * Adds another browser's history. Importing the same thing twice changes
+   * nothing. Returns the addresses that weren't in the history before.
+   */
+  importHistory(rows: HistoryRow[]): string[];
+  /** Forgets these addresses (undoing an import). */
+  forgetHistory(urls: string[]): void;
+  listVault(kind: VaultRow['kind']): VaultRow[];
+  getVaultRow(id: string): VaultRow | null;
+  /** Adds the row, or replaces the one with its id. */
+  putVaultRow(row: VaultRow): void;
+  putVaultRows(rows: VaultRow[]): void;
+  deleteVaultRow(id: string): void;
+  deleteVaultRows(ids: string[]): void;
+  touchVaultRow(id: string, at: number): void;
   loadDownloads(): DownloadSummary[];
   saveDownload(download: DownloadSummary): void;
   deleteDownload(id: string): void;

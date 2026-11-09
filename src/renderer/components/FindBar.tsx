@@ -102,7 +102,7 @@ export function FindBar() {
           disabled={!result?.matches}
           onClick={() => search(false, true)}
         >
-          <ChevronUp size={15} strokeWidth={1.75} />
+          <ChevronUp size={15} />
         </button>
         <button
           type="button"
@@ -112,7 +112,7 @@ export function FindBar() {
           disabled={!result?.matches}
           onClick={() => search(true, true)}
         >
-          <ChevronDown size={15} strokeWidth={1.75} />
+          <ChevronDown size={15} />
         </button>
         <button
           type="button"
@@ -121,7 +121,7 @@ export function FindBar() {
           title="Close (esc)"
           onClick={close}
         >
-          <X size={14} strokeWidth={1.75} />
+          <X size={14} />
         </button>
       </div>
     </Reveal>

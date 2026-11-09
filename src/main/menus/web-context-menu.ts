@@ -4,19 +4,25 @@ import {
   type MenuItemConstructorOptions,
   type WebContents,
 } from 'electron';
-import { isNavigableUrl, searchUrl } from '../browser/url';
+import { markdownLink } from '../../shared/page-link';
+import { isNavigableUrl } from '../browser/url';
 
 export interface WebContextMenuActions {
   openChild(url: string, options: { background: boolean }): void;
+  /** Null where words can't be kept, as in a private window. */
+  addToDictionary: ((word: string) => void) | null;
+  /** Floats the page's video above other windows, or brings it back. */
+  pictureInPicture(): void;
   back(): void;
   forward(): void;
   reload(): void;
   print(): void;
+  searchUrlFor(query: string): string;
   canGoBack: boolean;
   canGoForward: boolean;
   /** Confirms a copy; `subject` is the host a copied address points to. */
   copied(
-    what: 'link' | 'image' | 'image-address',
+    what: 'link' | 'image' | 'image-address' | 'markdown',
     subject: string | null,
   ): void;
 }
@@ -69,6 +75,14 @@ export function webContextMenu(
     if (suggestions.length === 0) {
       items.push({ label: 'No Guesses Found', enabled: false });
     }
+    const { addToDictionary } = actions;
+    if (addToDictionary) {
+      const word = params.misspelledWord;
+      items.push({
+        label: 'Add to Dictionary',
+        click: () => addToDictionary(word),
+      });
+    }
     items.push(separator);
   }
 
@@ -92,6 +106,13 @@ export function webContextMenu(
         click: () => {
           clipboard.writeText(link);
           actions.copied('link', hostOf(link));
+        },
+      },
+      {
+        label: 'Copy Link as Markdown',
+        click: () => {
+          clipboard.writeText(markdownLink(params.linkText, link));
+          actions.copied('markdown', params.linkText.trim() || hostOf(link));
         },
       },
       separator,
@@ -127,6 +148,32 @@ export function webContextMenu(
     );
   }
 
+  if (params.mediaType === 'video') {
+    const source = isNavigableUrl(params.srcURL) ? params.srcURL : null;
+    items.push(
+      { label: 'Picture in Picture', click: actions.pictureInPicture },
+      ...(source
+        ? [
+            {
+              label: 'Open Video as Child Page',
+              click: () => actions.openChild(source, { background: false }),
+            },
+            {
+              label: 'Download Video',
+              click: () => contents.downloadURL(source),
+            },
+            {
+              label: 'Copy Video Address',
+              click: () => {
+                clipboard.writeText(source);
+                actions.copied('link', null);
+              },
+            },
+          ]
+        : []),
+      { type: 'separator' as const },
+    );
+  }
   if (params.isEditable) {
     items.push(
       {
@@ -173,7 +220,7 @@ export function webContextMenu(
       {
         label: `Search for “${truncate(text, 28)}”`,
         click: () =>
-          actions.openChild(searchUrl(truncate(text, 400)), {
+          actions.openChild(actions.searchUrlFor(truncate(text, 400)), {
             background: false,
           }),
       },

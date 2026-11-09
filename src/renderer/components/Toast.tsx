@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, RotateCw } from 'lucide-react';
 import { durationMs } from '../lib/motion';
 import { useShell } from '../stores/shell-store';
 import {
@@ -13,6 +13,9 @@ import {
  * of the sidebar, or in the toolbar while the sidebar is hidden, so a close
  * never goes unconfirmed.
  */
+/** Letters past which a button beside the message would crowd it. */
+const LONG_LABEL = 8;
+
 export function Toast({ placement }: { placement: 'sidebar' | 'toolbar' }) {
   const toast = useToast((state) => state.toast);
   const dismiss = useToast((state) => state.dismiss);
@@ -68,9 +71,12 @@ function ToastCard({
     action.run();
   };
   const compact = placement === 'toolbar';
-  // In the narrow sidebar, two buttons beside the message squeeze it into a
-  // column; they go on their own row instead.
-  const stacked = !compact && toast.actions.length > 1;
+  // In the narrow sidebar, two buttons or a long one beside the message squeeze
+  // it into a column; they go on their own row instead.
+  const stacked =
+    !compact &&
+    (toast.actions.length > 1 ||
+      toast.actions.some((action) => action.label.length > LONG_LABEL));
   const buttons = toast.actions.map((action) => (
     <button
       key={action.label}
@@ -79,7 +85,8 @@ function ToastCard({
       title={action.title}
       className="press flex h-6 shrink-0 items-center gap-1 rounded-inner px-2 text-fg hover:bg-hover"
     >
-      {action.icon === 'undo' && <RotateCcw size={12} strokeWidth={2} />}
+      {action.icon === 'undo' && <RotateCcw size={12} />}
+      {action.icon === 'redo' && <RotateCw size={12} />}
       {action.label}
     </button>
   ));

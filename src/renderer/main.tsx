@@ -1,4 +1,5 @@
 import { Authentication } from './components/Authentication';
+import { AutofillMenu } from './components/AutofillMenu';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
@@ -11,7 +12,8 @@ import { connectShell } from './stores/shell-store';
 import './styles/app.css';
 
 const authentication = location.hash === '#authentication';
-if (!authentication) {
+const autofill = location.hash === '#autofill';
+if (!authentication && !autofill) {
   connectShell(api());
   connectDownloads(api());
   if (location.hash !== '#settings') connectAiPanel(api());
@@ -24,6 +26,8 @@ createRoot(document.getElementById('root')!).render(
     <ErrorBoundary fallback={() => <ShellCrashed />}>
       {authentication ? (
         <Authentication />
+      ) : autofill ? (
+        <AutofillMenu />
       ) : location.hash === '#settings' ? (
         <SettingsApp />
       ) : (

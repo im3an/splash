@@ -132,7 +132,6 @@ export function WorkspaceIcon({
       return Symbol ? (
         <Symbol
           size={size}
-          strokeWidth={1.75}
           fill={FILLED.has(icon.name) ? 'currentColor' : 'none'}
           className="workspace-symbol"
           aria-hidden

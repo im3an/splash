@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { PaletteScope } from '../../shared/palette';
-import type { PageId, WorkspaceId } from '../../shared/types';
+import type { PageId } from '../../shared/types';
 import { durationMs } from '../lib/motion';
 import { api } from '../splash-api';
 
@@ -8,9 +8,12 @@ import { api } from '../splash-api';
 export type Overlay =
   | { kind: 'palette'; scope: PaletteScope }
   | { kind: 'toolbar-menu' }
+  | { kind: 'bookmarks-menu' }
   | { kind: 'suggestions' }
   | { kind: 'site-info' }
-  | { kind: 'workspace-editor'; workspaceId: WorkspaceId | null };
+  | { kind: 'downloads' }
+  /** PROTOTYPE: see src/renderer/prototype/. */
+  | { kind: 'alma-view' };
 
 interface OverlayState {
   overlay: Overlay | null;
@@ -29,6 +32,21 @@ const nextFrame = () =>
   new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
 /**
+ * A page that has never painted, like the blank one a link to a file leaves,
+ * never answers a capture. A hung one may not either. Neither has a still worth
+ * waiting for, and the overlay shouldn't depend on it.
+ */
+const CAPTURE_PATIENCE_MS = 400;
+
+const captureStills = () =>
+  Promise.race([
+    api().freezePage(),
+    new Promise<Record<PageId, string>>((resolve) =>
+      setTimeout(() => resolve({}), CAPTURE_PATIENCE_MS),
+    ),
+  ]);
+
+/**
  * A live page view always paints above the shell, so overlays work by
  * freezing: the shell shows a still of the page, then the view steps aside
  * until the overlay closes.
@@ -45,7 +63,7 @@ export const useOverlay = create<OverlayState>()((set, get) => ({
       set({ overlay, leaving: false });
       return;
     }
-    const stills = await api().freezePage();
+    const stills = await captureStills();
     if (request !== requestSerial) return;
     set({ overlay, frozenPages: stills });
     // Let the still paint before the live view leaves.
@@ -69,7 +87,3 @@ export const useOverlay = create<OverlayState>()((set, get) => ({
     }, durationMs('--duration-exit'));
   },
 }));
-
-/** The palette standing in for the address bar on a blank page. */
-export const openLocation = () =>
-  useOverlay.getState().open({ kind: 'palette', scope: 'location' });

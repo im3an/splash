@@ -1,5 +1,6 @@
 import type {
   ClosedSummary,
+  PageGroup,
   PageId,
   WorkspaceAppearance,
   WorkspaceId,
@@ -20,6 +21,10 @@ export interface ClosedPage {
   note: string | null;
   /** Missing in records saved before pages could be pinned. */
   pinned?: boolean;
+  /** The group the page was filed under, if it still exists on undo. */
+  groupId?: string | null;
+  /** A trail's mark. Missing in records saved before trails had one. */
+  emoji?: string | null;
   state: PageRuntimeState;
   history: PageHistory | null;
   createdAt: number;
@@ -36,14 +41,24 @@ export interface ClosedWorkspace {
   index: number;
 }
 
+export interface ClosedGroup {
+  group: PageGroup;
+  /** Position among the workspace's groups. */
+  index: number;
+}
+
 export interface ClosedRecord {
   workspaceId: WorkspaceId;
   /** Set when a whole workspace was deleted rather than pages closed. */
   workspace: ClosedWorkspace | null;
+  /** Set when a group went with its pages. Missing in older records. */
+  group?: ClosedGroup;
   /** The closed page first, then (for a branch) its descendants in order. */
   pages: ClosedPage[];
   /** Children promoted when only the page itself was closed. */
   promotedChildIds: PageId[];
+  /** On screen when many pages closed at once, for undo to go back to. */
+  activeBefore?: PageId | null;
   summary: ClosedSummary;
 }
 

@@ -1,19 +1,42 @@
 import path from 'node:path';
-import { app, BrowserWindow, nativeTheme, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  nativeTheme,
+  shell,
+  type Session,
+} from 'electron';
 import { eventChannels } from '../../shared/api';
 import { DEFAULT_APPEARANCE, frameColor } from '../../shared/appearance';
-import type { SiteSettings } from '../../shared/types';
+import type { AboutLink, SiteSettings } from '../../shared/types';
+import {
+  crashReportCount,
+  exportDiagnostics,
+  showCrashReports,
+} from '../diagnostics/electron-diagnostics';
+import { openChromiumLicences, readLicence } from '../diagnostics/licences';
 import type { DownloadManager } from '../downloads/download-manager';
+import type { ExtensionHost } from '../extensions/extension-host';
 import type { IpcTarget } from '../ipc/register-ipc';
 import type { PreferencesService } from '../preferences';
 import type { BrowsingDataCleaner } from '../privacy/browsing-data';
 import type { ContentBlocking } from '../privacy/content-blocker';
+import type { CookieViewer } from '../privacy/cookies';
 import {
   decisionOf,
   PERMISSION_LABELS,
   SITE_PERMISSIONS,
 } from '../security/permissions';
+import type { ThreatList } from '../security/threat-list';
 import type { TrailStore } from '../storage/trail-store';
+import type { Vault } from '../vault/vault';
+import type { Transfer } from '../transfer/transfer';
+import {
+  exportPasswords,
+  importChosenFile,
+} from '../transfer/transfer-dialogs';
+import { setDictionaryWord } from '../spelling';
 import type { TrailWindow } from './browser-window';
 import { isSameDocument, shellUrl } from './shell-url';
 
@@ -23,12 +46,28 @@ export interface SettingsWindowOptions {
   downloads: DownloadManager;
   cleaner: BrowsingDataCleaner;
   blocker: ContentBlocking;
+  cookies: CookieViewer;
+  /** The session pages browse in, which keeps words added to the dictionary. */
+  webSession: Session;
+  threats: ThreatList;
+  extensions(): ExtensionHost | null;
+  vault: Vault;
+  transfer: Transfer;
+  /** Touch ID, or the closest thing this Mac has. */
+  authorize(reason: string): Promise<boolean>;
   /** The browser window that workspace settings act on. */
   browserWindow(): TrailWindow | null;
 }
 
+/** Where Settings › About's links go. */
+const ABOUT_LINKS: Record<AboutLink, string> = {
+  source: 'https://github.com/im3an/splash',
+  'ublock-source': 'https://github.com/gorhill/uBlock',
+  gpl: 'https://www.gnu.org/licenses/gpl-3.0.html',
+};
+
 /** Whether Splash is the default for web links, and whether it can become so. */
-function defaultBrowserStatus() {
+export function defaultBrowserStatus() {
   return {
     isDefault:
       app.isDefaultProtocolClient('https') &&
@@ -45,6 +84,8 @@ function defaultBrowserStatus() {
 export class SettingsWindow {
   readonly window: BrowserWindow;
   private readonly url = `${shellUrl()}#settings`;
+  /** Where to open, until the page has loaded and asked. */
+  private section: string | null = null;
 
   constructor(private readonly options: SettingsWindowOptions) {
     this.window = new BrowserWindow({
@@ -87,7 +128,7 @@ export class SettingsWindow {
   /** Browser-window channels it may use, plus its own. */
   get ipc(): IpcTarget {
     const browser = this.options.browserWindow();
-    const { cleaner } = this.options;
+    const { cleaner, cookies, vault, transfer, authorize } = this.options;
     return {
       isShellUrl: (candidate) => isSameDocument(candidate, this.url),
       invoke: {
@@ -107,11 +148,54 @@ export class SettingsWindow {
                 browser.ipc.invoke['downloads:open-folder'],
             }
           : {}),
+        'vault:list': () => vault.listing(),
+        'vault:save-login': ({ id, origin, username, password }) => {
+          vault.saveLogin({ origin, username, password }, id);
+        },
+        'vault:save-address': ({ id, fields }) => {
+          vault.saveAddress(fields, id);
+        },
+        'vault:save-card': ({ id, fields }) => {
+          vault.saveCard(fields, id);
+        },
+        'vault:delete': ({ id }) => vault.delete(id),
+        'vault:undo': ({ token }) => vault.undo(token),
+        'vault:reveal': async ({ id }) =>
+          (await authorize('show a saved password'))
+            ? (vault.login(id)?.password ?? null)
+            : null,
+        'vault:copy': async ({ id }) => {
+          const login = vault.login(id);
+          if (!login || !(await authorize('copy a saved password'))) {
+            return false;
+          }
+          clipboard.writeText(login.password);
+          return true;
+        },
+        'vault:export': () => exportPasswords(this.window, vault, authorize),
+        'transfer:sources': () => transfer.sources(),
+        'transfer:import': ({ id, bookmarks, history }) =>
+          transfer.importFrom(id, { bookmarks, history }),
+        'transfer:import-file': () => importChosenFile(this.window, transfer),
+        'transfer:undo': ({ token }) => transfer.undo(token),
+        'transfer:trash': ({ token }) => transfer.trashFile(token),
+        'transfer:export-bookmarks': () => {
+          const target = this.options.browserWindow();
+          return target ? target.saveBookmarks() : null;
+        },
         'preferences:get': () => this.options.preferences.get(),
         'preferences:update': ({ patch }) =>
           this.options.preferences.update(patch),
         'settings:sites': () => this.sites(),
+        'spelling:words': () =>
+          this.options.webSession.listWordsInSpellCheckerDictionary(),
+        'spelling:set-word': ({ word, known }) =>
+          setDictionaryWord(this.options.webSession, word, known),
+        'cookies:list': ({ host }) => cookies.list(host),
+        'cookies:delete': ({ site, only }) => cookies.delete(site, only),
+        'cookies:undo': ({ token }) => cookies.restore(token),
         'settings:content-blocking': () => this.options.blocker.getStatus(),
+        'settings:threat-list': () => this.options.threats.getStatus(),
         'settings:update-filter-lists': async () => {
           await this.options.blocker.update().catch(() => undefined);
           return this.options.blocker.getStatus();
@@ -126,15 +210,45 @@ export class SettingsWindow {
           }
           return defaultBrowserStatus();
         },
+        'settings:take-section': () => {
+          const section = this.section;
+          this.section = null;
+          return section;
+        },
+        'extensions:list': () => this.options.extensions()?.list() ?? [],
+        'extensions:set-enabled': ({ id, enabled }) =>
+          this.extensionHost().setEnabled(id, enabled),
+        'extensions:remove': ({ id }) => this.extensionHost().remove(id),
+        'extensions:open-store': () => this.extensionHost().openWebStore(),
+        'extensions:open-page': ({ url }) => this.extensionHost().openPage(url),
+        'extensions:load-unpacked': () =>
+          this.extensionHost().loadUnpacked(this.window),
         'settings:open-data-folder': () => {
           void shell.openPath(app.getPath('userData'));
         },
         'settings:about': () => ({
           version: app.getVersion(),
+          crashReports: crashReportCount(),
           electron: process.versions.electron,
           chromium: process.versions.chrome,
           dataFolder: app.getPath('userData'),
         }),
+        'settings:licence': ({ name }) => readLicence(name),
+        'settings:open-chromium-licences': () => openChromiumLicences(),
+        'settings:open-about-link': ({ link }) => {
+          const target = this.options.browserWindow();
+          if (!target) return;
+          target.controller.createPage({ url: ABOUT_LINKS[link] });
+          target.window.show();
+          target.window.focus();
+        },
+        'settings:export-diagnostics': () =>
+          exportDiagnostics(this.window, () =>
+            (this.options.extensions()?.list() ?? []).map(
+              ({ name, version, enabled }) => ({ name, version, enabled }),
+            ),
+          ),
+        'settings:show-crash-reports': () => showCrashReports(),
         'settings:edit-workspace': ({ workspaceId }) => {
           const target = this.options.browserWindow();
           if (!target) return;
@@ -160,6 +274,18 @@ export class SettingsWindow {
   ) {
     if (!this.window.isDestroyed())
       this.window.webContents.send(channel, payload);
+  }
+
+  /** Opens on a section: at once if the page is up, or as soon as it asks. */
+  showSection(section: string): void {
+    if (this.window.webContents.isLoading()) this.section = section;
+    else this.send(eventChannels.settingsSection, section);
+  }
+
+  private extensionHost(): ExtensionHost {
+    const host = this.options.extensions();
+    if (!host) throw new Error('Extensions are unavailable');
+    return host;
   }
 
   focus(): void {

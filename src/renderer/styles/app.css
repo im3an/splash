@@ -6,6 +6,7 @@
   --color-surface: var(--surface);
   --color-elevated: var(--elevated);
   --color-field: var(--field);
+  --color-field-hover: var(--field-hover);
   --color-field-focus: var(--field-focus);
   --color-hover: var(--hover);
   --color-pressed: var(--pressed);
@@ -111,12 +112,10 @@
 }
 
 /*
- * A workspace's gradient, over the frame colour. Grain keeps the bands out
- * of it, like Arc's. It sits under everything and never takes the pointer.
+ * A workspace's gradient, over the frame colour, under its grain (set by
+ * use-workspace-theme). Grain keeps the bands out of it, like Arc's. It sits
+ * under everything and never takes the pointer.
  */
-:root {
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
 body::before {
   content: '';
   position: fixed;
@@ -124,6 +123,16 @@ body::before {
   z-index: -1;
   background: var(--frame-grain, none), var(--frame-image, none);
   pointer-events: none;
+}
+/*
+ * For sticky headers over the sidebar: the same frame, gradient and grain as
+ * body::before, fixed to the window so they line up with what scrolls under.
+ * A plain bg-frame shows as a flat band across a workspace's gradient.
+ */
+.frame-backdrop {
+  background-color: var(--frame);
+  background-image: var(--frame-grain, none), var(--frame-image, none);
+  background-attachment: fixed;
 }
 :root[data-frame-swap='a'] body::before {
   animation: frame-in-a var(--duration-slow) var(--ease-out);
@@ -242,8 +251,15 @@ body::before {
     background: var(--hover);
     color: var(--accent);
   }
+  /*
+   * Dim the icon as a whole, never with a see-through stroke colour: an icon
+   * is several strokes, and they'd darken each other where they cross.
+   */
   .icon-button:disabled {
-    color: var(--fg-disabled);
+    color: rgb(var(--ink));
+  }
+  .icon-button:disabled > svg {
+    opacity: var(--disabled-alpha);
   }
   /* Inside rows and fields, where 28px would crowd the line. */
   .icon-button-sm {
@@ -256,6 +272,20 @@ body::before {
    * Text buttons. Quiet for the way out (Block, Go back), raised for the
    * expected next step, primary for the one answer a bar is asking for.
    */
+  .private-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    height: 22px;
+    padding-inline: 8px;
+    margin-inline-end: var(--space-1);
+    border-radius: var(--radius-pill);
+    background: var(--row-hover);
+    color: var(--fg-muted);
+    font-size: var(--text-small);
+    font-weight: 500;
+    white-space: nowrap;
+  }
   .button {
     display: inline-flex;
     flex-shrink: 0;
@@ -329,7 +359,7 @@ body::before {
     width: 38px;
     height: 22px;
     border-radius: var(--radius-full);
-    background: var(--pressed);
+    background: var(--switch-off);
     transition: background-color var(--duration-fast) var(--ease-out);
   }
   .switch[aria-checked='true'] {
@@ -344,10 +374,13 @@ body::before {
     border-radius: var(--radius-full);
     background: var(--switch-knob);
     box-shadow: var(--shadow-row);
-    transition: translate var(--duration-fast) var(--ease-out);
+    transition:
+      translate var(--duration-fast) var(--ease-out),
+      background-color var(--duration-fast) var(--ease-out);
   }
   .switch[aria-checked='true'] > .switch-knob {
     translate: 16px 0;
+    background: var(--on-accent);
   }
 
   /* A bar between the toolbar and the page: a question, a warning, find. */
@@ -424,6 +457,34 @@ body::before {
     border-radius: inherit;
     background: var(--accent);
     animation: load-sweep 1.15s var(--ease-out) infinite;
+  }
+
+  /* A download's progress, under its name. */
+  .download-bar {
+    position: relative;
+    height: 3px;
+    margin-block: 4px 3px;
+    overflow: hidden;
+    border-radius: var(--radius-full);
+    background: var(--hairline);
+  }
+  .download-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
+    transition: width var(--duration-base) var(--ease-out);
+  }
+  .download-bar[data-paused] > span {
+    background: var(--fg-subtle);
+  }
+  /* Eased both ways, so the fill spends the cycle on the track, not past it. */
+  .download-bar[data-sweeping] > span {
+    width: 35%;
+    animation: load-sweep 1.4s ease-in-out infinite;
+  }
+  .download-bar[data-sweeping][data-paused] > span {
+    animation: none;
   }
 
   .spinner {
@@ -554,14 +615,14 @@ body::before {
 @keyframes slide-from-right {
   from {
     opacity: 0;
-    transform: translateX(24px);
+    transform: translateX(44px) scale(0.985);
   }
 }
 
 @keyframes slide-from-left {
   from {
     opacity: 0;
-    transform: translateX(-24px);
+    transform: translateX(-44px) scale(0.985);
   }
 }
 
@@ -629,6 +690,8 @@ body::before {
   /* A bar's space opens and closes with it; see Reveal. */
   .reveal {
     display: grid;
+    /* Long lines inside truncate, rather than widening the track. */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 1fr;
     flex-shrink: 0;
     animation: reveal-in var(--duration-slow) var(--ease-emphasized);
@@ -647,34 +710,39 @@ body::before {
   }
 
   /*
-   * The accent wheel (AccentWheel.tsx): a grid of dots, each the colour at
-   * its place. Hue runs clockwise from the top, dark at the centre to light
-   * at the rim, matching src/renderer/lib/color-wheel.ts.
+   * The colour canvas (AccentWheel.tsx), after Arc's: a quiet field of grey
+   * dots with the picked colours on it as large white-ringed dots. Where a
+   * colour sits is in src/shared/color.ts.
    */
-  .accent-wheel-dots {
-    border-radius: var(--radius-full);
-    /* --wheel-hues is set by the component from the wheel's geometry. */
-    background: var(--wheel-shade), conic-gradient(var(--wheel-hues));
-    mask: radial-gradient(circle, black 1.25px, transparent 1.75px) center / 8px
-      8px;
+  .color-canvas {
+    background: radial-gradient(
+        circle,
+        color-mix(in oklab, var(--fg) 20%, transparent) 0.9px,
+        transparent 1.3px
+      )
+      center / 7px 7px;
     cursor: crosshair;
   }
-  .accent-wheel-handle {
+  .color-canvas-dot {
     box-shadow:
-      0 0 0 2px var(--wheel-handle-ring),
+      0 0 0 3px var(--wheel-handle-ring),
       var(--shadow-wheel-handle);
+    cursor: grab;
     transition:
       box-shadow var(--duration-fast) var(--ease-out),
       scale var(--duration-fast) var(--ease-out);
   }
-  .accent-wheel-handle:hover,
-  .accent-wheel-handle:active {
-    scale: 1.12;
+  .color-canvas-dot:hover {
+    scale: 1.06;
   }
-  .accent-wheel-handle:focus-visible {
+  .color-canvas-dot:active {
+    cursor: grabbing;
+    scale: 1.1;
+  }
+  .color-canvas-dot:focus-visible {
     box-shadow:
-      0 0 0 2px var(--wheel-handle-ring),
-      0 0 0 4px var(--focus-ring),
+      0 0 0 3px var(--wheel-handle-ring),
+      0 0 0 5px var(--focus-ring),
       var(--shadow-wheel-handle);
   }
 
@@ -739,6 +807,14 @@ body::before {
     width: 100%;
     animation: load-breathe 1.6s ease-in-out infinite;
   }
+  .download-bar[data-sweeping] > span {
+    width: 100%;
+    animation: load-breathe 1.6s ease-in-out infinite;
+  }
+  .download-bar[data-sweeping][data-paused] > span {
+    width: 35%;
+    animation: none;
+  }
   .spinner,
   .animate-spin {
     animation-duration: 2.4s;
@@ -749,8 +825,8 @@ body::before {
   .press:active:not(:disabled),
   .icon-button:active:not(:disabled),
   .button:active:not(:disabled),
-  .accent-wheel-handle:hover,
-  .accent-wheel-handle:active {
+  .color-canvas-dot:hover,
+  .color-canvas-dot:active {
     scale: none;
   }
 }
@@ -950,9 +1026,27 @@ details[open] > .sidebar-section-content {
   min-width: 0;
 }
 
-.trail-row[data-pinned-root='true'] {
+/* The top of a trail: its name reads first, with a little room above it. */
+/* Held places take the same room as their rows, so nothing moves as they draw. */
+:is(.trail-row, .trail-row-place)[data-trailhead='true'] {
+  margin-top: var(--space-1);
+}
+.trail-row[data-trailhead='true'] .trail-title {
+  font-weight: 500;
+}
+.trail-emoji {
+  display: block;
+  width: 16px;
+  font-size: var(--type-lead);
+  line-height: 16px;
+  text-align: center;
+}
+
+:is(.trail-row, .trail-row-place)[data-pinned-root='true'] {
   min-height: 38px;
   margin-bottom: 2px;
+}
+.trail-row[data-pinned-root='true'] {
   background: var(--field);
 }
 .trail-row[data-pinned-root='true'] .trail-favicon {
@@ -993,6 +1087,35 @@ details[open] > .sidebar-section-content {
 :root:has(.sidebar-resize[data-resizing='true']) aside,
 :root:has(.sidebar-resize[data-resizing='true']) aside > div {
   transition: none;
+}
+
+/*
+ * Every icon has one chunky, round-cornered weight, set here instead of at
+ * each use. The tiny ones and the big ones step to look the same on screen.
+ */
+.lucide {
+  stroke-width: var(--icon-stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lucide:is([width='10'], [width='11'], [width='12'], [width='13']) {
+  stroke-width: var(--icon-stroke-small);
+}
+.lucide:is([width='20'], [width='24']) {
+  stroke-width: var(--icon-stroke-large);
+}
+.lucide[width='16'] {
+  stroke-width: var(--icon-stroke-md);
+}
+/*
+ * The icon grid's main lines fall on whole device pixels at 2x, so a 3-pixel
+ * stroke straddles them and leaves soft half-covered edges. A quarter point
+ * moves those edges onto the pixel grid.
+ */
+@media (min-resolution: 2dppx) {
+  .icon-button > .lucide[width='16'] {
+    translate: 0.25px 0.25px;
+  }
 }
 
 /*
@@ -1089,10 +1212,6 @@ button.sidebar-row,
   .sidebar-row-count {
   opacity: 0;
 }
-/* A group whose trail is open here reads as present, like the current page. */
-.sidebar-row[data-open='true'] .sidebar-row-main > .truncate {
-  font-weight: 500;
-}
 .sidebar-new-page {
   color: var(--fg-muted);
 }
@@ -1172,70 +1291,76 @@ button.sidebar-row,
   rotate: 18deg;
 }
 
-.icon-stack-chevron {
-  flex-shrink: 0;
-  color: var(--fg-subtle);
-  opacity: 0;
-  transition:
-    opacity var(--duration-fast) var(--ease-out),
-    rotate var(--duration-base) var(--ease-emphasized);
-}
-.sidebar-row:hover .icon-stack-chevron,
-.icon-stack[data-open='true'] .icon-stack-chevron {
+/* As on a page with a branch: shown folded, and on hover when unfolded. */
+.icon-stack[data-open='false'] > .sidebar-row .trail-branch-toggle,
+.icon-stack > .sidebar-row:is(:hover, :focus-within) .trail-branch-toggle {
   opacity: 1;
 }
-.icon-stack[data-open='true'] .icon-stack-chevron {
-  rotate: 90deg;
-}
-.icon-stack[data-open='true'] > .sidebar-row {
-  background: var(--row-hover);
-}
-.icon-stack[data-open='true'] .sidebar-row-main > .truncate {
-  font-weight: 500;
+/* Leaves room for the actions column its rows have, so counts line up. */
+.icon-stack > .sidebar-row > .sidebar-row-main {
+  padding-right: calc(var(--sidebar-row-inset) + 24px + 4px);
 }
 
-/* The popped-out list: a soft card under its row, dealt out top first. */
+/*
+ * The popped-out list: rows of the trail's own kind, hanging one step in from
+ * the stack, dealt out top first. They take the room they need, as pages do.
+ */
 .icon-stack-list {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  margin: 3px var(--sidebar-row-inset) 6px calc(var(--lead) - 6px);
-  padding: 4px;
-  border-radius: var(--radius-pill);
-  background: var(--field);
-  box-shadow: inset 0 0 0 1px var(--hairline);
-  /* About eight rows; the trail below stays within reach. */
-  max-height: 258px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  margin-top: 1px;
 }
-.stack-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 30px;
-  min-width: 0;
-  padding: 0 8px 0 6px;
-  border-radius: var(--radius-row);
-  color: var(--fg);
-  font-size: var(--type-body);
-  text-align: left;
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    scale var(--duration-fast) var(--ease-out);
+.favorite-row {
+  isolation: isolate;
   animation: stack-deal var(--duration-slow) var(--ease-spring) backwards;
   animation-delay: calc(var(--i, 0) * 22ms);
 }
-.stack-link:hover,
-.stack-link[data-menu-open='true'] {
-  background: var(--row-hover);
+.favorite-row-icon {
+  filter: var(--favicon-halo);
 }
-.stack-link:active {
-  scale: 0.98;
+.favorite-row-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+  border-radius: inherit;
+  outline-offset: -2px;
+  text-align: left;
 }
-.stack-link[data-current='true'] {
-  background: var(--selected);
-  box-shadow: var(--shadow-row);
+/* The trail's current-page surface, clear of the branch lines in the same way. */
+.favorite-row[data-current='true']::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 18px;
+  z-index: -1;
+  border-radius: var(--radius-row);
+  background-color: var(--row-hover);
+}
+.sidebar-column[data-flat='true'] .favorite-row[data-current='true']::before,
+:root[data-trail='minimal'] .favorite-row[data-current='true']::before {
+  left: 0;
+}
+.trail-row[data-folded='true'] .trail-branch-toggle {
+  opacity: 1;
+}
+/* Sets Favorites apart from the pages below, without a box around either. */
+.saved-squiggle {
+  height: 8px;
+  margin: 6px 6px 0;
+  color: var(--guide-path);
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 12px,
+    black calc(100% - 12px),
+    transparent
+  );
+}
+.saved-squiggle > svg {
+  display: block;
 }
 .stack-link-icon {
   display: grid;
@@ -1251,7 +1376,212 @@ button.sidebar-row,
   width: 12px;
   height: 12px;
 }
-.stack-link-host {
+@keyframes stack-deal {
+  from {
+    opacity: 0;
+    translate: -10px -14px;
+    scale: 0.92;
+  }
+}
+.stack-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+/* While something bookmarkable is dragged, the folders that can take it. */
+.folder-drop[data-over='true'] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.folder-drops {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  /* About six rows; a long list scrolls as the drag nears its edge. */
+  max-height: 180px;
+  margin-top: 1px;
+  overflow-y: auto;
+  animation: panel-in var(--duration-base) var(--ease-out) backwards;
+}
+.folder-drop {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding-right: var(--sidebar-row-inset);
+  padding-left: calc(var(--lead) + (var(--depth, 0) + 1) * 14px);
+  border-radius: var(--radius-row);
+  color: var(--fg-muted);
+  font-size: var(--type-body);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+.folder-drop > svg {
+  flex-shrink: 0;
+  color: var(--fg-subtle);
+}
+.folder-drop[data-over='true'] {
+  color: var(--fg);
+}
+
+/* The optional row of bookmarks over the page. */
+.bookmarks-bar {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: 30px;
+  min-width: 0;
+  margin-inline: var(--gutter);
+  margin-bottom: 4px;
+  border-radius: var(--radius-control);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+.bookmarks-bar[data-over='true'] {
+  background: var(--accent-soft);
+}
+.bookmarks-bar-list {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+.bar-item {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  max-width: 180px;
+  padding-inline: 7px;
+  border-radius: var(--radius-control);
+  color: var(--fg-muted);
+  font-size: var(--type-small);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+.stack-link-icon.bar-item-icon {
+  width: 16px;
+  height: 16px;
+}
+.bar-item:hover,
+.bar-item[data-current='true'] {
+  background: var(--row-hover);
+  color: var(--fg);
+}
+.bar-item:active {
+  background: var(--row-pressed);
+}
+/* Inside the button: the list clips anything outside it, and has to. */
+.bar-item:focus-visible {
+  outline-offset: -2px;
+}
+.bar-item[data-over='true'] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--fg);
+}
+.bookmarks-bar-hint {
+  padding-inline: 7px;
+  color: var(--fg-subtle);
+  font-size: var(--type-small);
+  white-space: nowrap;
+}
+.bookmarks-bar-more {
+  position: absolute;
+  right: 0;
+  width: 24px;
+  height: 24px;
+}
+
+/* The bookmark manager: one line per bookmark, a selection box at its start. */
+.bookmark-list {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  padding-block: 2px 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--radius-row);
+  outline: none;
+}
+.bookmark-list[data-over='true'] {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.sidebar-row.bookmark-row {
+  gap: 6px;
+  height: min(30px, var(--row-height));
+  padding-right: var(--sidebar-row-inset);
+  font-size: var(--type-body);
+}
+.bookmark-row[data-chosen='true'] {
+  background: var(--accent-soft);
+}
+.bookmark-row[data-over='true'],
+.trail-row[data-link-over='true'] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.link-drop-trail[data-over='true'] {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.bookmark-list:focus-visible .bookmark-row[data-active='true'] {
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+}
+.bookmark-indent {
+  flex-shrink: 0;
+  width: calc(var(--depth, 0) * 14px);
+  margin-right: -6px;
+}
+.bookmark-check {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: -4px;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.bookmark-row:is(:hover, [data-active='true'], [data-chosen='true'])
+  .bookmark-check,
+.bookmark-list[data-selecting='true'] .bookmark-check {
+  opacity: 1;
+}
+.bookmark-check-box {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-inner);
+  box-shadow: inset 0 0 0 1px var(--border-hover);
+  color: var(--on-accent);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+.bookmark-check:hover .bookmark-check-box {
+  box-shadow: inset 0 0 0 1px var(--fg-subtle);
+}
+.bookmark-check[aria-checked='true'] .bookmark-check-box {
+  background: var(--accent);
+  box-shadow: none;
+}
+.bookmark-chevron {
+  flex-shrink: 0;
+  color: var(--fg-subtle);
+  transition: rotate var(--duration-base) var(--ease-emphasized);
+}
+.bookmark-chevron[data-open='true'] {
+  rotate: 90deg;
+}
+.bookmark-host {
   flex-shrink: 0;
   max-width: 40%;
   overflow: hidden;
@@ -1259,30 +1589,240 @@ button.sidebar-row,
   font-size: var(--type-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: opacity var(--duration-fast) var(--ease-out);
 }
-@container sidebar (width < 300px) {
-  .stack-link-host {
-    display: none;
+.sidebar-row:is(:hover, :focus-within, [data-menu-open='true']) .bookmark-host {
+  opacity: 0;
+}
+
+/*
+ * Saved groups sit above the open pages. Folded, a group is one plain row.
+ * Unfolded it gets a surface: a thin pane of glass holding its pages, dimmer
+ * than the open ones since they aren't loaded. The trail's own surface stays
+ * the only mark of the current page. Text keeps to the trail's icon column
+ * either way, because the row's indent gives back the pane's padding.
+ */
+@property --group-pad {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
+}
+@property --group-fade {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+.saved-groups {
+  --group-row: min(28px, var(--row-height));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+.group-card {
+  --group-pad: 0px;
+  padding: var(--group-pad);
+  border-radius: var(--radius-card);
+  transition:
+    --group-pad var(--duration-base) var(--ease-emphasized),
+    background-color var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out);
+}
+.group-card[data-open='true'] {
+  --group-pad: 3px;
+  background-color: var(--group-glass);
+  box-shadow: var(--shadow-group-glass);
+  backdrop-filter: blur(14px) saturate(130%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .group-card[data-open='true'] {
+    backdrop-filter: none;
   }
 }
-.stack-link-action {
-  margin-top: 3px;
+.group-card .sidebar-row {
+  height: var(--group-row);
+}
+.group-card .sidebar-row-main {
+  gap: 6px;
+  padding-left: calc(var(--lead) - var(--group-pad));
+}
+.group-card-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--type-body);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/*
+ * A group's mark: a quiet folder or an emoji, bare like a favicon. It sits
+ * over the room the row's main button leaves for it, 3px out on each side,
+ * so a click here changes it without folding the group.
+ */
+.group-card-mark {
+  --group-mark-at: calc(var(--lead) - var(--group-pad) - 3px);
+  position: absolute;
+  inset-block: 0;
+  left: var(--group-mark-at);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-block: auto;
+  color: var(--fg-subtle);
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    scale var(--duration-fast) var(--ease-out);
+}
+.group-card-mark:hover,
+.group-card-mark[aria-expanded='true'] {
   color: var(--fg-muted);
 }
-.stack-link-action .stack-link-icon {
-  background: var(--accent-soft);
-  box-shadow: none;
-  color: var(--accent);
+.group-card-mark:active {
+  scale: 0.92;
 }
-.stack-link-action:hover {
-  color: var(--fg);
+.group-icon-picker {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  width: 228px;
+  max-width: calc(100vw - 12px);
+  max-height: calc(100vh - 12px);
+  padding: 6px;
+  overflow-y: auto;
+  border-radius: var(--radius-content);
+  background: var(--elevated);
+  box-shadow: var(--shadow-panel);
+  outline: none;
 }
-@keyframes stack-deal {
-  from {
-    opacity: 0;
-    translate: -10px -14px;
-    scale: 0.92;
+.group-icon-choice {
+  display: grid;
+  place-items: center;
+  height: 30px;
+  border-radius: var(--radius-inner);
+  font-size: var(--type-title);
+  transition: scale var(--duration-fast) var(--ease-out);
+}
+.group-icon-choice:hover {
+  scale: 1.2;
+}
+.group-icon-choice:active {
+  scale: 0.92;
+}
+/* No fill on the choices: the current one is only outlined. */
+.group-icon-choice[aria-checked='true'] {
+  box-shadow: inset 0 0 0 1px var(--border-hover);
+}
+.group-card-chevron {
+  flex-shrink: 0;
+  color: var(--fg-subtle);
+  transition: rotate var(--duration-base) var(--ease-emphasized);
+}
+.group-card[data-open='true'] .group-card-chevron {
+  rotate: 90deg;
+}
+.group-card .sidebar-row-count {
+  margin-left: auto;
+}
+.group-card-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  /* About eight rows; the trail below stays within reach. */
+  max-height: calc(var(--group-row) * 8);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  transition: opacity var(--duration-exit) var(--ease-in);
+  /* A long list fades out at its foot, until it's scrolled to the end. */
+  mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - var(--group-fade)),
+    transparent
+  );
+  animation: group-list-fade linear both;
+  animation-timeline: scroll(self);
+}
+@keyframes group-list-fade {
+  from,
+  92% {
+    --group-fade: 22px;
   }
+  to {
+    --group-fade: 0px;
+  }
+}
+.group-card-empty {
+  padding: 4px 10px 6px;
+  color: var(--fg-subtle);
+  font-size: var(--type-caption);
+}
+/* Real pages, not links: they take the room they need. */
+.group-card-pages:has(.sidebar-section-content) {
+  max-height: none;
+  overflow: visible;
+  mask-image: none;
+  animation: none;
+}
+.reveal[data-state='closed'] .group-card-pages {
+  opacity: 0;
+}
+:root[data-motion='reduced'] :is(.group-card, .group-card-chevron) {
+  transition: none;
+}
+
+/*
+ * The Minimal trail style: nesting is only even steps of indent, with one
+ * column beside each page for its chevron or a quiet dot. Rows run edge to
+ * edge, and with no line to light, the current page's surface says it all.
+ * Saved folders follow the same layout, without a pane of their own.
+ */
+.trail-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: var(--fg-disabled);
+}
+:root[data-trail='minimal'] .trail-branch-toggle {
+  opacity: 1;
+}
+:root[data-trail='minimal'] .trail-current {
+  background-color: var(--pressed);
+}
+:root[data-trail='minimal'] .trail-site {
+  font-size: inherit;
+}
+:root[data-trail='minimal'] .trail-label {
+  gap: 8px;
+}
+:root[data-trail='minimal'] .saved-groups {
+  --group-row: var(--row-height);
+  gap: 1px;
+}
+:root[data-trail='minimal'] .group-card,
+:root[data-trail='minimal'] .group-card[data-open='true'] {
+  --group-pad: 0px;
+  --group-row: var(--row-height);
+  margin-block: 4px;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+:root[data-trail='minimal'] .group-card .sidebar-row-main {
+  gap: 8px;
+  padding-left: 6px;
+}
+:root[data-trail='minimal'] .group-card-name {
+  font-size: var(--type-lead);
+  font-weight: 600;
+}
+:root[data-trail='minimal'] .group-card-mark {
+  --group-mark-at: 27px;
+}
+/* Lines up with the favicons of the pages that would sit here. */
+:root[data-trail='minimal'] .group-card-empty {
+  padding-left: 46px;
 }
 
 /* A site's first letter, where it has no icon. */
@@ -1375,7 +1915,13 @@ button.sidebar-row,
   color: var(--fg);
 }
 :root[data-motion='reduced']
-  :is(.favorite-tile, .stacked-icon, .split-drop-label, .favorites-empty) {
+  :is(
+    .favorite-tile,
+    .favorite-row,
+    .stacked-icon,
+    .split-drop-label,
+    .favorites-empty
+  ) {
   transition: none;
   animation: none;
 }
@@ -1487,76 +2033,6 @@ button.sidebar-row,
   animation: none;
 }
 
-/*
- * The workspace editor, after Arc's "Create a Space" sheet: the chosen
- * theme washes the top, and each part sits in its own soft panel.
- */
-.workspace-sheet {
-  background:
-    linear-gradient(to bottom, transparent, var(--elevated) 230px),
-    radial-gradient(120% 220px at 50% 0%, var(--accent-soft), transparent),
-    var(--frame-image, none), var(--elevated);
-  background-repeat: no-repeat;
-  background-size:
-    100% 260px,
-    100% 260px,
-    100% 260px,
-    auto;
-}
-.sheet-panel {
-  border-radius: var(--radius-panel);
-  background: var(--field);
-}
-.sheet-panel:has(> input:focus-visible) {
-  box-shadow: var(--shadow-focus);
-}
-
-/* The icon on a fan of three cards, the front one in the accent. */
-.workspace-cards {
-  position: relative;
-  width: 132px;
-  height: 78px;
-}
-.workspace-card {
-  position: absolute;
-  top: 4px;
-  left: calc(50% - 28px);
-  display: grid;
-  place-items: center;
-  width: 56px;
-  height: 70px;
-  border-radius: var(--radius-card);
-  background: var(--elevated);
-  color: var(--accent);
-  box-shadow: var(--shadow-outline), var(--shadow-card);
-  transition:
-    translate var(--duration-slow) var(--ease-spring),
-    rotate var(--duration-slow) var(--ease-spring);
-}
-.workspace-card[data-card='left'] {
-  translate: -34px 6px;
-  rotate: -9deg;
-}
-.workspace-card[data-card='right'] {
-  translate: 34px 6px;
-  rotate: 9deg;
-}
-.workspace-card:not([data-card='front']) > * {
-  opacity: 0.45;
-}
-.workspace-card[data-card='front'] {
-  z-index: 1;
-  top: 0;
-}
-.workspace-sheet:hover .workspace-card[data-card='left'] {
-  translate: -40px 8px;
-  rotate: -12deg;
-}
-.workspace-sheet:hover .workspace-card[data-card='right'] {
-  translate: 40px 8px;
-  rotate: 12deg;
-}
-
 .symbol-choice {
   display: grid;
   place-items: center;
@@ -1578,52 +2054,92 @@ button.sidebar-row,
   color: var(--accent);
 }
 
-/* A theme as a small lit sphere, like Arc's swatches. */
-.theme-orb {
-  position: relative;
-  width: 30px;
-  height: 30px;
+/* The theme choices in the workspace editor. The outline keeps pale ones visible. */
+.theme-swatch {
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-full);
-  box-shadow: var(--shadow-orb);
-  outline-offset: 3px;
+  box-shadow: var(--shadow-outline);
+  outline-offset: 2px;
   transition: scale var(--duration-fast) var(--ease-out);
 }
-.theme-orb::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(
-    circle at 32% 26%,
-    var(--orb-highlight),
-    transparent 46%
-  );
-  pointer-events: none;
-}
-.theme-orb:hover {
+.theme-swatch:hover {
   scale: 1.08;
 }
-.theme-orb[aria-checked='true'] {
+.theme-swatch[aria-checked='true'] {
   outline: 2px solid var(--accent);
 }
 
 /*
- * Settings' section icons, in the text colour: a faint body under a solid
- * detail, so they follow the row from muted to selected.
+ * A plain slider, in the Settings toggles' accent and white thumb. `--value`
+ * (0-1) sets how far the fill runs, up to the middle of the thumb.
  */
-.duo-icon {
-  flex-shrink: 0;
-  fill: currentColor;
+.range-input {
+  --thumb: 14px;
+  appearance: none;
+  height: 20px;
+  background: none;
+  cursor: pointer;
 }
-.duo-icon .duo-soft {
-  fill-opacity: 0.32;
+.range-input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    to right,
+    var(--accent) calc(var(--thumb) / 2 + var(--value) * (100% - var(--thumb))),
+    var(--hairline) 0
+  );
 }
-.settings-heading-icon {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-pill);
-  background: var(--elevated);
-  box-shadow: var(--shadow-row);
+.range-input::-webkit-slider-thumb {
+  appearance: none;
+  width: var(--thumb);
+  height: var(--thumb);
+  margin-top: -5px;
+  border-radius: var(--radius-full);
+  background: var(--wheel-handle-ring);
+  box-shadow: var(--shadow-wheel-handle);
+  transition: box-shadow var(--duration-fast) var(--ease-out);
+}
+.range-input:focus-visible {
+  outline: none;
+}
+.range-input:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--shadow-focus);
+}
+
+/* The workspace circles: five at most, fading out where more are hidden. */
+.workspace-strip {
+  scrollbar-width: none;
+}
+.workspace-strip::-webkit-scrollbar {
+  display: none;
+}
+.workspace-strip[data-fade-start='true'] {
+  mask-image: linear-gradient(to right, transparent, black 1rem);
+}
+.workspace-strip[data-fade-end='true'] {
+  mask-image: linear-gradient(to left, transparent, black 1rem);
+}
+.workspace-strip[data-fade-start='true'][data-fade-end='true'] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 1rem,
+    black calc(100% - 1rem),
+    transparent
+  );
+}
+
+/*
+ * Sidebar icons match the toolbar's at rest and brighten on hover, with no
+ * plate behind them.
+ */
+aside .icon-button:hover:not(:disabled),
+aside .icon-button:active:not(:disabled) {
+  background: none;
+  color: var(--fg);
+}
+aside .icon-button[aria-pressed='true'] {
+  background: none;
+  color: var(--fg);
 }

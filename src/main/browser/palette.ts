@@ -7,20 +7,26 @@ import type {
   WorkspaceSummary,
 } from '../../shared/types';
 import { COMMAND_PREFIX, type PaletteScope } from '../../shared/palette';
+import { bookmarkLinks } from '../../shared/bookmarks';
+import type { SavedCollection } from '../../shared/preferences';
 import type { HistoryMatch } from '../storage/trail-store';
+import { rankBookmarks, type RankedBookmark } from './bookmark-ranking';
 import type { PageListing } from './browser-controller';
 import {
+  addressKey,
   bareUrl,
   inlineCompletion,
   suggestedHistory,
   type InlineCompletion,
 } from './history-ranking';
-import { resolveAddressInput, searchUrl } from './url';
+import { isNavigableUrl, resolveAddressInput, searchUrl } from './url';
+import { DEFAULT_PREFERENCES } from '../../shared/preferences';
 import {
-  DEFAULT_PREFERENCES,
-  searchEngine,
-  type SearchEngineId,
-} from '../../shared/preferences';
+  defaultEngine,
+  keywordOnly,
+  keywordSearch,
+  type SearchSettings,
+} from '../../shared/search';
 
 /** What the palette needs to know about the page on screen. */
 export interface ActivePageFacts {
@@ -32,6 +38,8 @@ export interface ActivePageFacts {
   hasNote: boolean;
   /** Other pages share its workspace. */
   hasOthers?: boolean;
+  /** Close Pages Below would close something. */
+  hasBelow?: boolean;
   /** It's one side of the split view on screen. */
   inSplit?: boolean;
 }
@@ -48,9 +56,12 @@ interface CommandDefinition {
     | 'address'
     | 'children'
     | 'others'
+    | 'below'
+    | 'source'
     | 'split'
     | 'workspaces'
-    | 'closed';
+    | 'closed'
+    | 'homepage';
   /** Offered before anything is typed. */
   suggested?: boolean;
 }
@@ -73,6 +84,50 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     suggested: true,
   },
   {
+    command: 'open-file',
+    title: 'Open file',
+    keywords: 'local pdf image html document',
+    shortcut: '⌘O',
+  },
+  {
+    command: 'new-private-window',
+    title: 'New private window',
+    keywords: 'incognito',
+    shortcut: '⇧⌘N',
+  },
+  {
+    command: 'manage-passwords',
+    title: 'Passwords and autofill',
+    keywords: 'logins addresses cards credit manage',
+    shortcut: null,
+  },
+  {
+    command: 'import-data',
+    title: 'Import bookmarks and history',
+    keywords: 'chrome safari firefox brave edge arc passwords',
+    shortcut: null,
+  },
+  {
+    command: 'export-bookmarks',
+    title: 'Export bookmarks',
+    keywords: 'save backup html',
+    shortcut: null,
+  },
+  {
+    command: 'export-trail',
+    title: 'Export trail as Markdown',
+    keywords: 'save outline share',
+    shortcut: null,
+    needs: 'page',
+  },
+  {
+    command: 'picture-in-picture',
+    title: 'Picture in picture',
+    keywords: 'video float pip',
+    shortcut: '⌥⌘P',
+    needs: 'page',
+  },
+  {
     command: 'reopen-closed',
     title: 'Reopen closed',
     keywords: 'undo restore',
@@ -90,8 +145,40 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
   {
     command: 'new-child-page',
     title: 'New child page',
-    keywords: 'branch nested',
+    keywords: 'branch nested subtrail',
     shortcut: '⌥⌘T',
+  },
+  {
+    command: 'new-sibling-page',
+    title: 'New sibling page',
+    keywords: 'sidetrail beside next same level',
+    shortcut: '⌃⌘T',
+    needs: 'page',
+  },
+  {
+    command: 'collapse-other-trails',
+    title: 'Collapse other trails',
+    keywords: 'focus fold hide everything except current branch',
+    shortcut: '⌥⌘C',
+    needs: 'page',
+  },
+  {
+    command: 'show-trail-summary',
+    title: 'Where you left off',
+    keywords: 'come back trails resume summary last',
+    shortcut: null,
+  },
+  {
+    command: 'import-trail',
+    title: 'Import trail from Markdown',
+    keywords: 'outline open file md list',
+    shortcut: null,
+  },
+  {
+    command: 'paste-outline',
+    title: 'Paste outline as trail',
+    keywords: 'markdown clipboard import list links',
+    shortcut: null,
   },
   {
     command: 'close-page',
@@ -115,6 +202,13 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     needs: 'others',
   },
   {
+    command: 'close-below',
+    title: 'Close pages below',
+    keywords: 'remove rest under after tidy clean up',
+    shortcut: null,
+    needs: 'below',
+  },
+  {
     command: 'go-back',
     title: 'Back',
     keywords: 'previous history return',
@@ -127,6 +221,13 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     keywords: 'next history',
     shortcut: '⌘]',
     needs: 'address',
+  },
+  {
+    command: 'go-home',
+    title: 'Go to homepage',
+    keywords: 'home start',
+    shortcut: '⇧⌘H',
+    needs: 'homepage',
   },
   {
     command: 'close-split',
@@ -169,6 +270,26 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     keywords: 'url address share clipboard',
     shortcut: null,
     needs: 'address',
+  },
+  {
+    command: 'copy-markdown',
+    title: 'Copy as Markdown',
+    keywords: 'link url address md clipboard',
+    shortcut: '⌥⇧⌘C',
+    needs: 'address',
+  },
+  {
+    command: 'copy-text',
+    title: 'Copy as plain text',
+    keywords: 'link url address title clipboard',
+    shortcut: null,
+    needs: 'address',
+  },
+  {
+    command: 'paste-and-go',
+    title: 'Paste and go',
+    keywords: 'clipboard open address url link',
+    shortcut: '⌥⌘V',
   },
   {
     command: 'rename-page',
@@ -240,10 +361,46 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     shortcut: '⌥⌘L',
   },
   {
+    command: 'show-tasks',
+    title: 'Show task manager',
+    keywords: 'memory cpu processes slow end unresponsive',
+    shortcut: null,
+  },
+  // PROTOTYPE: dev builds only, as is what it opens. See src/renderer/prototype/.
+  ...(import.meta.env.DEV
+    ? [
+        {
+          command: 'show-alma-view',
+          title: 'Show Alma view',
+          keywords: 'graph map network pages trails folders types',
+          shortcut: '⌥⌘G',
+        } satisfies CommandDefinition,
+      ]
+    : []),
+  {
     command: 'show-history',
     title: 'Show history',
     keywords: 'visited past browsing sites',
     shortcut: '⌘Y',
+  },
+  {
+    command: 'show-bookmarks',
+    title: 'Show bookmarks',
+    keywords: 'favorites favourites saved folders manager organize',
+    shortcut: '⌥⌘B',
+  },
+  {
+    command: 'toggle-bookmarks-bar',
+    title: 'Toggle bookmarks bar',
+    keywords: 'favorites favourites hide show',
+    shortcut: '⇧⌘B',
+  },
+  {
+    command: 'bookmark-branch',
+    title: 'Bookmark branch',
+    keywords: 'favorites favourites save all pages folder trail',
+    shortcut: null,
+    needs: 'children',
   },
   {
     command: 'customize-workspace',
@@ -271,6 +428,32 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     shortcut: '⌘S',
   },
   {
+    command: 'filter-pages',
+    title: 'Filter pages',
+    keywords: 'search find narrow trail sidebar',
+    shortcut: '⌥⌘F',
+  },
+  {
+    command: 'toggle-ai-panel',
+    title: 'Toggle AI panel',
+    keywords: 'assistant chat ask hide show',
+    shortcut: '⇧⌘A',
+  },
+  {
+    command: 'view-source',
+    title: 'View page source',
+    keywords: 'html code developer',
+    shortcut: '⌥⌘U',
+    needs: 'source',
+  },
+  {
+    command: 'dev-tools',
+    title: 'Developer tools',
+    keywords: 'inspect inspector console debug web',
+    shortcut: '⌥⌘I',
+    needs: 'address',
+  },
+  {
     command: 'open-settings',
     title: 'Settings',
     keywords: 'preferences options',
@@ -283,6 +466,8 @@ export interface PaletteInput {
   scope: PaletteScope;
   pages: PageListing[];
   history: HistoryMatch[];
+  /** The bookmark library; saved groups in it aren't bookmarks. */
+  collections?: readonly SavedCollection[];
   workspaces?: readonly WorkspaceSummary[];
   activeWorkspaceId: WorkspaceId;
   activePageId: PageId | null;
@@ -290,7 +475,9 @@ export interface PaletteInput {
   activePage?: ActivePageFacts | null;
   /** Something closed can come back; without it Reopen closed is hidden. */
   canReopen?: boolean;
-  searchEngine?: SearchEngineId;
+  search?: SearchSettings;
+  /** A homepage is set; without one Go to homepage is hidden. */
+  hasHomepage?: boolean;
   /**
    * Lead with the address the typed text completes to, from history (the
    * address field and the location palette, while typing forward).
@@ -308,15 +495,24 @@ const LIMITS: Record<
   pages: [5, 6],
   workspaces: [4, 4],
   commands: [4, 5],
+  bookmarks: [0, 5],
   history: [0, 6],
 };
 
-/** Sections in the order they appear when their best matches tie. */
+/** How many rows the address bar shows from bookmarks and history together. */
+const ADDRESS_VISITS = 6;
+
+/**
+ * Sections in the order they appear when their best matches tie. Bookmarks
+ * follow commands so that saving a page called "Settings" doesn't change what
+ * typing "settings" does.
+ */
 const SECTION_ORDER: readonly PaletteSection[] = [
   'pinned',
   'pages',
   'workspaces',
   'commands',
+  'bookmarks',
   'history',
 ];
 
@@ -432,10 +628,16 @@ function applies(
       return true;
     case 'closed':
       return input.canReopen ?? true;
+    case 'homepage':
+      return input.hasHomepage === true;
     case 'workspaces':
       return (input.workspaces?.length ?? 1) > 1;
     case 'others':
       return page?.hasOthers === true;
+    case 'below':
+      return page?.hasBelow === true;
+    case 'source':
+      return page?.url != null && isNavigableUrl(page.url);
     case 'split':
       return page?.inSplit === true;
     case 'page':
@@ -521,19 +723,57 @@ export function buildPaletteItems(input: PaletteInput): PaletteItem[] {
   // Open pages, and the address a completion leads to, aren't repeated as
   // history.
   const hidden = [...input.pages.map((page) => page.url), completion?.url];
-  const history = typed
-    ? suggestedHistory(query, input.history, now, hidden)
+  const allBookmarks = typed
+    ? rankBookmarks(
+        query,
+        bookmarkLinks(input.collections ?? []),
+        input.history,
+        now,
+      )
     : [];
+  // A bookmark isn't repeated beside a row for the same address. An open page
+  // that didn't match still lets its bookmark show: it may be saved under a
+  // name the page no longer has.
+  const bookmarksBeside = (rows: readonly Scored[]): RankedBookmark[] => {
+    const shown = new Set(
+      [
+        completion?.url,
+        // The address typed out in full: "Go to" already leads there.
+        resolveAddressInput(query, input.search ?? DEFAULT_PREFERENCES),
+        ...rows.map(
+          ({ item }) =>
+            item.kind === 'page' &&
+            input.pages.find((page) => page.id === item.pageId)?.url,
+        ),
+      ].flatMap((url) => (url ? [addressKey(url)] : [])),
+    );
+    return allBookmarks.filter(({ link }) => !shown.has(addressKey(link.url)));
+  };
 
   if (input.scope === 'address') {
     if (!typed) return [];
-    const pages = top([...pageEntries(true), ...pageEntries(false)], 3).map(
-      (entry) => entry.item,
-    );
+    const pages = top([...pageEntries(true), ...pageEntries(false)], 3);
+    const bookmarks = bookmarksBeside(pages);
+    const history = suggestedHistory(query, input.history, now, [
+      ...hidden,
+      ...bookmarks.map(({ link }) => link.url),
+    ]);
+    // One list ranked on one scale: a saved address doesn't outrank a site in
+    // daily use just for being saved, and a weak match stays low.
+    const visits: Scored[] = [
+      ...bookmarks.map((bookmark) => ({
+        item: bookmarkItem(bookmark, icons),
+        score: bookmark.score,
+      })),
+      ...history.map(({ entry, score }) => ({
+        item: historyItem(entry, now, icons),
+        score,
+      })),
+    ];
     return [
-      ...leadItems(query, completion, icons, input.searchEngine),
-      ...history.slice(0, 6).map(({ entry }) => historyItem(entry, now, icons)),
-      ...pages,
+      ...leadItems(query, completion, icons, input.search),
+      ...top(visits, ADDRESS_VISITS).map((entry) => entry.item),
+      ...pages.map((entry) => entry.item),
     ];
   }
 
@@ -590,17 +830,37 @@ export function buildPaletteItems(input: PaletteInput): PaletteItem[] {
       return { item, score };
     });
 
+  const pinnedRows = top(pageEntries(true), limit('pinned'));
+  const pageRows = top(pageEntries(false), limit('pages'));
+  const bookmarkRows = bookmarksBeside([...pinnedRows, ...pageRows]).map(
+    (bookmark) => ({
+      item: bookmarkItem(bookmark, icons),
+      score: bookmark.match,
+    }),
+  );
+  const shownBookmarks = top(bookmarkRows, limit('bookmarks'));
+
   // Ranked already; history always comes last, so its score doesn't count.
-  const historyEntries: Scored[] = history.map(({ entry }) => ({
+  const historyEntries: Scored[] = (
+    typed
+      ? suggestedHistory(query, input.history, now, [
+          ...hidden,
+          ...shownBookmarks.map(({ item }) =>
+            item.kind === 'bookmark' ? item.url : null,
+          ),
+        ])
+      : []
+  ).map(({ entry }) => ({
     item: historyItem(entry, now, icons),
     score: 1,
   }));
 
   const sections = new Map<PaletteSection, Scored[]>([
-    ['pinned', top(pageEntries(true), limit('pinned'))],
-    ['pages', top(pageEntries(false), limit('pages'))],
+    ['pinned', pinnedRows],
+    ['pages', pageRows],
     ['workspaces', top(workspaceEntries, limit('workspaces'))],
     ['commands', top(commandEntries, limit('commands'))],
+    ['bookmarks', shownBookmarks],
     ['history', historyEntries.slice(0, limit('history'))],
   ]);
   const best = (section: PaletteSection) =>
@@ -616,15 +876,15 @@ export function buildPaletteItems(input: PaletteInput): PaletteItem[] {
 
   if (!typed) return results;
   if (input.scope !== 'palette') {
-    return [
-      ...leadItems(query, completion, icons, input.searchEngine),
-      ...results,
-    ];
+    return [...leadItems(query, completion, icons, input.search), ...results];
   }
   // In the palette a search is the fallback.
-  const navigate = navigateItem(query, icons, input.searchEngine);
-  const isSearch = navigate.title.startsWith('Search');
-  return isSearch ? [...results, navigate] : [navigate, ...results];
+  // A keyword asks for that search by name, so it leads like an address.
+  const search = input.search ?? DEFAULT_PREFERENCES;
+  const navigate = navigateItem(query, icons, search);
+  return resolveAddressInput(query, search) === searchUrl(query, search)
+    ? [...results, navigate]
+    : [navigate, ...results];
 }
 
 /**
@@ -635,9 +895,9 @@ function leadItems(
   query: string,
   completion: InlineCompletion | null,
   icons: SiteIcons,
-  engine?: SearchEngineId,
+  search: SearchSettings = DEFAULT_PREFERENCES,
 ): PaletteItem[] {
-  const navigate = navigateItem(query, icons, engine);
+  const navigate = navigateItem(query, icons, search);
   if (!completion) return [navigate];
   const lead: PaletteItem = {
     kind: 'navigate',
@@ -649,9 +909,7 @@ function leadItems(
     subtitle: bareUrl(completion.url),
     faviconUrl: icons.get(siteOf(completion.url)) ?? null,
   };
-  const same =
-    resolveAddressInput(query, engine ?? DEFAULT_PREFERENCES.searchEngine) ===
-    completion.url;
+  const same = resolveAddressInput(query, search) === completion.url;
   return same ? [lead] : [lead, navigate];
 }
 
@@ -659,7 +917,7 @@ function leadItems(
 export function searchSuggestionItems(
   suggestions: readonly string[],
   query: string,
-  engine: SearchEngineId = DEFAULT_PREFERENCES.searchEngine,
+  search: SearchSettings = DEFAULT_PREFERENCES,
   limit = 4,
 ): PaletteItem[] {
   const typed = query.trim().toLowerCase();
@@ -670,7 +928,7 @@ export function searchSuggestionItems(
       kind: 'search',
       section: 'search',
       id: `search:${text}`,
-      url: searchUrl(text, engine),
+      url: searchUrl(text, search),
       title: text,
       // The "Search for" row already names the engine.
       subtitle: '',
@@ -693,22 +951,65 @@ function historyItem(
   };
 }
 
+function bookmarkItem(
+  { link, folderName }: RankedBookmark,
+  icons: SiteIcons,
+): PaletteItem {
+  const host = hostOf(link.url);
+  return {
+    kind: 'bookmark',
+    section: 'bookmarks',
+    id: `bookmark:${link.id}`,
+    url: link.url,
+    faviconUrl: link.faviconUrl ?? icons.get(siteOf(link.url)) ?? null,
+    title: link.title || host,
+    // "In Work" alone would read as a workspace, as it does on page rows.
+    subtitle: folderName
+      ? `${host} · Bookmark in ${folderName}`
+      : `${host} · Bookmark`,
+  };
+}
+
 /** "Go to example.org", or "Search for …" when the input isn't an address. */
 function navigateItem(
   query: string,
   icons: SiteIcons,
-  engine?: SearchEngineId,
+  search: SearchSettings = DEFAULT_PREFERENCES,
 ): PaletteItem {
-  const id = engine ?? DEFAULT_PREFERENCES.searchEngine;
-  const resolved = resolveAddressInput(query, id);
-  const isSearch = resolved === searchUrl(query, id);
-  return {
+  const resolved = resolveAddressInput(query, search);
+  const base = {
     kind: 'navigate',
     section: 'go',
     id: 'navigate',
     input: query,
-    title: isSearch ? `Search for “${query}”` : `Go to ${hostOf(resolved)}`,
-    subtitle: isSearch ? searchEngine(id).name : resolved,
-    faviconUrl: isSearch ? null : (icons.get(siteOf(resolved)) ?? null),
+  } as const;
+  const keyed = keywordSearch(query, search.searchShortcuts);
+  if (keyed) {
+    return {
+      ...base,
+      title: `Search ${keyed.shortcut.name} for “${keyed.query}”`,
+      subtitle: hostOf(resolved),
+      faviconUrl: null,
+    };
+  }
+  const isSearch = resolved === searchUrl(query, search);
+  if (isSearch) {
+    // A keyword on its own is where the shortcut can be discovered.
+    const shortcut = keywordOnly(query, search.searchShortcuts);
+    const engine = defaultEngine(search).name;
+    return {
+      ...base,
+      title: `Search for “${query}”`,
+      subtitle: shortcut
+        ? `${engine} · add words to search ${shortcut.name}`
+        : engine,
+      faviconUrl: null,
+    };
+  }
+  return {
+    ...base,
+    title: `Go to ${hostOf(resolved)}`,
+    subtitle: resolved,
+    faviconUrl: icons.get(siteOf(resolved)) ?? null,
   };
 }

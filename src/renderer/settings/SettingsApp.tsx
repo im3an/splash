@@ -1,5 +1,6 @@
-import { useState, type ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { Brand } from '../components/Brand';
+import { api } from '../splash-api';
 import { SectionIcon, type SectionIconName } from './SectionIcon';
 import { useWorkspaceTheme } from '../hooks/use-workspace-theme';
 import { useInterfacePreferences } from '../hooks/use-interface-preferences';
@@ -8,10 +9,18 @@ import {
   AppearanceSettings,
   DownloadSettings,
   GeneralSettings,
+  PageSettings,
   PrivacySettings,
   ShortcutSettings,
   WorkspaceSettings,
 } from './sections';
+import { AboutSettings } from './AboutSettings';
+import { ExtensionSettings } from './ExtensionSettings';
+import { SettingsNavigation } from './navigation';
+import { PasswordSettings } from './PasswordSettings';
+import { TransferSettings } from './TransferSettings';
+import { WaymarksSettings } from './Waymarks';
+import { WAYMARKS_NAME } from '../../shared/waymarks';
 
 const SECTIONS: {
   id: SectionIconName;
@@ -21,6 +30,8 @@ const SECTIONS: {
   body: ComponentType;
 }[] = [
   { id: 'general', label: 'General', body: GeneralSettings },
+  { id: 'waymarks', label: WAYMARKS_NAME, body: WaymarksSettings },
+  { id: 'extensions', label: 'Extensions', body: ExtensionSettings },
   {
     id: 'appearance',
     label: 'Appearance',
@@ -32,10 +43,28 @@ const SECTIONS: {
     body: WorkspaceSettings,
   },
   {
+    id: 'pages',
+    label: 'Pages',
+    title: 'How pages look',
+    body: PageSettings,
+  },
+  {
     id: 'privacy',
     label: 'Privacy',
     title: 'Privacy and site permissions',
     body: PrivacySettings,
+  },
+  {
+    id: 'passwords',
+    label: 'Passwords',
+    title: 'Passwords and autofill',
+    body: PasswordSettings,
+  },
+  {
+    id: 'transfer',
+    label: 'Import and Export',
+    title: 'Import and export',
+    body: TransferSettings,
   },
   {
     id: 'downloads',
@@ -48,6 +77,7 @@ const SECTIONS: {
     body: ShortcutSettings,
   },
   { id: 'advanced', label: 'Advanced', body: AdvancedSettings },
+  { id: 'about', label: 'About', title: 'About Splash', body: AboutSettings },
 ];
 
 /** The Settings window: sections on the left, the chosen one on the right. */
@@ -55,6 +85,15 @@ export function SettingsApp() {
   useWorkspaceTheme();
   useInterfacePreferences();
   const [active, setActive] = useState<SectionIconName>(SECTIONS[0]!.id);
+  // "Manage Extensions…" and the like open Settings on a section.
+  useEffect(() => {
+    const show = (section: string | null) => {
+      const found = SECTIONS.find((candidate) => candidate.id === section);
+      if (found) setActive(found.id);
+    };
+    void api().takeSettingsSection().then(show);
+    return api().onSettingsSection(show);
+  }, []);
   const section =
     SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0]!;
   const Body = section.body;
@@ -74,7 +113,9 @@ export function SettingsApp() {
             type="button"
             aria-current={id === active ? 'page' : undefined}
             onClick={() => setActive(id)}
-            className="flex h-8 items-center gap-2.5 rounded-row px-2 text-left text-fg-muted transition-colors duration-fast hover:bg-hover hover:text-fg aria-[current=page]:bg-elevated aria-[current=page]:text-fg aria-[current=page]:shadow-row"
+            // The browser sidebar's current-page surface: accent is kept
+            // for on-states and workspace identity, not for selection.
+            className="flex h-8 items-center gap-2.5 rounded-row px-2 text-left text-fg-muted transition-colors duration-fast hover:bg-row-hover hover:text-fg active:bg-row-pressed aria-[current=page]:bg-row-hover aria-[current=page]:text-fg"
           >
             <SectionIcon name={id} />
             <span className="truncate">{label}</span>
@@ -88,13 +129,12 @@ export function SettingsApp() {
       <main className="min-w-0 flex-1 overflow-y-auto bg-surface">
         <div className="drag h-(--toolbar-height)" />
         <div className="mx-auto flex max-w-(--settings-measure) flex-col gap-7 px-8 pb-10 select-text">
-          <h1 className="flex items-center gap-3 text-display font-semibold tracking-[-0.01em]">
-            <span className="settings-heading-icon">
-              <SectionIcon name={section.id} size={22} />
-            </span>
+          <h1 className="text-display font-semibold tracking-[-0.01em]">
             {section.title ?? section.label}
           </h1>
-          <Body />
+          <SettingsNavigation.Provider value={setActive}>
+            <Body />
+          </SettingsNavigation.Provider>
         </div>
       </main>
     </div>

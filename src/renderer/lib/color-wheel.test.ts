@@ -1,10 +1,8 @@
+import { hexToOklch, maxChroma, oklchToHex } from '../../shared/color';
 import {
   harmonies,
-  hexToHsl,
   hexToPoint,
-  hslToHex,
   offsetToPoint,
-  parseHex,
   pointToHex,
   pointToOffset,
   spreadBetween,
@@ -12,27 +10,38 @@ import {
 } from './color-wheel';
 
 describe('colour wheel', () => {
-  it('converts between hex and HSL', () => {
-    expect(hslToHex(0, 100, 50)).toBe('#ff0000');
-    expect(hslToHex(120, 100, 25)).toBe('#008000');
-    expect(hslToHex(360, 100, 50)).toBe('#ff0000');
-    const { hue, saturation, lightness } = hexToHsl('#2d6cb0');
-    expect(Math.round(hue)).toBe(211);
-    expect(Math.round(saturation)).toBe(59);
-    expect(Math.round(lightness)).toBe(43);
-    expect(hexToHsl('#808080').saturation).toBe(0);
+  it('converts between hex and OKLCH', () => {
+    const red = hexToOklch('#ff0000');
+    expect(red.l).toBeCloseTo(0.628, 2);
+    expect(red.c).toBeCloseTo(0.258, 2);
+    expect(red.h).toBeCloseTo(29.2, 0);
+    expect(oklchToHex(red)).toBe('#ff0000');
+    expect(hexToOklch('#808080').c).toBeLessThan(0.001);
+  });
+
+  it('fits colours to the screen by cutting chroma, not hue', () => {
+    const hex = oklchToHex({ l: 0.74, c: 0.4, h: 255 });
+    const fitted = hexToOklch(hex);
+    expect(fitted.h).toBeCloseTo(255, -1);
+    expect(fitted.c).toBeCloseTo(maxChroma(0.74, 255), 1);
   });
 
   it('round-trips a wheel colour to the same place', () => {
     const point = { hue: 200, radius: 0.4 };
     const back = hexToPoint(pointToHex(point));
-    expect(back.hue).toBeCloseTo(200, 0);
+    expect(Math.abs(back.hue - 200)).toBeLessThan(1.5);
     expect(back.radius).toBeCloseTo(0.4, 1);
   });
 
-  it('keeps colours outside the lightness range on the wheel', () => {
-    expect(hexToPoint('#000000').radius).toBe(0);
-    expect(hexToPoint('#ffffff').radius).toBe(1);
+  it('runs from grey at the centre to the most vivid at the rim', () => {
+    expect(hexToOklch(pointToHex({ hue: 140, radius: 0 })).c).toBeLessThan(
+      0.001,
+    );
+    expect(hexToPoint('#808080').radius).toBeLessThan(0.01);
+    expect(hexToPoint(pointToHex({ hue: 140, radius: 1 })).radius).toBeCloseTo(
+      1,
+      1,
+    );
   });
 
   it('puts hue 0 at the top and runs clockwise', () => {
@@ -51,12 +60,5 @@ describe('colour wheel', () => {
     expect(spreadBetween(350, 20)).toBe(30);
     expect(spreadBetween(10, 10)).toBe(SPREAD.min);
     expect(spreadBetween(0, 180)).toBe(SPREAD.max);
-  });
-
-  it('reads typed hex colours', () => {
-    expect(parseHex('2D6CB0')).toBe('#2d6cb0');
-    expect(parseHex(' #abc ')).toBe('#aabbcc');
-    expect(parseHex('#12345')).toBeNull();
-    expect(parseHex('blue')).toBeNull();
   });
 });

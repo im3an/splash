@@ -26,6 +26,7 @@ import { api } from '../splash-api';
 import { useOverlay } from '../stores/overlay-store';
 import { selectActivePage, useShell } from '../stores/shell-store';
 import { useSuggestions } from '../stores/suggestion-store';
+import { SearchScopeChip, useSearchScope } from './SearchScope';
 
 export function AddressBar({
   variant = 'toolbar',
@@ -57,6 +58,8 @@ export function AddressBar({
 
   const url = page?.url ?? null;
   const inline = useInlineCompletion(inputRef, draft ?? '');
+  const searchScope = useSearchScope();
+  const { scope, lineFor } = searchScope;
   // The latest text typed, so late answers for older text are dropped.
   const typed = useRef('');
   const searchTimer = useRef<number | undefined>(undefined);
@@ -66,8 +69,15 @@ export function AddressBar({
   const pill = variant === 'sidebar';
   const full = summary && url ? urlParts(url) : null;
   // A page that never connected has no security state worth showing.
-  const security = page?.error ? 'none' : securityOf(url);
+  const security = page?.error
+    ? 'none'
+    : page?.certificateException
+      ? 'insecure'
+      : securityOf(url);
   const blocked = page?.blockedPermissions ?? [];
+  const defaultZoom = useShell(
+    (state) => state.preferences?.defaultZoom ?? 100,
+  );
 
   useEffect(() => {
     if (focusRequest === handledFocus.current) return;
@@ -102,6 +112,7 @@ export function AddressBar({
   const pageId = page?.id;
   useLayoutEffect(() => {
     const input = inputRef.current;
+    searchScope.clear();
     if (document.activeElement !== input) {
       setDraft(null);
       return;
@@ -120,11 +131,12 @@ export function AddressBar({
     if (useOverlay.getState().overlay?.kind === 'suggestions') closeOverlay();
   };
 
-  const suggest = async (text: string, complete: boolean) => {
-    if (!text.trim() || text === url) {
+  const suggest = async (typedText: string, complete: boolean) => {
+    if (!typedText.trim() || typedText === url) {
       stopSuggesting();
       return;
     }
+    const text = lineFor(typedText);
     typed.current = text;
     // The engine is asked once typing pauses for a moment.
     window.clearTimeout(searchTimer.current);
@@ -140,13 +152,14 @@ export function AddressBar({
     const items = await api().queryPalette(text, 'address', complete);
     // Ignore answers for text that has since changed or been submitted.
     if (typed.current !== text) return;
-    inline.offer(items, text);
-    useSuggestions.getState().setItems(items, text);
+    if (!scope) inline.offer(items, text);
+    useSuggestions.getState().setItems(items, scope ? typedText : text);
     if (items.length > 0) void openOverlay({ kind: 'suggestions' });
   };
 
   const finish = () => {
     stopSuggesting();
+    searchScope.clear();
     setDraft(null);
     inputRef.current?.blur();
     api().focusPage();
@@ -161,7 +174,8 @@ export function AddressBar({
     } = useSuggestions.getState();
     // A filled-in address is the leading row's: Enter goes there.
     const chosen =
-      suggesting && suggestionQuery === typed.current
+      suggesting &&
+      (scope ? lineFor(suggestionQuery) : suggestionQuery) === typed.current
         ? items[selected === -1 && inline.active ? 0 : selected]
         : undefined;
     if (chosen) {
@@ -169,10 +183,11 @@ export function AddressBar({
       await runPaletteItem(chosen, 'address');
       return;
     }
-    const input = (inputRef.current?.value ?? draft ?? '').trim();
+    const input = lineFor((inputRef.current?.value ?? draft ?? '').trim());
     if (!input) return;
     const splash = api();
     stopSuggesting();
+    searchScope.clear();
     if (page) await splash.navigate(page.id, input);
     else await splash.createPage(input);
     setDraft(null);
@@ -188,32 +203,74 @@ export function AddressBar({
         onMouseLeave={endReveal}
         data-resting={!pill && Boolean(url) && !editing && !revealed}
         data-variant={variant}
+        style={searchScope.style}
         className="group/address relative flex h-8 items-center gap-1.5 rounded-control bg-field pr-1.5 pl-1 transition-[background-color,box-shadow] duration-base ease-out focus-within:bg-field-focus focus-within:shadow-focus data-[resting=true]:bg-transparent data-[variant=sidebar]:h-9 data-[variant=sidebar]:rounded-pill data-[variant=sidebar]:bg-pill data-[variant=sidebar]:pr-1 data-[variant=sidebar]:pl-1.5 data-[variant=sidebar]:focus-within:bg-field-focus"
       >
-        <SecurityButton
-          security={editing ? 'none' : security}
-          tucked={!editing && !revealed}
-          onOpen={() => void openOverlay({ kind: 'site-info' })}
-        />
+        {scope ? (
+          <SearchScopeChip shortcut={scope} icon={searchScope.icon} />
+        ) : (
+          <SecurityButton
+            security={editing ? 'none' : security}
+            tucked={!editing && !revealed}
+            onOpen={() => void openOverlay({ kind: 'site-info' })}
+          />
+        )}
         <div className="relative flex h-full min-w-0 flex-1">
           <input
             ref={inputRef}
             value={value}
             onChange={(event) => {
               const complete = inline.onInput(event);
+              // `!yt ` hands the field over to that site's search.
+              const rest = scope
+                ? null
+                : searchScope.enterFrom(event.target.value);
+              if (rest !== null) {
+                inline.clear();
+                stopSuggesting();
+                setDraft(rest);
+                return;
+              }
               setDraft(event.target.value);
-              void suggest(event.target.value, complete);
+              void suggest(event.target.value, complete && !scope);
             }}
             onFocus={() => setDraft(url ?? '')}
             onBlur={() => {
               setDraft(null);
+              searchScope.clear();
               stopSuggesting();
             }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              void api().showAddressMenu();
+            }}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') {
+              if (
+                event.key === 'Tab' &&
+                !event.shiftKey &&
+                !scope &&
+                searchScope.enterOnTab(inputRef.current?.value ?? '')
+              ) {
                 event.preventDefault();
-                // The first press takes back a filled-in address.
-                if (inline.active) {
+                inline.clear();
+                stopSuggesting();
+                setDraft('');
+              } else if (
+                event.key === 'Backspace' &&
+                scope &&
+                !inputRef.current?.value
+              ) {
+                // Backing out of it gives the keyword back to edit.
+                event.preventDefault();
+                searchScope.clear();
+                setDraft(`!${scope.keyword}`);
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                // The first press leaves the site's search, keeping the words.
+                if (scope) {
+                  searchScope.clear();
+                  stopSuggesting();
+                } else if (inline.active) {
                   inline.clear();
                   useSuggestions.getState().select(-1);
                   void suggest(draft ?? '', false);
@@ -226,8 +283,10 @@ export function AddressBar({
                 useSuggestions.getState().move(-1);
               }
             }}
-            placeholder="Search or enter address"
-            aria-label="Address"
+            placeholder={
+              scope ? `Search ${scope.name}` : 'Search or enter address'
+            }
+            aria-label={scope ? `Search ${scope.name}` : 'Address'}
             aria-autocomplete="list"
             aria-expanded={suggesting}
             spellCheck={false}
@@ -279,7 +338,7 @@ export function AddressBar({
             title={`Blocked: ${permissionNames(blocked)}. Click to change.`}
             className="icon-button icon-button-sm shrink-0 text-danger hover:text-danger"
           >
-            <ShieldOff size={13} strokeWidth={2} />
+            <ShieldOff size={13} />
           </button>
         )}
         {/* Sound stays in reach while the sidebar, and its rows, are hidden. */}
@@ -293,18 +352,14 @@ export function AddressBar({
             data-playing={page.isAudible && !page.isMuted}
             className="icon-button icon-button-sm shrink-0 data-[playing=true]:text-accent"
           >
-            {page.isMuted ? (
-              <VolumeX size={13} strokeWidth={2} />
-            ) : (
-              <Volume2 size={13} strokeWidth={2} />
-            )}
+            {page.isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
           </button>
         )}
-        {!editing && page && page.zoomPercent !== 100 && (
+        {!editing && page?.url && page.zoomPercent !== defaultZoom && (
           <button
             type="button"
             onClick={() => void api().zoom(page.id, 'reset')}
-            aria-label={`Zoom ${page.zoomPercent}%. Reset to 100%`}
+            aria-label={`Zoom ${page.zoomPercent}%. Reset to ${defaultZoom}%`}
             title="Reset zoom (⌘0)"
             className="button button-sm rounded-inner px-1.5 text-caption font-medium tabular-nums"
           >
@@ -337,7 +392,7 @@ function SecurityButton({
   if (security === 'none') {
     return (
       <span className="grid size-6 shrink-0 place-items-center" aria-hidden>
-        <Search size={13} strokeWidth={1.75} className="text-fg-subtle" />
+        <Search size={13} className="text-fg-subtle" />
       </span>
     );
   }
@@ -361,10 +416,10 @@ function SecurityButton({
       className="flex h-6 shrink-0 items-center gap-1 overflow-hidden rounded-inner px-1.5 text-fg-subtle transition-[width,margin,color,background-color,opacity] duration-base ease-out hover:bg-hover hover:text-fg data-[secure=true]:w-6 data-[secure=true]:justify-center data-[secure=true]:px-0 data-[tucked=true]:-mr-1.5 data-[tucked=true]:w-0 data-[tucked=true]:opacity-0 data-[tucked=true]:focus-visible:mr-0 data-[tucked=true]:focus-visible:w-6 data-[tucked=true]:focus-visible:opacity-100"
     >
       {secure ? (
-        <Lock size={12} strokeWidth={2} />
+        <Lock size={12} />
       ) : (
         <>
-          <TriangleAlert size={12} strokeWidth={2} />
+          <TriangleAlert size={12} />
           <span className="text-caption text-fg-muted">Not secure</span>
         </>
       )}

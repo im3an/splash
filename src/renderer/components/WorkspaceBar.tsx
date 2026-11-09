@@ -11,26 +11,24 @@ import {
   SortableContext,
   useSortable,
 } from '@dnd-kit/sortable';
-import { History, Plus, Settings } from 'lucide-react';
+import { Archive, ArrowDownToLine, Clock, Plus, Star } from 'lucide-react';
 import type { WorkspaceSummary } from '../../shared/types';
 import { api } from '../splash-api';
-import { useOverlay } from '../stores/overlay-store';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
-import { DownloadsButton } from './DownloadsButton';
-import { WorkspaceIcon } from './WorkspaceIcon';
+import { useWorkspaceSlide } from '../lib/use-workspace-slide';
+import { useDownloads } from '../stores/downloads-store';
+import { useSidebarMenu } from '../hooks/use-sidebar-menu';
+import { WorkspaceButton } from './WorkspaceButton';
+import { AlmaViewButton } from '../prototype/AlmaViewPrototype';
 
 /**
- * The sidebar's foot, like Arc's: downloads and history at the start, every
- * workspace in the middle (click to switch, drag to reorder, drop a page
- * from the trail on one to move it there), settings and a new workspace at
- * the end.
+ * The sidebar's foot: the current workspace's name with one dot per
+ * workspace beneath it (click to switch, drag to reorder, drop a page from
+ * the trail on one to move it there) and a plus for a new workspace.
  */
 export function WorkspaceBar() {
   const workspaces = useShell(selectWorkspaces);
   const activeId = useShell((state) => state.snapshot?.activeWorkspaceId);
-  const openOverlay = useOverlay((state) => state.open);
-  const togglePanel = useShell((state) => state.toggleSidebarPanel);
-  const historyShowing = useShell((state) => state.sidebarPanel === 'history');
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -41,102 +39,177 @@ export function WorkspaceBar() {
     if (index !== -1) void api().moveWorkspace(String(active.id), index);
   };
 
-  const create = () =>
-    void openOverlay({ kind: 'workspace-editor', workspaceId: null });
+  const editWorkspace = useShell((state) => state.editWorkspace);
+  const create = () => editWorkspace(null);
+
+  const slide = useWorkspaceSlide();
+  const almaButton = useShell(
+    (state) =>
+      import.meta.env.DEV && (state.preferences?.almaViewButton ?? true),
+  );
+
+  // At most five circles show, a window that follows the current one and
+  // fades out on whichever side has more.
+  const MAX = 5;
+  const activeIndex = Math.max(
+    0,
+    workspaces.findIndex((w) => w.id === activeId),
+  );
+  const from = Math.min(
+    Math.max(0, activeIndex - 2),
+    Math.max(0, workspaces.length - MAX),
+  );
+  const visible = workspaces.slice(from, from + MAX);
+  const fadeStart = from > 0;
+  const fadeEnd = from + MAX < workspaces.length;
 
   return (
-    <div className="grid h-11 shrink-0 grid-cols-[1fr_minmax(0,auto)_1fr] items-center gap-1 pb-1">
-      <div className="flex gap-0.5">
-        <DownloadsButton always />
-        <button
-          type="button"
-          onClick={() => togglePanel('history')}
-          aria-label="History"
-          aria-pressed={historyShowing}
-          title="History (⌘Y)"
-          className="icon-button shrink-0 aria-pressed:bg-row-hover aria-pressed:text-fg"
-        >
-          <History size={15} strokeWidth={1.75} />
-        </button>
-      </div>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={onDragEnd}
-      >
-        <SortableContext
-          items={workspaces.map((w) => w.id)}
-          strategy={horizontalListSortingStrategy}
-        >
-          {/* Padded so a focus ring isn't clipped by the scroller. */}
-          <div
-            role="tablist"
-            aria-label="Workspaces"
-            onKeyDown={(event) => {
-              const tabs = Array.from(
-                event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                  '[role="tab"]',
-                ),
-              );
-              const current = tabs.indexOf(event.target as HTMLButtonElement);
-              if (current < 0) return;
-              let next: number;
-              switch (event.key) {
-                case 'ArrowRight':
-                  next = (current + 1) % tabs.length;
-                  break;
-                case 'ArrowLeft':
-                  next = (current - 1 + tabs.length) % tabs.length;
-                  break;
-                case 'Home':
-                  next = 0;
-                  break;
-                case 'End':
-                  next = tabs.length - 1;
-                  break;
-                default:
-                  return;
-              }
-              event.preventDefault();
-              tabs[next]?.focus();
-              const workspace = workspaces[next];
-              if (workspace && workspace.id !== activeId)
-                void api().switchWorkspace(workspace.id);
-            }}
-            className="-m-1 flex min-w-0 items-center gap-0.5 overflow-x-auto p-1"
+    <div className="grid shrink-0 grid-cols-[1fr_minmax(0,auto)_1fr] items-end gap-1 pt-1 pb-1.5">
+      <LibraryButton />
+      <div className="group/ws flex min-w-0 flex-col items-center gap-0.5">
+        <div key={activeId} className={`max-w-full ${slide}`}>
+          <WorkspaceButton />
+        </div>
+        <div className="relative flex h-5 max-w-full items-center">
+          {
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={onDragEnd}
+            >
+              <SortableContext
+                items={visible.map((w) => w.id)}
+                strategy={horizontalListSortingStrategy}
+              >
+                {/* Padded so a focus ring isn't clipped by the scroller. */}
+                <div
+                  role="tablist"
+                  data-fade-start={fadeStart}
+                  data-fade-end={fadeEnd}
+                  aria-label="Workspaces"
+                  onKeyDown={(event) => {
+                    const tabs = Array.from(
+                      event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                        '[role="tab"]',
+                      ),
+                    );
+                    const current = tabs.indexOf(
+                      event.target as HTMLButtonElement,
+                    );
+                    if (current < 0) return;
+                    let next: number;
+                    switch (event.key) {
+                      case 'ArrowRight':
+                        next = (current + 1) % tabs.length;
+                        break;
+                      case 'ArrowLeft':
+                        next = (current - 1 + tabs.length) % tabs.length;
+                        break;
+                      case 'Home':
+                        next = 0;
+                        break;
+                      case 'End':
+                        next = tabs.length - 1;
+                        break;
+                      default:
+                        return;
+                    }
+                    event.preventDefault();
+                    tabs[next]?.focus();
+                    const workspace = visible[next];
+                    if (workspace && workspace.id !== activeId)
+                      void api().switchWorkspace(workspace.id);
+                  }}
+                  className="workspace-strip flex items-center"
+                >
+                  {visible.map((workspace, i) => (
+                    <WorkspaceChip
+                      key={workspace.id}
+                      workspace={workspace}
+                      index={from + i}
+                      active={workspace.id === activeId}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          }
+          <button
+            type="button"
+            onClick={create}
+            aria-label="New workspace"
+            title="New workspace (⇧⌘N)"
+            className={`pointer-events-none absolute top-1/2 grid size-5 -translate-y-1/2 scale-75 left-full ml-0.5 place-items-center rounded-full text-fg-subtle/60 opacity-0 transition-[opacity,scale,color] duration-slow ease-emphasized group-focus-within/ws:pointer-events-auto group-focus-within/ws:scale-100 group-focus-within/ws:opacity-100 group-hover/ws:pointer-events-auto group-hover/ws:scale-100 group-hover/ws:opacity-100 hover:text-fg-muted`}
           >
-            {workspaces.map((workspace, index) => (
-              <WorkspaceChip
-                key={workspace.id}
-                workspace={workspace}
-                index={index}
-                active={workspace.id === activeId}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
-      <div className="flex gap-0.5 justify-self-end">
-        <button
-          type="button"
-          onClick={() => void api().openSettings()}
-          aria-label="Settings"
-          title="Settings (⌘,)"
-          className="icon-button shrink-0"
-        >
-          <Settings size={15} strokeWidth={1.75} />
-        </button>
-        <button
-          type="button"
-          onClick={create}
-          aria-label="New workspace"
-          title="New workspace (⇧⌘N)"
-          className="icon-button shrink-0"
-        >
-          <Plus size={16} strokeWidth={1.75} />
-        </button>
+            <Plus size={11} />
+          </button>
+        </div>
       </div>
+      {almaButton ? <AlmaViewButton /> : <span aria-hidden />}
     </div>
+  );
+}
+
+/** Downloads, History and Bookmarks behind one box, so the foot stays quiet. */
+function LibraryButton() {
+  const menu = useSidebarMenu('Library');
+  const togglePanel = useShell((state) => state.toggleSidebarPanel);
+  const panel = useShell((state) => state.sidebarPanel);
+  const unseenProblems = useDownloads((state) => state.unseenProblems);
+  const progressing = useDownloads((state) =>
+    state.downloads.some((d) => d.state === 'progressing'),
+  );
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(event) =>
+          menu.show(
+            event,
+            [
+              {
+                kind: 'action',
+                label: 'Downloads',
+                icon: <ArrowDownToLine size={15} />,
+                shortcut: '⌥⌘L',
+                run: () => togglePanel('downloads'),
+              },
+              {
+                kind: 'action',
+                label: 'History',
+                icon: <Clock size={15} />,
+                shortcut: '⌘Y',
+                run: () => togglePanel('history'),
+              },
+              {
+                kind: 'action',
+                label: 'Bookmarks',
+                icon: <Star size={15} />,
+                shortcut: '⌥⌘B',
+                run: () => togglePanel('bookmarks'),
+              },
+            ],
+            true,
+          )
+        }
+        aria-label="Downloads, History and Bookmarks"
+        aria-haspopup="menu"
+        aria-pressed={
+          panel === 'downloads' || panel === 'history' || panel === 'bookmarks'
+        }
+        title="Downloads, History and Bookmarks"
+        className="icon-button relative shrink-0 justify-self-start"
+      >
+        <Archive size={16} />
+        {(unseenProblems > 0 || progressing) && (
+          <span
+            className={`absolute top-1 right-1 size-1.5 rounded-full ${unseenProblems > 0 ? 'bg-danger' : 'bg-accent'}`}
+            aria-hidden
+          />
+        )}
+      </button>
+      {menu.element}
+    </>
   );
 }
 
@@ -181,10 +254,16 @@ function WorkspaceChip({
           : undefined,
         transition,
       }}
-      // Arc's space dots: the others fade back, the current one is solid.
-      className="grid size-7 shrink-0 place-items-center rounded-control text-small font-semibold text-fg-subtle opacity-70 transition-[color,background-color,opacity,scale] duration-fast ease-out hover:bg-row-hover active:scale-[0.9] hover:text-fg hover:opacity-100 data-[active=true]:bg-row-hover data-[active=true]:text-accent data-[active=true]:opacity-100 data-[drop=true]:scale-110 data-[drop=true]:bg-accent-soft data-[drop=true]:text-accent data-[drop=true]:opacity-100"
+      className="group/dot relative grid size-5 shrink-0 place-items-center rounded-full outline-offset-0 data-[drop=true]:bg-accent-soft"
     >
-      <WorkspaceIcon icon={workspace.appearance.icon} name={workspace.name} />
+      <span
+        aria-hidden
+        className="grid size-2 place-items-center rounded-full bg-fg-subtle/30 text-caption leading-none font-medium text-fg-subtle/70 transition-[background-color,color,scale,width,height] duration-slow ease-emphasized group-hover/dot:bg-fg-subtle/50 group-active/dot:scale-90 group-data-[active=true]/dot:size-3.5 group-data-[active=true]/dot:bg-fg-subtle/30 group-data-[drop=true]/dot:scale-125"
+      >
+        <span className="scale-50 opacity-0 transition-[opacity,scale] duration-slow ease-emphasized group-data-[active=true]/dot:scale-100 group-data-[active=true]/dot:opacity-100">
+          {index + 1}
+        </span>
+      </span>
     </button>
   );
 }

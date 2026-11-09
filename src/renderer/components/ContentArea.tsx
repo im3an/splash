@@ -1,13 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CircleAlert, PanelLeft, PanelRight, Plus, Search } from 'lucide-react';
+import {
+  AppWindow,
+  CircleAlert,
+  PanelLeft,
+  PanelRight,
+  Plus,
+  Search,
+} from 'lucide-react';
 import type { ContentInsets, PageId, PageSnapshot } from '../../shared/types';
 import { useContentInsets } from '../hooks/use-content-insets';
 import { describeError, pageLabel, pageParts } from '../lib/format';
 import { api } from '../splash-api';
 import { splitPartner, usePageDrag } from '../stores/drag-store';
-import { openLocation, useOverlay } from '../stores/overlay-store';
+import { useOverlay } from '../stores/overlay-store';
 import {
+  openLocation,
   selectActivePage,
+  selectHasStartPage,
   selectVisibleSplit,
   useShell,
 } from '../stores/shell-store';
@@ -15,9 +24,12 @@ import { Brand } from './Brand';
 import { PageState, PageStateActions } from './PanelState';
 import { AddressSuggestions } from './AddressSuggestions';
 import { CommandPalette } from './CommandPalette';
+import { canContinuePastCertificate } from '../../shared/certificate-errors';
 import { ErrorBoundary } from './ErrorBoundary';
+import { DownloadsPopover } from './DownloadsPopover';
 import { SiteInfoPopover } from './SiteInfoPopover';
-import { WorkspaceEditor } from './WorkspaceEditor';
+import { StartPage } from './StartPage';
+import { AlmaViewPrototype } from '../prototype/AlmaViewPrototype';
 
 const PANE =
   'relative overflow-hidden rounded-content bg-surface shadow-content';
@@ -98,9 +110,9 @@ function SplitDropZones() {
             {open && (
               <span className="split-drop-label">
                 {side === 'left' ? (
-                  <PanelLeft size={16} strokeWidth={1.75} />
+                  <PanelLeft size={16} />
                 ) : (
-                  <PanelRight size={16} strokeWidth={1.75} />
+                  <PanelRight size={16} />
                 )}
                 <span className="min-w-0 truncate">
                   {over
@@ -212,8 +224,10 @@ function OverlayContent({
       return <AddressSuggestions />;
     case 'site-info':
       return <SiteInfoPopover />;
-    case 'workspace-editor':
-      return <WorkspaceEditor workspaceId={overlay.workspaceId} />;
+    case 'downloads':
+      return <DownloadsPopover />;
+    case 'alma-view':
+      return import.meta.env.DEV ? <AlmaViewPrototype /> : null;
     default:
       return null;
   }
@@ -227,22 +241,51 @@ function Surface() {
   const page = useShell(selectActivePage);
   // The palette is the whole screen there; an empty state behind it is noise.
   const locating = useOverlay((state) => state.overlay?.kind === 'palette');
+  const hasStartPage = useShell(selectHasStartPage);
 
   if (!ready) return null;
-  if (locating && (!page || (page.url === null && !page.error))) return null;
+  if (
+    locating &&
+    !hasStartPage &&
+    (!page || (page.url === null && !page.error))
+  )
+    return null;
   if (!hasPages || !page) return <NoPages />;
   return <PageSurface page={page} />;
 }
 
 /** What the shell shows for a page whose own view can't cover its area. */
 function PageSurface({ page }: { page: PageSnapshot }) {
+  if (page.shownElsewhere) return <ShownElsewhere page={page} />;
   if (page.error) return <PageFailed page={page} />;
-  if (page.url === null) return <NewPage />;
+  if (page.url === null) return <BlankPage pageId={page.id} />;
   // The page's own view covers this area.
   return null;
 }
 
+/** A view can only be in one window: this page is in another right now. */
+function ShownElsewhere({ page }: { page: PageSnapshot }) {
+  return (
+    <PageState
+      lead={<AppWindow size={20} className="text-fg-subtle" aria-hidden />}
+      title="Showing in another window"
+      detail={pageLabel(page)}
+    >
+      <PageStateActions>
+        <button
+          type="button"
+          onClick={() => void api().activatePage(page.id)}
+          className="button button-raised button-lg"
+        >
+          Show here
+        </button>
+      </PageStateActions>
+    </PageState>
+  );
+}
+
 function NoPages() {
+  const hasStartPage = useShell(selectHasStartPage);
   return (
     <PageState
       lead={<Brand size={32} />}
@@ -252,16 +295,24 @@ function NoPages() {
       <PageStateActions>
         <button
           type="button"
-          onClick={() => void openLocation()}
+          onClick={() =>
+            void (hasStartPage ? api().createPage() : openLocation())
+          }
           className="button button-raised button-lg"
         >
-          <Plus size={14} strokeWidth={1.75} />
+          <Plus size={14} />
           New page
           <kbd className="shortcut ml-1">⌘T</kbd>
         </button>
       </PageStateActions>
     </PageState>
   );
+}
+
+/** An empty page: its start page, or just the way to the location field. */
+function BlankPage({ pageId }: { pageId: PageId }) {
+  const hasStartPage = useShell(selectHasStartPage);
+  return hasStartPage ? <StartPage pageId={pageId} /> : <NewPage />;
 }
 
 /** A new page with the location field dismissed: one way back to it. */
@@ -273,7 +324,7 @@ function NewPage() {
         onClick={() => void openLocation()}
         className="button button-raised button-lg"
       >
-        <Search size={14} strokeWidth={1.75} />
+        <Search size={14} />
         Search or enter address
         <kbd className="shortcut ml-1">⌘L</kbd>
       </button>
@@ -290,8 +341,9 @@ function PageFailed({ page }: { page: PageSnapshot }) {
       lead={
         <CircleAlert
           size={20}
-          strokeWidth={1.5}
-          className="text-fg-subtle"
+          className={
+            error.kind === 'dangerous-site' ? 'text-danger' : 'text-fg-subtle'
+          }
           aria-hidden
         />
       }
@@ -304,29 +356,96 @@ function PageFailed({ page }: { page: PageSnapshot }) {
           <span className="block truncate" title={error.url}>
             {error.url}
           </span>
-          {error.kind === 'load-failed' && (
-            <span className="block wrap-anywhere">{error.description}</span>
-          )}
+          {error.kind !== 'crashed' &&
+            error.kind !== 'dangerous-site' &&
+            error.kind !== 'file-download' && (
+              <span className="block wrap-anywhere">{error.description}</span>
+            )}
         </p>
       )}
-      <PageStateActions>
-        {page.canGoBack && (
+      {error.kind === 'dangerous-site' ? (
+        <DangerousSiteActions page={page} />
+      ) : (
+        <PageStateActions>
+          {page.canGoBack && (
+            <button
+              type="button"
+              onClick={() => void api().goBack(page.id)}
+              className="button button-lg"
+            >
+              Go back
+            </button>
+          )}
+          {error.kind === 'no-secure-connection' &&
+            !error.certificateLocked && (
+              <button
+                type="button"
+                onClick={() => void api().continueOverHttp(page.id)}
+                className="button button-lg"
+              >
+                Continue with HTTP
+              </button>
+            )}
+          {canContinuePastCertificate(error.code) &&
+            !error.certificateLocked && (
+              <button
+                type="button"
+                onClick={() => void api().continuePastCertificate(page.id)}
+                className="button button-lg"
+              >
+                {error.kind === 'no-secure-connection'
+                  ? 'Continue with HTTPS anyway'
+                  : 'Continue anyway'}
+              </button>
+            )}
+          {error.kind === 'file-download' && (
+            <button
+              type="button"
+              onClick={() => void api().closePage(page.id)}
+              className="button button-lg"
+            >
+              Close page
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => void api().goBack(page.id)}
-            className="button button-lg"
+            onClick={() => void api().reload(page.id)}
+            className="button button-raised button-lg"
           >
-            Go back
+            {error.kind === 'crashed'
+              ? 'Reload'
+              : error.kind === 'file-download'
+                ? 'Download'
+                : 'Try again'}
           </button>
-        )}
-        <button
-          type="button"
-          onClick={() => void api().reload(page.id)}
-          className="button button-raised button-lg"
-        >
-          Try again
-        </button>
-      </PageStateActions>
+        </PageStateActions>
+      )}
     </PageState>
+  );
+}
+
+/** Leaving is the easy, obvious choice; going on takes reading the warning. */
+function DangerousSiteActions({ page }: { page: PageSnapshot }) {
+  return (
+    <PageStateActions>
+      <button
+        type="button"
+        onClick={() => void api().continueToDangerousSite(page.id)}
+        className="button button-lg"
+      >
+        Continue anyway
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void (page.canGoBack
+            ? api().goBack(page.id)
+            : api().closePage(page.id))
+        }
+        className="button button-raised button-lg"
+      >
+        {page.canGoBack ? 'Go back' : 'Close page'}
+      </button>
+    </PageStateActions>
   );
 }

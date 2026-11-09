@@ -49,3 +49,8 @@ export function openPageMenu(
     returnFocus: row,
   });
 }
+
+/** The trail whose emoji is being picked. */
+export const useTrailIcon = create<{ pageId: PageId | null }>()(() => ({
+  pageId: null,
+}));

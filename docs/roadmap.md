@@ -70,8 +70,6 @@ listed under a phase waits.
 
 - Picture in picture as a site permission: Chromium doesn't expose it, so it
   isn't in site settings yet.
-- Verify the hang ("isn't responding") bar with a real hung page; it couldn't
-  be triggered from automation.
 - Verify camera and microphone prompts with a real call site, and the macOS
   access prompts in the installed app.
 - Code signing and notarisation for distribution.
@@ -96,15 +94,14 @@ the user:
    opens and F2 renames. Tab returns to the row last focused. ⌥⌘arrows move
    the focused page up, down, in and out.
 5. ~~**Undo is partial.**~~ Done: every trail change that offers Undo in its
-   toast can also be undone with ⌘Z while the shell has focus. There is no
-   redo for trail edits.
+   toast can also be undone with ⌘Z and redone with ⇧⌘Z, from a page too while
+   the toast shows.
 6. ~~**Offline doesn't recover.**~~ Done: "You're offline" pages reload by
    themselves once the Mac is back online.
 7. ~~**Menus don't reflect state.**~~ Done: Back, Forward, Close Branch,
    Print and Copy Page Address are disabled when they can't apply.
 8. ~~**Downloads are hard to reach.**~~ Done: View › Downloads (⌥⌘L) opens
-   the list at any time. The palette's "Show downloads" doesn't show the
-   shortcut yet.
+   the list at any time, and the palette's "Show downloads" shows the shortcut.
 9. ~~**History can only be reached by search.**~~ Done: History › Show All
    History (⌘Y), the palette and the sidebar's foot show History in the
    sidebar, widened, in place of the trail: search, reopen or remove sites,
@@ -117,7 +114,9 @@ Found in the 25 October feature check. Unsaved-form protection is a release bloc
 - **HTTP authentication — implemented.** A page-owned native sign-in window identifies the requesting server, masks the password, cancels on navigation or page close, and keeps credentials out of saved state. Verified against a local protected server in the packaged app.
 - **"Leave site?" on close.** Closing a page with unsaved form input closes
   it at once. Reopen Closed brings the address back, not what was typed.
-- **Save Page As and View Source — implemented.** ⇧⌘S saves a single-file web archive, with retry and completion feedback. ⌥⌘U opens web source as a child page. Both were exercised in the packaged app. Open File (⌘O) remains missing.
+- **Save Page As and View Source — implemented.** ⇧⌘S saves a single-file web archive, with retry and completion feedback. ⌥⌘U opens web source as a child page. Both were exercised in the packaged app.
+- **Open File — implemented.** ⌘O, or a file handed over by macOS, opens web pages, PDFs, images, text, audio and video as new pages. Only files the user chose can load, kept in a saved list so they return after a restart; Clear History forgets those no longer on a page. Not yet exercised in a packaged build.
+- **HTTPS-only mode — implemented.** On by default. Public sites go to HTTPS before anything is sent; if that fails, a warning offers Continue with HTTP, remembered per site and revocable in site settings. Exercised in the dev app against local fake sites and example.com, not yet in a packaged build or on real HTTP-only sites.
 - **Picture in picture from the context menu** and video controls such as
   Loop.
 - Not yet checked by hand: a mouse's back and forward buttons and the
@@ -133,8 +132,8 @@ newer or corrupt database.
 
 These brainstorm items aren't sorted into any phase yet:
 
-- **Recently closed list** outside the History menu.
-- **Close pages below** in the page menu. (Close Other Pages is done.)
+- ~~**Recently closed list** outside the History menu.~~ Done: in the History panel.
+- ~~**Close pages below** in the page menu.~~ Done.
 
 ## Later, after beta
 

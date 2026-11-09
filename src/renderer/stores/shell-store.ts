@@ -1,21 +1,29 @@
 import { create } from 'zustand';
-import { undoLast } from '../lib/trail-undo';
+import { redoLast, undoLast } from '../lib/trail-undo';
 import type { SplashApi } from '../../shared/api';
 import type { Preferences } from '../../shared/preferences';
 import { closedToast, noticeToast } from '../lib/notices';
-import { openLocation, useOverlay } from './overlay-store';
-import { useToast } from './toast-store';
+import { shareUnchanged } from '../lib/share-unchanged';
+import { useOverlay } from './overlay-store';
+import { confirmUndo, offersUndoHistory, useToast } from './toast-store';
 import type {
   BrowserSnapshot,
   PageId,
   PageSnapshot,
   SplitView,
+  WorkspaceAppearance,
   WorkspaceId,
   WorkspaceSummary,
 } from '../../shared/types';
 
 /** A view shown in the sidebar in place of the trail. */
-export type SidebarPanel = 'downloads' | 'history';
+export type SidebarPanel =
+  | 'downloads'
+  | 'history'
+  | 'bookmarks'
+  | 'tasks'
+  | 'trails'
+  | 'workspace';
 
 interface ShellState {
   /** `null` until the main process has sent the first snapshot. */
@@ -23,6 +31,13 @@ interface ShellState {
   preferences: Preferences | null;
   sidebarOpen: boolean;
   sidebarPanel: SidebarPanel | null;
+  /** The workspace the workspace panel edits; `null` creates a new one. */
+  editingWorkspaceId: WorkspaceId | null;
+  /**
+   * The look being edited in the workspace panel, shown on the window frame
+   * in place of the active workspace's until it's saved or dropped.
+   */
+  appearancePreview: WorkspaceAppearance | null;
   /** Incremented to ask the address bar to take focus. */
   addressFocusRequest: number;
   /** The sidebar row currently being renamed in place. */
@@ -45,6 +60,9 @@ interface ShellState {
   setSidebarPanel(panel: SidebarPanel | null): void;
   /** Shows `panel`, or goes back to the trail when it's already showing. */
   toggleSidebarPanel(panel: SidebarPanel): void;
+  /** Opens the workspace panel on a workspace, or on a new one for `null`. */
+  editWorkspace(workspaceId: WorkspaceId | null): void;
+  setAppearancePreview(appearance: WorkspaceAppearance | null): void;
   focusAddressBar(): void;
   startRename(pageId: PageId): void;
   finishRename(): void;
@@ -62,6 +80,8 @@ export const useShell = create<ShellState>()((set) => ({
   preferences: null,
   sidebarOpen: true,
   sidebarPanel: null,
+  editingWorkspaceId: null,
+  appearancePreview: null,
   addressFocusRequest: 0,
   renamingPageId: null,
   editingNotePageId: null,
@@ -71,7 +91,8 @@ export const useShell = create<ShellState>()((set) => ({
   trailFilter: null,
   trailFilterFocus: 0,
   workspaceDropId: null,
-  receiveSnapshot: (snapshot) => set({ snapshot }),
+  receiveSnapshot: (snapshot) =>
+    set((state) => ({ snapshot: shareUnchanged(state.snapshot, snapshot) })),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setSidebarPanel: (panel) =>
     set(
@@ -85,6 +106,13 @@ export const useShell = create<ShellState>()((set) => ({
         ? { sidebarPanel: null }
         : { sidebarPanel: panel, sidebarOpen: true },
     ),
+  editWorkspace: (workspaceId) =>
+    set({
+      sidebarPanel: 'workspace',
+      editingWorkspaceId: workspaceId,
+      sidebarOpen: true,
+    }),
+  setAppearancePreview: (appearancePreview) => set({ appearancePreview }),
   focusAddressBar: () =>
     set((state) => ({ addressFocusRequest: state.addressFocusRequest + 1 })),
   startRename: (pageId) => set({ renamingPageId: pageId, sidebarOpen: true }),
@@ -142,17 +170,56 @@ export function selectActivePage(state: ShellState): PageSnapshot | null {
  */
 export function selectBlank(state: ShellState): boolean {
   if (!state.snapshot || selectVisibleSplit(state)) return false;
+  // A start page keeps the toolbar: it's where typing happens.
+  if (state.preferences?.newPage !== 'search') return false;
   const page = selectActivePage(state);
   return !page || (page.url === null && !page.error && !page.isLoading);
+}
+
+/** An empty page shows the start page rather than only the location field. */
+export function selectHasStartPage(state: ShellState): boolean {
+  return state.preferences !== null && state.preferences.newPage !== 'search';
+}
+
+/**
+ * The empty page (or empty workspace) a start page is showing for, which gets
+ * the cursor in the address field once. `null` for anything else.
+ */
+export function selectStartPageFocus(state: ShellState): string | null {
+  if (!selectHasStartPage(state) || selectVisibleSplit(state)) return null;
+  if (!state.snapshot) return null;
+  const page = selectActivePage(state);
+  if (page && (page.url !== null || page.error || page.isLoading)) return null;
+  return state.snapshot.activePageId ?? 'none';
+}
+
+/**
+ * Where to type an address next: the palette, standing in for the address
+ * bar on a blank page, or the address field when a start page or the
+ * homepage is showing beneath it.
+ */
+export function openLocation(): Promise<void> {
+  const shell = useShell.getState();
+  if (shell.preferences && shell.preferences.newPage !== 'search') {
+    shell.focusAddressBar();
+    return Promise.resolve();
+  }
+  return useOverlay.getState().open({ kind: 'palette', scope: 'location' });
 }
 
 /**
  * No page in the workspace has pages beneath it, so the trail needs no
  * chevron column and its rows sit closer to the edge.
  */
+export function selectMinimalTrail(state: ShellState): boolean {
+  return state.preferences?.trailStyle !== 'branches';
+}
+
 export function selectFlatTrail(state: ShellState): boolean {
   const snapshot = state.snapshot;
   if (!snapshot) return false;
+  // Every page has its chevron or dot here, so the column always stays.
+  if (selectMinimalTrail(state)) return false;
   return snapshot.rootIds.every((id) => !snapshot.pages[id]?.childIds.length);
 }
 
@@ -192,7 +259,8 @@ function watchClosed(): () => void {
       seenSerial = serial;
     } else if (closed && serial > seenSerial) {
       seenSerial = serial;
-      toasts.show(closedToast(closed));
+      // A redo is confirmed by what ran it, and is already in the history.
+      if (!closed.redone) toasts.show(closedToast(closed));
     }
   });
 }
@@ -209,6 +277,8 @@ export function connectShell(splash: SplashApi): () => void {
         // A blank page has no toolbar; the palette stands in for it.
         if (selectBlank(shell)) return void openLocation();
         return shell.focusAddressBar();
+      case 'close-overlay':
+        return overlay.close();
       case 'toggle-sidebar':
         return shell.toggleSidebar();
       case 'rename-page':
@@ -218,7 +288,9 @@ export function connectShell(splash: SplashApi): () => void {
       case 'rename-workspace':
         return shell.setRenamingWorkspace(true);
       case 'undo':
-        return undoInShell();
+        return stepHistory('undo', splash, command.trail);
+      case 'redo':
+        return stepHistory('redo', splash, command.trail);
       case 'filter-trail':
         return shell.openTrailFilter();
       case 'find':
@@ -234,15 +306,25 @@ export function connectShell(splash: SplashApi): () => void {
         return shell.toggleSidebarPanel('downloads');
       case 'show-history':
         return shell.toggleSidebarPanel('history');
+      case 'show-bookmarks':
+        return shell.toggleSidebarPanel('bookmarks');
+      case 'show-tasks':
+        return shell.toggleSidebarPanel('tasks');
+      case 'show-trail-summary':
+        return shell.toggleSidebarPanel('trails');
+      // PROTOTYPE: see src/renderer/prototype/. ⌥⌘G again closes it.
+      case 'show-alma-view':
+        return overlay.overlay?.kind === 'alma-view'
+          ? overlay.close()
+          : void overlay.open({ kind: 'alma-view' });
       case 'create-workspace':
-        return void overlay.open({
-          kind: 'workspace-editor',
-          workspaceId: null,
-        });
+        overlay.close();
+        return shell.editWorkspace(null);
       case 'customize-workspace': {
         const workspaceId = shell.snapshot?.activeWorkspaceId;
         if (workspaceId) {
-          void overlay.open({ kind: 'workspace-editor', workspaceId });
+          overlay.close();
+          shell.editWorkspace(workspaceId);
         }
         return;
       }
@@ -252,6 +334,13 @@ export function connectShell(splash: SplashApi): () => void {
     useToast.getState().show(noticeToast(notice)),
   );
   const unsubscribeClosed = watchClosed();
+  let undoOffered = false;
+  const unsubscribeToast = useToast.subscribe(({ toast }) => {
+    const offered = offersUndoHistory(toast);
+    if (offered === undoOffered) return;
+    undoOffered = offered;
+    splash.setTrailUndoOffered(offered);
+  });
   const unsubscribePreferences = splash.onPreferences((preferences) =>
     useShell.setState({ preferences }),
   );
@@ -270,17 +359,36 @@ export function connectShell(splash: SplashApi): () => void {
     unsubscribeCommands();
     unsubscribeNotices();
     unsubscribeClosed();
+    unsubscribeToast();
     unsubscribePreferences();
   };
 }
 
-/** Text being edited undoes its typing; otherwise the trail's last change. */
-function undoInShell(): void {
+function editingText(): boolean {
   const focused = document.activeElement;
-  const editing =
+  return (
     focused instanceof HTMLInputElement ||
     focused instanceof HTMLTextAreaElement ||
-    (focused instanceof HTMLElement && focused.isContentEditable);
-  if (editing) document.execCommand('undo');
-  else undoLast();
+    (focused instanceof HTMLElement && focused.isContentEditable)
+  );
+}
+
+/**
+ * Text being edited undoes its typing; otherwise the trail's last change. `trail`
+ * comes from a page, so focus goes back to the page on screen, since the one it
+ * was in may have just closed.
+ */
+function stepHistory(
+  step: 'undo' | 'redo',
+  splash: SplashApi,
+  trail = false,
+): void {
+  if (!trail && editingText()) {
+    document.execCommand(step);
+    return;
+  }
+  void (step === 'undo' ? undoLast() : redoLast()).then((result) => {
+    confirmUndo(result);
+    if (trail) splash.focusPage();
+  });
 }

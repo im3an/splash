@@ -5,15 +5,19 @@ import {
   Menu,
   nativeTheme,
   webContents,
+  type BaseWindow,
   type MenuItemConstructorOptions,
 } from 'electron';
 import type { PreferencesService } from '../preferences';
 import type { HistoryMatch, TrailStore } from '../storage/trail-store';
+import { pagesBelow } from '../../shared/pages-below';
 import type { ClosedSummary } from '../../shared/types';
 import type { TrailWindow } from '../windows/browser-window';
 import { workspaceMenuItems } from './workspace-menu';
 import { isNavigableUrl, isPageUrl } from '../browser/url';
-import { contentsForPage } from '../browser/electron-page-host';
+import { contentsForPage, pageHandleFor } from '../browser/electron-page-host';
+import { editTarget, isEditingText } from './edit-history';
+import { selectionTookArrow, type SelectionArrow } from './selection-keys';
 import { savePage } from '../browser/save-page';
 
 export interface MenuActions {
@@ -21,6 +25,11 @@ export interface MenuActions {
   currentWindow(): TrailWindow | null;
   openWindow(): TrailWindow;
   openSettings(): void;
+  openPrivateWindow(): void;
+  /** Settings at the section where other browsers' data comes in. */
+  openImport(): void;
+  /** Asks which local files to open, each as a new page. */
+  chooseFiles(): void;
   store: TrailStore;
   preferences: PreferencesService;
 }
@@ -31,13 +40,13 @@ type Appearance = typeof nativeTheme.themeSource;
 const HISTORY_MENU_LENGTH = 10;
 
 /** Shortened for a menu; `&` would otherwise turn into a mnemonic. */
-function shorten(text: string): string {
+export function shorten(text: string): string {
   const short = text.length > 60 ? `${text.slice(0, 59)}…` : text;
   return short.replaceAll('&', '&&');
 }
 
 /** A visited page without a title goes by its host and path. */
-function visitLabel(match: HistoryMatch): string {
+export function visitLabel(match: HistoryMatch): string {
   if (match.title) return match.title;
   try {
     const url = new URL(match.url);
@@ -50,6 +59,7 @@ function visitLabel(match: HistoryMatch): string {
 function closedLabel(summary: ClosedSummary): string {
   if (summary.kind === 'workspace')
     return `Workspace “${shorten(summary.label)}”`;
+  if (summary.kind === 'group') return `Group “${shorten(summary.label)}”`;
   const label = shorten(summary.label);
   return summary.pageCount > 1
     ? `${label} and ${summary.pageCount - 1} more`
@@ -57,16 +67,17 @@ function closedLabel(summary: ClosedSummary): string {
 }
 
 /** Pages visited most recently, newest first, without the active one. */
-function recentHistory(
-  store: TrailStore,
+export function recentHistory(
+  store: Pick<TrailStore, 'frequentHistory'>,
   activeUrl: string | null | undefined,
+  length = HISTORY_MENU_LENGTH,
 ): HistoryMatch[] {
   try {
     return store
-      .frequentHistory(HISTORY_MENU_LENGTH + 1)
+      .frequentHistory(length + 1)
       .filter((match) => match.url !== activeUrl && isPageUrl(match.url))
       .sort((a, b) => b.lastVisitedAt - a.lastVisitedAt)
-      .slice(0, HISTORY_MENU_LENGTH);
+      .slice(0, length);
   } catch {
     return [];
   }
@@ -87,12 +98,63 @@ export function installApplicationMenu(actions: MenuActions): void {
     };
   };
 
+  const runEditCommand = async (
+    command: 'undo' | 'redo',
+    focusedWindow: BaseWindow | undefined,
+  ) => {
+    const focused = webContents.getFocusedWebContents();
+    const window = actions.currentWindow();
+    const target = await editTarget({
+      inTrailWindow: !!window && focusedWindow === window.window,
+      focus: !focused
+        ? 'none'
+        : focused === window?.window.webContents
+          ? 'shell'
+          : pageHandleFor(focused)
+            ? 'page'
+            : 'other',
+      trailOffered: window?.trailUndoOffered ?? false,
+      editingText: () =>
+        focused ? isEditingText(focused) : Promise.resolve(false),
+    });
+    if (target === 'shell') window?.sendUiCommand({ type: command });
+    // Focus stays in the page, so typing there carries on afterwards.
+    else if (target === 'trail')
+      window?.sendToTrail({ type: command, trail: true });
+    else if (focused && !focused.isDestroyed()) focused[command]();
+  };
+
+  /**
+   * ⇧⌘ and an arrow, unless it's meant for the text field that has focus. Chosen
+   * from the menu with the mouse, the item always means the trail.
+   */
+  const trailArrow =
+    (
+      arrow: SelectionArrow,
+      run: (controller: TrailWindow['controller']) => void,
+    ) =>
+    async (
+      _item: unknown,
+      _window: unknown,
+      event: { triggeredByAccelerator?: boolean },
+    ) => {
+      const focused = webContents.getFocusedWebContents();
+      if (
+        event.triggeredByAccelerator &&
+        focused &&
+        (await selectionTookArrow(focused, arrow))
+      ) {
+        return;
+      }
+      const window = actions.currentWindow();
+      if (window) run(window.controller);
+    };
+
   // The menu is rebuilt when these change, so toggles name what they'll do.
   const activeWindow = actions.currentWindow();
   const activeId = activeWindow?.controller.activePageId;
-  const activePage = activeId
-    ? activeWindow?.controller.snapshot().pages[activeId]
-    : undefined;
+  const activeSnapshot = activeWindow?.controller.snapshot();
+  const activePage = activeId ? activeSnapshot?.pages[activeId] : undefined;
 
   const recentlyClosed =
     activeWindow?.controller.recentlyClosed().slice(0, HISTORY_MENU_LENGTH) ??
@@ -156,10 +218,28 @@ export function installApplicationMenu(actions: MenuActions): void {
           },
         },
         {
+          label: 'New Window',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => actions.openWindow(),
+        },
+        {
+          label: 'New Private Window',
+          accelerator: 'Shift+CmdOrCtrl+N',
+          click: () => actions.openPrivateWindow(),
+        },
+        {
           label: 'New Child Page',
           accelerator: 'Alt+CmdOrCtrl+T',
           click: withActivePage((w, id) => {
             w.controller.createChildPage(id);
+            w.sendUiCommand({ type: 'open-location' });
+          }),
+        },
+        {
+          label: 'New Sibling Page',
+          accelerator: 'Ctrl+CmdOrCtrl+T',
+          click: withActivePage((w, id) => {
+            w.controller.createSiblingPage(id);
             w.sendUiCommand({ type: 'open-location' });
           }),
         },
@@ -182,6 +262,33 @@ export function installApplicationMenu(actions: MenuActions): void {
             actions.currentWindow()?.sendUiCommand({ type: 'open-location' }),
         },
         {
+          label: 'Open File…',
+          accelerator: 'CmdOrCtrl+O',
+          click: () => actions.chooseFiles(),
+        },
+        { type: 'separator' },
+        {
+          label: 'Import Bookmarks and More…',
+          click: () => actions.openImport(),
+        },
+        {
+          label: 'Export Bookmarks…',
+          click: () => void actions.currentWindow()?.saveBookmarks(),
+        },
+        {
+          label: 'Export Trail…',
+          enabled: Boolean(activePage),
+          click: () => void actions.currentWindow()?.saveTrail(),
+        },
+        {
+          label: 'Import Trail…',
+          click: () => {
+            const window = actions.currentWindow() ?? actions.openWindow();
+            void window.importTrailFile();
+          },
+        },
+        { type: 'separator' },
+        {
           label: 'Copy Page Address',
           accelerator: 'Shift+CmdOrCtrl+C',
           enabled: Boolean(activePage?.url),
@@ -195,6 +302,17 @@ export function installApplicationMenu(actions: MenuActions): void {
               subject: page.customTitle || page.title || null,
             });
           }),
+        },
+        {
+          label: 'Copy as Markdown',
+          accelerator: 'Alt+Shift+CmdOrCtrl+C',
+          enabled: Boolean(activePage?.url),
+          click: withActivePage((w, id) => void w.copyPageAs(id, 'markdown')),
+        },
+        {
+          label: 'Copy as Plain Text',
+          enabled: Boolean(activePage?.url),
+          click: withActivePage((w, id) => void w.copyPageAs(id, 'text')),
         },
         { type: 'separator' },
         {
@@ -231,6 +349,14 @@ export function installApplicationMenu(actions: MenuActions): void {
           label: 'Close Other Pages',
           click: withActivePage((w, id) => w.controller.closeOtherPages(id)),
         },
+        {
+          label: 'Close Pages Below',
+          enabled:
+            activeSnapshot !== undefined &&
+            activePage !== undefined &&
+            pagesBelow(activeSnapshot, activePage.id).length > 0,
+          click: withActivePage((w, id) => w.controller.closePagesBelow(id)),
+        },
         { role: 'close', accelerator: 'CmdOrCtrl+Shift+W' },
         { type: 'separator' },
         {
@@ -258,27 +384,39 @@ export function installApplicationMenu(actions: MenuActions): void {
       submenu: [
         {
           // Pages and other windows undo their own typing; in the shell,
-          // ⌘Z also takes back trail changes (see trail-undo.ts).
+          // ⌘Z also takes back trail changes and ⇧⌘Z redoes them (see
+          // trail-undo.ts).
           label: 'Undo',
           accelerator: 'CmdOrCtrl+Z',
-          click: (_item, focusedWindow) => {
-            const focused = webContents.getFocusedWebContents();
-            const window = actions.currentWindow();
-            if (
-              window &&
-              focusedWindow === window.window &&
-              (!focused || focused === window.window.webContents)
-            )
-              window.sendUiCommand({ type: 'undo' });
-            else focused?.undo();
-          },
+          click: (_item, focusedWindow) =>
+            void runEditCommand('undo', focusedWindow),
         },
-        { role: 'redo' },
+        {
+          label: 'Redo',
+          accelerator: 'Shift+CmdOrCtrl+Z',
+          click: (_item, focusedWindow) =>
+            void runEditCommand('redo', focusedWindow),
+        },
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
         { role: 'paste' },
         { role: 'pasteAndMatchStyle' },
+        {
+          label: 'Paste and Go',
+          accelerator: 'Alt+CmdOrCtrl+V',
+          click: () => {
+            const window = actions.currentWindow() ?? actions.openWindow();
+            void window.pasteAndGo();
+          },
+        },
+        {
+          label: 'Paste Outline as Trail',
+          click: () => {
+            const window = actions.currentWindow() ?? actions.openWindow();
+            void window.pasteOutline(null);
+          },
+        },
         { role: 'selectAll' },
         { type: 'separator' },
         {
@@ -359,6 +497,13 @@ export function installApplicationMenu(actions: MenuActions): void {
         },
         { type: 'separator' },
         {
+          label: 'Picture in Picture',
+          accelerator: 'Alt+CmdOrCtrl+P',
+          enabled: Boolean(activePage),
+          click: withActivePage((w, id) => void w.togglePictureInPicture(id)),
+        },
+        { type: 'separator' },
+        {
           label: 'Zoom In',
           accelerator: 'CmdOrCtrl+Plus',
           click: withActivePage((w, id) => w.controller.zoom(id, 'in')),
@@ -416,26 +561,103 @@ export function installApplicationMenu(actions: MenuActions): void {
         ...rowShortcuts,
         { type: 'separator' },
         {
+          label: 'Next Trail',
+          accelerator: 'Shift+CmdOrCtrl+Down',
+          click: trailArrow('down', (controller) =>
+            controller.activateAdjacentTrail(1),
+          ),
+        },
+        {
+          label: 'Previous Trail',
+          accelerator: 'Shift+CmdOrCtrl+Up',
+          click: trailArrow('up', (controller) =>
+            controller.activateAdjacentTrail(-1),
+          ),
+        },
+        {
+          label: 'Collapse Branch',
+          accelerator: 'Shift+CmdOrCtrl+Left',
+          click: trailArrow('left', (controller) =>
+            controller.stepCollapse('collapse'),
+          ),
+        },
+        {
+          label: 'Expand Branch',
+          accelerator: 'Shift+CmdOrCtrl+Right',
+          click: trailArrow('right', (controller) =>
+            controller.stepCollapse('expand'),
+          ),
+        },
+        {
+          label: 'Collapse Other Trails',
+          accelerator: 'Alt+CmdOrCtrl+C',
+          enabled: Boolean(activePage),
+          click: () =>
+            actions.currentWindow()?.controller.collapseOtherTrails(),
+        },
+        {
+          label: 'Where You Left Off',
+          click: () =>
+            actions
+              .currentWindow()
+              ?.sendUiCommand({ type: 'show-trail-summary' }),
+        },
+        { type: 'separator' },
+        {
+          label: 'Task Manager',
+          click: () =>
+            actions.currentWindow()?.sendUiCommand({ type: 'show-tasks' }),
+        },
+        // PROTOTYPE: see src/renderer/prototype/.
+        ...(app.isPackaged
+          ? []
+          : [
+              {
+                label: 'Alma View',
+                accelerator: 'Alt+CmdOrCtrl+G',
+                click: () =>
+                  actions
+                    .currentWindow()
+                    ?.sendUiCommand({ type: 'show-alma-view' }),
+              },
+            ]),
+        {
           label: 'Downloads',
           accelerator: 'Alt+CmdOrCtrl+L',
           click: () =>
             actions.currentWindow()?.sendUiCommand({ type: 'show-downloads' }),
         },
+        {
+          label: 'Bookmarks',
+          accelerator: 'Alt+CmdOrCtrl+B',
+          click: () =>
+            actions.currentWindow()?.sendUiCommand({ type: 'show-bookmarks' }),
+        },
+        {
+          label: actions.preferences.get().bookmarksBar
+            ? 'Hide Bookmarks Bar'
+            : 'Show Bookmarks Bar',
+          accelerator: 'Shift+CmdOrCtrl+B',
+          click: () =>
+            actions.preferences.update({
+              bookmarksBar: !actions.preferences.get().bookmarksBar,
+            }),
+        },
         { type: 'separator' },
         { role: 'togglefullscreen' },
+        {
+          label: 'Keep Window on Top',
+          type: 'checkbox',
+          checked: actions.currentWindow()?.window.isAlwaysOnTop() ?? false,
+          click: (item) =>
+            actions.currentWindow()?.window.setAlwaysOnTop(item.checked),
+        },
         { type: 'separator' },
         {
           label: 'View Page Source',
           accelerator: 'Alt+CmdOrCtrl+U',
           enabled: Boolean(activePage?.url && isNavigableUrl(activePage.url)),
-          click: withActivePage((w, id) => {
-            const url = w.controller.snapshot().pages[id]?.url;
-            if (url && isNavigableUrl(url))
-              w.controller.createPage({
-                parentId: id,
-                url: `view-source:${url}`,
-              });
-          }),
+          click: withActivePage((w, id) => void w.controller.viewSource(id)),
         },
         {
           label: 'Developer Tools for Page',
@@ -468,6 +690,14 @@ export function installApplicationMenu(actions: MenuActions): void {
           accelerator: 'CmdOrCtrl+]',
           enabled: activePage?.canGoForward ?? false,
           click: withActivePage((w, id) => w.controller.goForward(id)),
+        },
+        {
+          label: 'Home',
+          accelerator: 'Shift+CmdOrCtrl+H',
+          click: () => {
+            const window = actions.currentWindow() ?? actions.openWindow();
+            window.goHome();
+          },
         },
         { type: 'separator' },
         {

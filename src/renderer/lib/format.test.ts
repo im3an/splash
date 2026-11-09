@@ -1,13 +1,18 @@
+import type { DownloadSummary } from '../../shared/types';
 import { page } from '../test-fixtures';
 import {
   addressParts,
   describeError,
   displayUrl,
+  downloadsSummary,
   filterListsSummary,
   formatBytes,
+  formatSpeed,
+  formatTimeLeft,
   pageLabel,
   pageParts,
   permissionNames,
+  secondsLeft,
   securityOf,
   urlParts,
 } from './format';
@@ -163,7 +168,92 @@ describe('securityOf', () => {
   });
 });
 
+describe('local files', () => {
+  it('go by their file name', () => {
+    expect(
+      pageLabel(
+        page('a', { url: 'file:///Users/me/My%20Report.pdf', title: '' }),
+      ),
+    ).toBe('My Report.pdf');
+  });
+
+  it('name the site and the risk when HTTPS fails where HTTP might work', () => {
+    const { title, detail } = describeError({
+      kind: 'no-secure-connection',
+      code: -102,
+      description: 'ERR_CONNECTION_REFUSED',
+      url: 'http://neverssl.com/',
+    });
+    expect(title).toBe('Couldn’t connect securely to neverssl.com');
+    expect(detail).toContain('anyone on your network');
+  });
+
+  it('name the file when an address answers with one', () => {
+    const { title, detail } = describeError({
+      kind: 'file-download',
+      code: 0,
+      description: 'report.mov',
+      url: 'https://files.example/report.mov',
+    });
+    expect(title).toBe('“report.mov” is a file, not a page');
+    expect(detail).toContain('Download it');
+  });
+
+  it('name what’s wrong with a certificate', () => {
+    const failure = (code: number) =>
+      describeError({
+        kind: 'load-failed',
+        code,
+        description: 'ERR_CERT',
+        url: 'https://nas.test/',
+      }).detail;
+    expect(failure(-200)).toContain('different site');
+    expect(failure(-201)).toContain('expired');
+    expect(failure(-202)).toContain('No authority');
+  });
+
+  it('say there’s no way on when a site insists on valid HTTPS', () => {
+    const { detail } = describeError({
+      kind: 'no-secure-connection',
+      code: -202,
+      description: 'ERR_CERT_AUTHORITY_INVALID',
+      url: 'http://github.com/',
+      certificateLocked: true,
+    });
+    expect(detail).toContain('github.com only allows');
+    expect(detail).toContain('can’t let you continue');
+  });
+
+  it('say so when the file has gone', () => {
+    expect(
+      describeError({
+        kind: 'load-failed',
+        code: -6,
+        description: 'ERR_FILE_NOT_FOUND',
+        url: 'file:///Users/me/My%20Report.pdf',
+      }),
+    ).toEqual({
+      title: 'Couldn’t find My Report.pdf',
+      detail: 'It may have been moved, renamed or deleted.',
+    });
+  });
+});
+
 describe('describeError', () => {
+  it.each([
+    [-107, 'ERR_SSL_PROTOCOL_ERROR'],
+    [-113, 'ERR_SSL_VERSION_OR_CIPHER_MISMATCH'],
+  ])('names a failed secure connection (%i)', (code, description) => {
+    const { title, detail } = describeError({
+      kind: 'load-failed',
+      code,
+      description,
+      url: 'https://old.example.com/',
+    });
+    expect(title).toBe('Couldn’t connect securely to old.example.com');
+    expect(detail).toMatch(/nothing was sent/);
+  });
+
   it('explains known network failures', () => {
     const { detail } = describeError({
       kind: 'load-failed',
@@ -210,7 +300,14 @@ describe('describeError', () => {
         description: 'crashed',
         url: '',
       }).title,
-    ).toBe('This page stopped working');
+    ).toBe('This page crashed');
+  });
+
+  it('says why a page died when Chromium knows', () => {
+    const crash = (description: string) =>
+      describeError({ kind: 'crashed', code: 0, description, url: '' }).title;
+    expect(crash('oom')).toBe('This page ran out of memory');
+    expect(crash('killed')).toBe('This page was stopped');
   });
 });
 
@@ -232,6 +329,62 @@ describe('formatBytes', () => {
     expect(formatBytes(1_500)).toBe('1.5 KB');
     expect(formatBytes(12_300_000)).toBe('12 MB');
     expect(formatBytes(3_200_000_000)).toBe('3.2 GB');
+  });
+});
+
+describe('download progress', () => {
+  it('formats speed', () => {
+    expect(formatSpeed(3_200_000)).toBe('3.2 MB/s');
+    expect(formatSpeed(512.4)).toBe('512 B/s');
+  });
+
+  it('formats time left', () => {
+    expect(formatTimeLeft(7.2)).toBe('8 s left');
+    expect(formatTimeLeft(59)).toBe('59 s left');
+    expect(formatTimeLeft(240)).toBe('4 min left');
+    expect(formatTimeLeft(3599)).toBe('1 h left');
+    expect(formatTimeLeft(3900)).toBe('1 h 5 min left');
+  });
+
+  it('knows the time left only with a size and a speed', () => {
+    expect(secondsLeft(100, 500, 100)).toBe(4);
+    expect(secondsLeft(100, 0, 100)).toBeNull();
+    expect(secondsLeft(100, 500, 0)).toBeNull();
+    expect(secondsLeft(600, 500, 100)).toBe(0);
+  });
+
+  const download = (patch: Partial<DownloadSummary>) =>
+    ({
+      state: 'progressing',
+      receivedBytes: 0,
+      totalBytes: 1000,
+      bytesPerSecond: 100,
+      ...patch,
+    }) as DownloadSummary;
+
+  it('sums up what is running, led by the slowest', () => {
+    expect(
+      downloadsSummary([
+        download({}),
+        download({ totalBytes: 2000 }),
+        download({ state: 'paused' }),
+        download({ state: 'completed' }),
+      ]),
+    ).toBe('2 in progress · 1 paused · 20 s left');
+  });
+
+  it('leaves out a time it can only guess', () => {
+    expect(downloadsSummary([download({}), download({ totalBytes: 0 })])).toBe(
+      '2 in progress',
+    );
+    expect(downloadsSummary([download({ bytesPerSecond: 0 })])).toBe(
+      '1 in progress',
+    );
+  });
+
+  it('says nothing when nothing is running', () => {
+    expect(downloadsSummary([download({ state: 'completed' })])).toBeNull();
+    expect(downloadsSummary([])).toBeNull();
   });
 });
 

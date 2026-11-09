@@ -5,20 +5,30 @@ import { installApplicationMenu, type MenuActions } from './application-menu';
 
 const electron = vi.hoisted(() => ({
   focused: vi.fn(),
+  focusedContents: vi.fn(),
   build: vi.fn((template: MenuItemConstructorOptions[]) => template),
 }));
-vi.mock('../browser/electron-page-host', () => ({ contentsForPage: vi.fn() }));
+vi.mock('../browser/electron-page-host', () => ({
+  contentsForPage: vi.fn(),
+  pageHandleFor: (contents: { isPage?: boolean } | null) =>
+    contents?.isPage ? {} : undefined,
+}));
 vi.mock('electron', () => ({
   app: { name: 'Splash', isPackaged: true },
   BrowserWindow: { getFocusedWindow: electron.focused },
   clipboard: {},
   nativeTheme: { themeSource: 'system' },
   Menu: { buildFromTemplate: electron.build, setApplicationMenu: vi.fn() },
+  webContents: { getFocusedWebContents: electron.focusedContents },
 }));
 
 function setup() {
   const browser = {
-    window: { close: vi.fn() },
+    window: {
+      close: vi.fn(),
+      isAlwaysOnTop: () => false,
+      setAlwaysOnTop: vi.fn(),
+    },
     controller: {
       activePageId: 'a' as string | null,
       snapshot: () => sampleSnapshot(),
@@ -37,7 +47,11 @@ function setup() {
   const item = (file.submenu as MenuItemConstructorOptions[]).find(
     (item) => item.accelerator === 'CmdOrCtrl+W',
   )!;
-  return { browser, close: item.click as () => void };
+  const view = template.find((entry) => entry.label === 'View')!;
+  const keepOnTop = (view.submenu as MenuItemConstructorOptions[]).find(
+    (entry) => entry.label === 'Keep Window on Top',
+  )!;
+  return { browser, close: item.click as () => void, keepOnTop };
 }
 
 it('closes the focused Settings window without touching browser pages', () => {
@@ -56,4 +70,170 @@ it('still closes the active page when its browser window is focused', () => {
   close();
   expect(browser.controller.closePage).toHaveBeenCalledWith('a');
   expect(browser.window.close).not.toHaveBeenCalled();
+});
+
+it('keeps the window on top when asked, and lets it go again', () => {
+  const { browser, keepOnTop } = setup();
+  const click = keepOnTop.click as unknown as (item: {
+    checked: boolean;
+  }) => void;
+  expect(keepOnTop.checked).toBe(false);
+  click({ checked: true });
+  expect(browser.window.setAlwaysOnTop).toHaveBeenLastCalledWith(true);
+  click({ checked: false });
+  expect(browser.window.setAlwaysOnTop).toHaveBeenLastCalledWith(false);
+});
+
+describe('Edit › Undo and Redo', () => {
+  function editSetup(
+    offered: boolean,
+    focus: 'page' | 'field' | 'shell' | 'none',
+  ) {
+    const window = { webContents: { id: 'shell' }, isAlwaysOnTop: () => false };
+    const browser = {
+      window,
+      trailUndoOffered: offered,
+      sendUiCommand: vi.fn(),
+      sendToTrail: vi.fn(),
+      controller: {
+        activePageId: null,
+        snapshot: () => sampleSnapshot(),
+        recentlyClosed: () => [],
+      },
+    };
+    const page = {
+      isPage: true,
+      isDestroyed: () => false,
+      undo: vi.fn(),
+      redo: vi.fn(),
+      executeJavaScriptInIsolatedWorld: async () => focus === 'field',
+    };
+    electron.focusedContents.mockReturnValue(
+      focus === 'none' ? null : focus === 'shell' ? window.webContents : page,
+    );
+    installApplicationMenu({
+      currentWindow: () => browser,
+      preferences: { get: () => DEFAULT_PREFERENCES },
+      store: { frequentHistory: () => [] },
+    } as unknown as MenuActions);
+    const edit = electron.build.mock.calls
+      .at(-1)![0]
+      .find((entry) => entry.label === 'Edit')!;
+    const press = async (label: 'Undo' | 'Redo') => {
+      const item = (edit.submenu as MenuItemConstructorOptions[]).find(
+        (entry) => entry.label === label,
+      )!;
+      (item.click as unknown as (item: null, target: unknown) => void)(
+        null,
+        window,
+      );
+      await vi.waitFor(() => {
+        const sent =
+          browser.sendUiCommand.mock.calls.length +
+          browser.sendToTrail.mock.calls.length +
+          page.undo.mock.calls.length +
+          page.redo.mock.calls.length;
+        expect(sent).toBeGreaterThan(0);
+      });
+    };
+    return { browser, page, press };
+  }
+
+  it('reaches the trail from a page while a toast offers it, keeping focus', async () => {
+    const { browser, page, press } = editSetup(true, 'page');
+    await press('Redo');
+    expect(browser.sendToTrail).toHaveBeenCalledWith({
+      type: 'redo',
+      trail: true,
+    });
+    expect(browser.sendUiCommand).not.toHaveBeenCalled();
+    expect(page.redo).not.toHaveBeenCalled();
+  });
+
+  it('leaves a page’s typing alone', async () => {
+    const { browser, page, press } = editSetup(true, 'field');
+    await press('Undo');
+    expect(page.undo).toHaveBeenCalledOnce();
+    expect(browser.sendToTrail).not.toHaveBeenCalled();
+  });
+
+  it('stays with the page with no toast', async () => {
+    const { browser, page, press } = editSetup(false, 'page');
+    await press('Undo');
+    expect(page.undo).toHaveBeenCalledOnce();
+    expect(browser.sendToTrail).not.toHaveBeenCalled();
+  });
+
+  it('reaches the trail when the page that had focus has just closed', async () => {
+    const { browser, press } = editSetup(true, 'none');
+    await press('Undo');
+    expect(browser.sendToTrail).toHaveBeenCalledWith({
+      type: 'undo',
+      trail: true,
+    });
+  });
+
+  it('still lets the shell decide with focus in the shell', async () => {
+    const { browser, press } = editSetup(false, 'shell');
+    await press('Undo');
+    expect(browser.sendUiCommand).toHaveBeenCalledWith({ type: 'undo' });
+  });
+});
+
+describe('⇧⌘ and an arrow', () => {
+  function arrowSetup(fieldTakesIt: boolean) {
+    const activateAdjacentTrail = vi.fn();
+    const browser = {
+      window: { isAlwaysOnTop: () => false },
+      controller: {
+        activePageId: 'a',
+        snapshot: () => sampleSnapshot(),
+        recentlyClosed: () => [],
+        activateAdjacentTrail,
+      },
+    };
+    const executeJavaScript = vi.fn(async () => fieldTakesIt);
+    electron.focusedContents.mockReturnValue({
+      focusedFrame: { executeJavaScript },
+    });
+    installApplicationMenu({
+      currentWindow: () => browser,
+      preferences: { get: () => DEFAULT_PREFERENCES },
+      store: { frequentHistory: () => [] },
+    } as unknown as MenuActions);
+    const view = electron.build.mock.calls
+      .at(-1)![0]
+      .find((entry) => entry.label === 'View')!;
+    const item = (view.submenu as MenuItemConstructorOptions[]).find(
+      (entry) => entry.label === 'Next Trail',
+    )!;
+    const press = item.click as unknown as (
+      item: null,
+      window: null,
+      event: { triggeredByAccelerator?: boolean },
+    ) => Promise<void>;
+    return { press, activateAdjacentTrail, executeJavaScript };
+  }
+
+  const keys = { triggeredByAccelerator: true };
+
+  it('moves to the next trail when nothing is being typed', async () => {
+    const { press, activateAdjacentTrail } = arrowSetup(false);
+    await press(null, null, keys);
+    expect(activateAdjacentTrail).toHaveBeenCalledWith(1);
+  });
+
+  it('stays put when a text field took the key', async () => {
+    const { press, activateAdjacentTrail } = arrowSetup(true);
+    await press(null, null, keys);
+    expect(activateAdjacentTrail).not.toHaveBeenCalled();
+  });
+
+  it('always means the trail when chosen with the mouse', async () => {
+    const { press, activateAdjacentTrail, executeJavaScript } =
+      arrowSetup(true);
+    await press(null, null, { triggeredByAccelerator: false });
+    expect(executeJavaScript).not.toHaveBeenCalled();
+    expect(activateAdjacentTrail).toHaveBeenCalledWith(1);
+  });
 });

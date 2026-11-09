@@ -1,10 +1,14 @@
-import { canBranchLink } from '../shared/branch-click';
-import { ipcRenderer } from 'electron';
+import { canBranchLink, droppedLink } from '../shared/branch-click';
+import { ipcRenderer, webUtils } from 'electron';
 import {
   BRANCH_LINK,
+  FILE_DROPPED,
   FORM_EDITED,
+  FRAME_GESTURE,
   LINK_ACTIVATED,
+  LINK_DROPPED,
   NAVIGATION_BUTTON,
+  VIDEO_UNFLOATED,
 } from '../shared/page-bridge';
 
 /*
@@ -88,6 +92,87 @@ window.addEventListener(
   },
   { capture: true },
 );
+
+// The floating window's close button pauses its video; its back button leaves
+// it playing. The pause arrives just after the event, so this waits a moment.
+document.addEventListener(
+  'leavepictureinpicture',
+  (event) => {
+    const video = event.target as HTMLVideoElement;
+    setTimeout(() => ipcRenderer.send(VIDEO_UNFLOATED, !video.paused), 100);
+  },
+  { capture: true },
+);
+
+// A click in an embedded frame may open something; the main process can't see
+// input to a frame from another site, so the frame says it happened.
+if (window !== window.top) {
+  for (const type of ['pointerdown', 'keydown']) {
+    window.addEventListener(
+      type,
+      (event) => {
+        if (event.isTrusted) ipcRenderer.send(FRAME_GESTURE);
+      },
+      { capture: true },
+    );
+  }
+}
+
+// A link dragged in from elsewhere opens beneath this page. Listening last, on
+// the way back up, leaves a site's own drop zones and text fields their drops.
+// A drag that began here is the page's own business, however it ends.
+let draggingFromHere = false;
+window.addEventListener('dragstart', () => (draggingFromHere = true), {
+  capture: true,
+});
+window.addEventListener('dragend', () => (draggingFromHere = false), {
+  capture: true,
+});
+
+function acceptsLink(event: DragEvent): boolean {
+  if (!event.isTrusted || event.defaultPrevented || draggingFromHere) {
+    return false;
+  }
+  if (!event.dataTransfer?.types.includes('text/uri-list')) return false;
+  const target = event.target;
+  return !(
+    target instanceof Element &&
+    target.closest('input, textarea, [contenteditable]')
+  );
+}
+
+/** A file dragged in from the Finder: same rules, in the top frame only. */
+function acceptsFile(event: DragEvent): boolean {
+  if (!event.isTrusted || event.defaultPrevented || draggingFromHere) {
+    return false;
+  }
+  if (window !== window.top) return false;
+  if (!event.dataTransfer?.types.includes('Files')) return false;
+  const target = event.target;
+  return !(
+    target instanceof Element &&
+    target.closest('input, textarea, [contenteditable]')
+  );
+}
+
+window.addEventListener('dragover', (event) => {
+  if (acceptsLink(event) || acceptsFile(event)) event.preventDefault();
+});
+window.addEventListener('drop', (event) => {
+  if (acceptsFile(event)) {
+    event.preventDefault();
+    const paths = [...event.dataTransfer!.files]
+      .map((file) => webUtils.getPathForFile(file))
+      .filter(Boolean)
+      .slice(0, 50);
+    if (paths.length > 0) ipcRenderer.send(FILE_DROPPED, paths);
+    return;
+  }
+  if (!acceptsLink(event)) return;
+  event.preventDefault();
+  const href = droppedLink(event.dataTransfer!.getData('text/uri-list'));
+  if (href) ipcRenderer.send(LINK_DROPPED, href);
+});
 
 // Keep edited documents awake. Only an event flag crosses the boundary, never
 // field values, names, credentials or other content, including inside frames.

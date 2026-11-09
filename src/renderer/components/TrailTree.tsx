@@ -12,6 +12,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import { flushSync } from 'react-dom';
 import {
   closestCenter,
   DndContext,
@@ -32,6 +33,7 @@ import {
 } from '@dnd-kit/sortable';
 import { useShallow } from 'zustand/react/shallow';
 import {
+  AppWindow,
   ChevronRight,
   CircleAlert,
   Columns2,
@@ -43,7 +45,13 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import type { BrowserSnapshot, PageId, WorkspaceId } from '../../shared/types';
+import type {
+  BrowserSnapshot,
+  PageGroup,
+  PageId,
+  PageSnapshot,
+  WorkspaceId,
+} from '../../shared/types';
 import {
   projectDrop,
   rowsWhileDragging,
@@ -51,7 +59,11 @@ import {
 } from '../lib/drop-projection';
 import { useOverlay } from '../stores/overlay-store';
 import { Highlighted } from './PaletteList';
+import { TrailGroup } from './TrailGroup';
+import { TrailIconPicker } from './GroupIconPicker';
 import { pageLabel, pageParts } from '../lib/format';
+import { RowWindow } from '../lib/row-window';
+import { shareById } from '../lib/share-unchanged';
 import { renamedToast, trailMoveToast } from '../lib/notices';
 import {
   trailSectionCounts,
@@ -73,42 +85,68 @@ import {
   type TreeKey,
 } from '../lib/trail';
 import { durationMs, easing } from '../lib/motion';
+import {
+  CHEVRON_CENTER,
+  FLAT_LEAD,
+  INDENT,
+  LEAD,
+  MINIMAL_INDENT,
+  rowBox,
+  rowOffset,
+} from '../lib/trail-rows';
 import { api } from '../splash-api';
 import {
   selectFlatTrail,
+  selectMinimalTrail,
   selectVisibleSplit,
   selectWorkspaces,
   useShell,
 } from '../stores/shell-store';
-import { bookmarkPage, collectionNotice, webLink } from '../lib/collections';
+import { fileLink } from '../lib/bookmarks';
+import { collectionNotice, webLink } from '../lib/collections';
 import {
   splitPartner,
+  useLinkDrag,
   usePageDrag,
   type DropTarget,
 } from '../stores/drag-store';
 import { useDownloads } from '../stores/downloads-store';
 import { useToast } from '../stores/toast-store';
-import { openPageMenu, usePageMenu } from '../stores/page-menu-store';
+import {
+  openPageMenu,
+  usePageMenu,
+  useTrailIcon,
+} from '../stores/page-menu-store';
 import { DownloadRing } from './DownloadRing';
 import { Favicon } from './Favicon';
 import { usePagePreview } from './PagePreview';
 import { PageNote } from './PageNote';
 
-const INDENT = 14;
-/** Where a row's chevron sits, so guides line up under it. */
-const CHEVRON_CENTER = 6 + 8;
-/** Where a top-level favicon starts, after the chevron column or without it. */
-const LEAD = 6 + 16 + 8;
-const FLAT_LEAD = 10;
-/**
- * A nested row's box starts just past its parent's branch line, so its
- * fill wraps the row rather than running out to the sidebar's edge.
- */
-const NEST_INSET = 3;
+type Section =
+  | { key: string; kind: 'pinned' }
+  | { key: string; kind: 'pages' }
+  | { key: string; kind: 'group'; group: PageGroup };
 
-/** How far a row's box sits in from the trail's edge. */
-function rowOffset(depth: number): number {
-  return depth === 0 ? 0 : depth * INDENT + NEST_INSET;
+/** Which part of the trail a top-level page shows in. */
+function sectionOf(page: PageSnapshot | undefined): string {
+  if (!page) return 'pages';
+  return page.isPinned ? 'pinned' : (page.groupId ?? 'pages');
+}
+
+/** Pages in each group, counting the ones beneath its top-level pages. */
+function groupBranchCounts(snapshot: BrowserSnapshot): Record<string, number> {
+  const counts: Record<string, number> = {};
+  const size = (id: PageId): number =>
+    1 +
+    (snapshot.pages[id]?.childIds ?? []).reduce(
+      (total, child) => total + size(child),
+      0,
+    );
+  for (const id of snapshot.rootIds) {
+    const groupId = snapshot.pages[id]?.groupId;
+    if (groupId) counts[groupId] = (counts[groupId] ?? 0) + size(id);
+  }
+  return counts;
 }
 
 interface DragState {
@@ -121,12 +159,21 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
   const snapshot = useShell((state) => state.snapshot);
   const visibleSplit = useShell(selectVisibleSplit);
   const flat = useShell(selectFlatTrail);
+  const minimal = useShell(selectMinimalTrail);
+  const indent = minimal ? MINIMAL_INDENT : INDENT;
   // Rows that arrive after the first paint grow in; the first ones don't.
   const painted = useRef(false);
   useEffect(() => {
     painted.current = true;
   }, []);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [rowWindow] = useState(() => new RowWindow(TRAIL_SCROLLER));
+  // These rows stay drawn wherever they've been scrolled to: something holds
+  // on to them, a field being typed in or a menu opened from them.
+  const renamingId = useShell((state) => state.renamingPageId);
+  const editingNoteId = useShell((state) => state.editingNotePageId);
+  const menuId = usePageMenu((state) => state.menu?.pageId ?? null);
+  const iconId = useTrailIcon((state) => state.pageId);
   // Where the pointer is, for dropping a page on a workspace below the trail.
   const pointerAt = useRef({ x: 0, y: 0 });
   const workspaceDrop = useShell((state) => state.workspaceDropId);
@@ -138,6 +185,16 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
     if (!dragging) return;
     const track = (event: PointerEvent) => {
       pointerAt.current = { x: event.clientX, y: event.clientY };
+      // Off the window's edge it stops being a move in the trail, and goes on
+      // as macOS's own drag of the trail as a Markdown file.
+      const pageId = usePageDrag.getState().pageId;
+      if (pageId && leftWindow(event.clientX, event.clientY)) {
+        void api().dragTrailOut({ pageId });
+        document.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape' }),
+        );
+        return;
+      }
       usePageDrag.getState().track(event.clientX, event.clientY);
     };
     window.addEventListener('pointermove', track, true);
@@ -145,22 +202,22 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
   }, [dragging]);
   // A small threshold keeps plain clicks from turning into drags.
   // No dragging while filtered: neighbours on screen aren't neighbours.
-  const pointer = useSensor(PointerSensor, {
-    activationConstraint: { distance: 4 },
-  });
+  const pointer = useSensor(PointerSensor, POINTER_OPTIONS);
 
   const filter = useShell((state) => state.trailFilter)?.trim() ?? '';
   const filtering = filter !== '';
   const sensors = useSensors(filtering ? undefined : pointer);
-  const allRows = useMemo(
-    () =>
-      snapshot
-        ? filtering
-          ? filteredRows(snapshot, filter)
-          : visibleRows(snapshot)
-        : [],
-    [snapshot, filter, filtering],
-  );
+  const keptRows = useRef<Row[]>([]);
+  const allRows = useMemo(() => {
+    const next = !snapshot
+      ? []
+      : filtering
+        ? filteredRows(snapshot, filter)
+        : visibleRows(snapshot);
+    // Unchanged rows keep their object, so only rows that changed draw again.
+    keptRows.current = shareById(keptRows.current, next);
+    return keptRows.current;
+  }, [snapshot, filter, filtering]);
   // Collapsed rows stand in for the pages beneath them.
   const hidden = useMemo(() => {
     const summaries = new Map<PageId, HiddenSummary>();
@@ -221,23 +278,26 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
   const rowsRef = useRef(allRows);
   rowsRef.current = allRows;
   const navigate = useCallback((id: PageId, key: TreeKey) => {
-    const visible = rowsRef.current.filter((row) => {
-      const item = treeRef.current?.querySelector<HTMLElement>(
-        `[data-page-id="${CSS.escape(row.id)}"]`,
-      );
-      const section = item?.closest('details');
-      return !section || section.open;
-    });
+    const folded = new Set<string | undefined>();
+    treeRef.current
+      ?.querySelectorAll<HTMLElement>('details:not([open]) [data-page-id]')
+      .forEach((item) => folded.add(item.dataset.pageId));
+    const visible = rowsRef.current.filter((row) => !folded.has(row.id));
     const target = treeFocusTarget(visible, id, key);
     if (!target) return;
-    setFocusedId(target);
+    // The target may be too far off to be drawn; as the tab stop, it draws now.
+    flushSync(() => setFocusedId(target));
     treeRef.current
-      ?.querySelector<HTMLElement>(`[data-page-id="${CSS.escape(target)}"]`)
+      ?.querySelector<HTMLElement>(
+        `.trail-row[data-page-id="${CSS.escape(target)}"]`,
+      )
       ?.focus();
   }, []);
   const rows = drag ? rowsWhileDragging(allRows, drag.activeId) : allRows;
+  // A new list here would draw every row: each one listens to this context.
+  const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
   const projection: DropProjection | null = drag
-    ? projectDrop(allRows, drag.activeId, drag.overId, drag.offsetX, INDENT)
+    ? projectDrop(allRows, drag.activeId, drag.overId, drag.offsetX, indent)
     : null;
 
   if (snapshot === null) return <TrailSkeleton />;
@@ -251,6 +311,21 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
     );
 
   const sectionCounts = trailSectionCounts(snapshot);
+  const sections: Section[] = [
+    { key: 'pinned', kind: 'pinned' },
+    ...snapshot.groups.map(
+      (group): Section => ({
+        key: group.id,
+        kind: 'group',
+        group,
+      }),
+    ),
+    { key: 'pages', kind: 'pages' },
+  ];
+  const groupCounts = new Map<string, number>();
+  for (const [key, count] of Object.entries(groupBranchCounts(snapshot))) {
+    groupCounts.set(key, count);
+  }
   const split = snapshot.split;
   const tabStop =
     focusedId && allRows.some((row) => row.id === focusedId)
@@ -314,7 +389,7 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
       String(active.id),
       String(over.id),
       delta.x,
-      INDENT,
+      indent,
     );
     if (!target) return;
     const current = allRows.find((row) => row.id === active.id);
@@ -340,7 +415,7 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
         announcements,
         screenReaderInstructions: {
           draggable:
-            'Drag to move the page. With the keyboard, Option-Command and the arrow keys move it.',
+            'Drag to move the page, or out of the window to save its trail as Markdown. With the keyboard, Option-Command and the arrow keys move it.',
         },
       }}
       onDragStart={onDragStart}
@@ -352,10 +427,7 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
         usePageDrag.getState().end();
       }}
     >
-      <SortableContext
-        items={rows.map((row) => row.id)}
-        strategy={verticalListSortingStrategy}
-      >
+      <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
         <div
           ref={treeRef}
           role="tree"
@@ -368,63 +440,111 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
             }
           }}
         >
-          {[true, false].map((pinned) => {
+          {sections.map((section) => {
             let inSection = false;
             const sectionRows = rows.filter((row) => {
               if (row.depth === 0)
-                inSection = snapshot.pages[row.id]?.isPinned === pinned;
+                inSection = sectionOf(snapshot.pages[row.id]) === section.key;
               return inSection;
             });
+            const pinned = section.kind === 'pinned';
+            // With no pane around them, a folder's pages show they're inside
+            // by sitting one step in. A row's real depth stays as it is.
+            const nest = minimal && section.kind === 'group' ? 1 : 0;
             // New page leads the open pages, even when every page is pinned.
-            if (!sectionRows.length && (pinned || !newPage)) return null;
+            if (
+              !sectionRows.length &&
+              section.kind !== 'group' &&
+              (pinned || !newPage)
+            )
+              return null;
             const content = (
               <div className="sidebar-section-content flex flex-col gap-px">
-                {!pinned && newPage}
+                {section.kind === 'pages' && newPage}
                 {sectionRows.map((row) => (
                   <Fragment key={row.id}>
-                    <TrailRow
-                      row={row}
-                      depth={
-                        row.id === drag?.activeId &&
-                        projection &&
-                        !dropTarget &&
-                        !workspaceDrop
-                          ? projection.depth
-                          : row.depth
+                    <RowSlot
+                      id={row.id}
+                      rowWindow={rowWindow}
+                      keep={
+                        row.id === snapshot.activePageId ||
+                        row.id === tabStop ||
+                        row.id === drag?.activeId ||
+                        row.id === renamingId ||
+                        row.id === menuId ||
+                        row.id === iconId
                       }
-                      active={row.id === snapshot.activePageId}
-                      tabStop={row.id === tabStop}
-                      lines={drag ? NO_LINES : (lines.get(row.id) ?? NO_LINES)}
-                      onNavigate={navigate}
-                      onFocusRow={setFocusedId}
-                      inSplit={isInSplit(row.id)}
-                      paired={
-                        visibleSplit !== null &&
-                        row.id !== snapshot.activePageId &&
-                        isInSplit(row.id)
-                      }
-                      dragging={row.id === drag?.activeId}
-                      hidden={hidden.get(row.id) ?? null}
-                      flat={flat}
-                      appear={painted.current}
-                    />
-                    {!drag && (
-                      <PageNote
-                        pageId={row.id}
-                        depth={row.depth}
-                        indent={INDENT}
-                        lead={flat ? FLAT_LEAD : LEAD}
-                      />
-                    )}
+                      newcomer={painted.current}
+                      trailhead={isTrailhead(row, snapshot.pages[row.id])}
+                      pinnedRoot={isPinnedRoot(
+                        row,
+                        snapshot.pages[row.id],
+                        minimal,
+                      )}
+                    >
+                      {(appear) => (
+                        <TrailRow
+                          row={row}
+                          depth={
+                            nest +
+                            (row.id === drag?.activeId &&
+                            projection &&
+                            !dropTarget &&
+                            !workspaceDrop
+                              ? projection.depth
+                              : row.depth)
+                          }
+                          active={row.id === snapshot.activePageId}
+                          tabStop={row.id === tabStop}
+                          lines={
+                            drag ? NO_LINES : (lines.get(row.id) ?? NO_LINES)
+                          }
+                          onNavigate={navigate}
+                          onFocusRow={setFocusedId}
+                          inSplit={isInSplit(row.id)}
+                          paired={
+                            visibleSplit !== null &&
+                            row.id !== snapshot.activePageId &&
+                            isInSplit(row.id)
+                          }
+                          dragging={row.id === drag?.activeId}
+                          hidden={hidden.get(row.id) ?? null}
+                          flat={flat}
+                          minimal={minimal}
+                          appear={appear}
+                        />
+                      )}
+                    </RowSlot>
+                    {!drag &&
+                      (snapshot.pages[row.id]?.note ||
+                        row.id === editingNoteId) && (
+                        <PageNote
+                          pageId={row.id}
+                          depth={row.depth + nest}
+                          indent={indent}
+                          lead={flat ? FLAT_LEAD : LEAD}
+                        />
+                      )}
                   </Fragment>
                 ))}
               </div>
             );
+            if (section.kind === 'group') {
+              return (
+                <TrailGroup
+                  key={section.key}
+                  group={section.group}
+                  count={groupCounts.get(section.key) ?? 0}
+                >
+                  {content}
+                </TrailGroup>
+              );
+            }
             // One kind of page needs no heading over it.
             if (!sectionCounts.pinned)
-              return <Fragment key={String(pinned)}>{content}</Fragment>;
+              return <Fragment key={section.key}>{content}</Fragment>;
             return (
-              <details key={String(pinned)} className="trail-section" open>
+              <details key={section.key} className="trail-section" open>
                 <summary className="sidebar-section-heading">
                   <span className="sidebar-section-label">
                     {pinned ? 'Pinned' : 'Pages'}
@@ -443,9 +563,111 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
             activeId={snapshot.activePageId}
             dragging={drag !== null}
           />
+          <TrailIcon />
         </div>
       </SortableContext>
     </DndContext>
+  );
+}
+
+/** The top of a trail with pages under it, or one that's been marked as one. */
+function isTrailhead(row: Row, page: PageSnapshot | undefined): boolean {
+  return row.depth === 0 && (row.hasChildren || Boolean(page?.emoji));
+}
+
+/** Minimal keeps every row alike; the pin at its end says enough. */
+function isPinnedRoot(
+  row: Row,
+  page: PageSnapshot | undefined,
+  minimal: boolean,
+): boolean {
+  return !minimal && Boolean(page?.isPinned) && row.depth === 0;
+}
+
+/**
+ * A row's place in the trail, holding the row itself while it's near the
+ * viewport. With a thousand pages, this is what keeps opening one quick.
+ */
+function RowSlot({
+  id,
+  rowWindow,
+  keep,
+  newcomer,
+  trailhead,
+  pinnedRoot,
+  children,
+}: {
+  id: PageId;
+  rowWindow: RowWindow;
+  /** Stays drawn however far it is from the viewport. */
+  keep: boolean;
+  /** Arrived after the trail first painted, so it may grow in. */
+  newcomer: boolean;
+  trailhead: boolean;
+  pinnedRoot: boolean;
+  children(appear: boolean): ReactNode;
+}) {
+  const slot = useRef<HTMLDivElement>(null);
+  const [near, setNear] = useState(() => rowWindow.isNear(id));
+  // In a layout effect, so a row that arrives in view draws before any paint.
+  useLayoutEffect(() => {
+    const stopListening = rowWindow.subscribe(id, () =>
+      setNear(rowWindow.isNear(id)),
+    );
+    const stopWatching = rowWindow.watch(id, slot.current!);
+    return () => {
+      stopWatching();
+      stopListening();
+    };
+  }, [rowWindow, id]);
+  const drawn = near || keep;
+  // Grows in only on arrival. Scrolled back to later, it was here all along.
+  const appear = useRef(newcomer);
+  useLayoutEffect(() => {
+    if (!drawn && !rowWindow.isNear(id)) appear.current = false;
+  }, [drawn, rowWindow, id]);
+  return (
+    <div ref={slot} className="flex flex-col">
+      {drawn ? (
+        children(appear.current)
+      ) : (
+        <div
+          data-page-id={id}
+          data-trailhead={trailhead}
+          data-pinned-root={pinnedRoot}
+          className="trail-row-place h-(--row-height) shrink-0"
+        />
+      )}
+    </div>
+  );
+}
+
+/** At or past the window's edge: where a page drag turns into a file drag. */
+function leftWindow(x: number, y: number): boolean {
+  return (
+    x <= 0 ||
+    y <= 0 ||
+    x >= window.innerWidth - 1 ||
+    y >= window.innerHeight - 1
+  );
+}
+
+/** Picks a trail's emoji, opening at its mark in the trail. */
+function TrailIcon() {
+  const pageId = useTrailIcon((state) => state.pageId);
+  const anchor = pageId
+    ? document.querySelector<HTMLElement>(
+        `.trail-row[data-page-id="${CSS.escape(pageId)}"] .trail-favicon`,
+      )
+    : null;
+  if (!pageId || !anchor) return null;
+  return (
+    <TrailIconPicker
+      key={pageId}
+      pageId={pageId}
+      anchor={anchor}
+      onClose={() => useTrailIcon.setState({ pageId: null })}
+    />
   );
 }
 
@@ -453,13 +675,15 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
 function dropOutside(pageId: PageId, target: DropTarget): void {
   const page = useShell.getState().snapshot?.pages[pageId];
   if (!page) return;
-  if (target.kind === 'favorites') {
-    if (!webLink(page)) {
-      collectionNotice('Only web pages can be favorites.');
+  if (target.kind === 'favorites' || target.kind === 'folder') {
+    const link = webLink(page);
+    if (!link) {
+      collectionNotice('Only web pages can be bookmarked.');
       return;
     }
-    void bookmarkPage(page).then(() =>
-      collectionNotice(`Added ${pageParts(page).title} to Favorites.`),
+    void fileLink(
+      { ...link, title: pageParts(page).title },
+      target.kind === 'folder' ? target.id : null,
     );
     return;
   }
@@ -506,11 +730,10 @@ async function moveWithUndo(
       label: pageParts(page).title,
       parentLabel: parent ? pageParts(parent).title : null,
       sameParent: row.parentId === parentId,
-      undo: () =>
-        void splash
-          .movePage(row.id, row.parentId, previousAfterId)
-          // The old spot may be gone (its neighbour closed); then it stays.
-          .catch(() => undefined),
+      // Either spot may be gone by then (a neighbour closed); then it stays,
+      // and the toast says so.
+      undo: () => splash.movePage(row.id, row.parentId, previousAfterId),
+      redo: () => splash.movePage(row.id, parentId, afterId),
     }),
   );
 }
@@ -548,6 +771,12 @@ function previousSiblingId(rows: Row[], id: PageId): PageId | null {
   return null;
 }
 
+/** Outside the component: a new object here would draw every row each time. */
+const POINTER_OPTIONS = { activationConstraint: { distance: 4 } };
+
+/** The trail's scroller, around the tree in the sidebar. */
+const TRAIL_SCROLLER = '.link-drop-trail';
+
 const TrailRow = memo(function TrailRow({
   row,
   depth,
@@ -561,6 +790,7 @@ const TrailRow = memo(function TrailRow({
   dragging,
   hidden,
   flat,
+  minimal,
   appear,
 }: {
   row: Row;
@@ -580,9 +810,14 @@ const TrailRow = memo(function TrailRow({
   hidden: HiddenSummary | null;
   /** No row has a chevron, so none keeps a column for one. */
   flat: boolean;
+  /** The Minimal trail style: a chevron or dot, and rows edge to edge. */
+  minimal: boolean;
   /** Animate in on mount: the row was just opened or revealed. */
   appear: boolean;
 }) {
+  const linkOver = useLinkDrag(
+    (state) => state.opening?.kind === 'page' && state.opening.id === row.id,
+  );
   const page = useShell((state) => state.snapshot?.pages[row.id]);
   const filter = useShell((state) => state.trailFilter)?.trim() ?? '';
   // While filtering, pages shown only for a match below them step back.
@@ -626,18 +861,16 @@ const TrailRow = memo(function TrailRow({
     : undefined;
   const label = pageLabel(page);
   const parts = pageParts(page);
+  const trailhead = isTrailhead(row, page);
   // One quiet marker at the row's end; close takes its place on hover.
-  const marker = inSplit ? (
-    <Columns2 size={11} strokeWidth={2} aria-label="In split view" />
+  const marker = page.shownElsewhere ? (
+    <AppWindow size={11} aria-label="Showing in another window" />
+  ) : inSplit ? (
+    <Columns2 size={11} aria-label="In split view" />
   ) : page.note ? (
-    <StickyNote size={11} strokeWidth={2} aria-label="Has a note" />
+    <StickyNote size={11} aria-label="Has a note" />
   ) : page.isDiscarded && !active ? (
-    <Moon
-      size={10}
-      strokeWidth={2}
-      aria-label="Asleep"
-      className="opacity-60"
-    />
+    <Moon size={10} aria-label="Asleep" className="opacity-60" />
   ) : null;
 
   const menuOpen = usePageMenu((state) => state.menu?.pageId === row.id);
@@ -715,7 +948,7 @@ const TrailRow = memo(function TrailRow({
       ]
         .filter(Boolean)
         .join(', ')}
-      aria-roledescription="page"
+      aria-roledescription={trailhead ? 'trail' : 'page'}
       tabIndex={tabStop ? 0 : -1}
       data-page-id={row.id}
       onFocus={(event) => {
@@ -742,10 +975,12 @@ const TrailRow = memo(function TrailRow({
       onKeyDown={onKeyDown}
       data-active={active}
       data-flat={flat}
-      data-pinned-root={page.isPinned && row.depth === 0}
+      data-pinned-root={isPinnedRoot(row, page, minimal)}
+      data-trailhead={trailhead}
       data-paired={paired}
       data-menu-open={menuOpen}
       data-dragging={dragging}
+      data-link-over={linkOver}
       data-discarded={page.isDiscarded}
       onAnimationEnd={(event) => {
         if (event.target === event.currentTarget) setAppearing(false);
@@ -753,8 +988,7 @@ const TrailRow = memo(function TrailRow({
       className={`${appearing && !dragging ? 'row-in' : ''} trail-row group relative flex h-(--row-height) shrink-0 items-center gap-2 rounded-row pr-1.5 text-fg-muted outline-offset-[-2px] transition-[background-color,color,box-shadow,scale] duration-fast ease-out hover:bg-row-hover hover:text-fg active:bg-row-pressed data-[paired=true]:bg-row-hover data-[paired=true]:text-fg data-[menu-open=true]:bg-row-hover data-[menu-open=true]:text-fg data-[active=true]:text-fg data-[dragging=true]:z-10 data-[dragging=true]:bg-selected data-[dragging=true]:text-fg data-[dragging=true]:scale-[1.02] data-[dragging=true]:shadow-panel`}
       style={{
         // The content keeps its place; only the box moves in.
-        marginLeft: rowOffset(depth),
-        paddingLeft: (flat ? FLAT_LEAD : 6) + depth * INDENT - rowOffset(depth),
+        ...rowBox(depth, flat, minimal),
         // Rows only ever slide vertically; depth comes from the projection.
         transform: transform
           ? `translate3d(0, ${transform.y}px, 0)`
@@ -777,14 +1011,17 @@ const TrailRow = memo(function TrailRow({
           className="trail-branch-toggle -mx-0.5 grid size-5 shrink-0 place-items-center rounded-inner text-fg-subtle transition-colors duration-fast hover:bg-pressed hover:text-fg"
         >
           <ChevronRight
-            size={12}
-            strokeWidth={2}
+            size={minimal ? 13 : 12}
             className="transition-transform duration-base ease-emphasized"
             style={{ transform: expanded ? 'rotate(90deg)' : undefined }}
           />
         </button>
       ) : (
-        !flat && <span className="size-4 shrink-0" aria-hidden />
+        !flat && (
+          <span className="grid size-4 shrink-0 place-items-center" aria-hidden>
+            {minimal && <span className="trail-dot" />}
+          </span>
+        )
       )}
       {/* Holds the current page's dot, Dock-style, when that's the marker. */}
       <span className="trail-favicon relative grid shrink-0">
@@ -832,7 +1069,6 @@ const TrailRow = memo(function TrailRow({
       {page.isPinned && !renaming && (
         <Pin
           size={11}
-          strokeWidth={2}
           aria-hidden
           className="shrink-0 -rotate-45 text-fg-subtle"
         />
@@ -863,11 +1099,7 @@ const TrailRow = memo(function TrailRow({
           className="-my-1 grid size-6 shrink-0 place-items-center rounded-inner text-fg-subtle hover:bg-pressed hover:text-fg data-[playing=true]:text-accent"
           data-playing={page.isAudible && !page.isMuted}
         >
-          {page.isMuted ? (
-            <VolumeX size={13} strokeWidth={2} />
-          ) : (
-            <Volume2 size={13} strokeWidth={2} />
-          )}
+          {page.isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
         </button>
       )}
       {hidden && !renaming && (
@@ -889,7 +1121,8 @@ const TrailRow = memo(function TrailRow({
           )}
           <button
             type="button"
-            tabIndex={0}
+            // One stop for the whole tree: the current row and its actions.
+            tabIndex={tabStop ? 0 : -1}
             aria-label={`Actions for ${label}`}
             title="Page actions"
             aria-haspopup="menu"
@@ -900,7 +1133,7 @@ const TrailRow = memo(function TrailRow({
             onPointerDown={(event) => event.stopPropagation()}
             className="trail-close absolute inset-y-0 right-0 grid w-6 place-items-center rounded-inner text-fg-subtle opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-pressed hover:text-fg"
           >
-            <MoreHorizontal size={14} strokeWidth={1.75} />
+            <MoreHorizontal size={14} />
           </button>
         </span>
       )}
@@ -920,7 +1153,8 @@ function IndentGuides({
   lines: readonly DrawnHalf[];
 }) {
   const shown = useShell((state) => state.preferences?.showBranchLines ?? true);
-  if (depth === 0 || !shown) return null;
+  const minimal = useShell(selectMinimalTrail);
+  if (depth === 0 || !shown || minimal) return null;
   return (
     // Measured from the trail's edge, out past the row's inset box.
     <span
@@ -965,6 +1199,7 @@ function CurrentMarker({
   activeId: PageId | null;
   dragging: boolean;
 }) {
+  const minimal = useShell(selectMinimalTrail);
   const surfaceRef = useRef<HTMLSpanElement>(null);
   const lightRef = useRef<HTMLSpanElement>(null);
   // Where the surface was last put, and for which page; null while out.
@@ -1000,7 +1235,7 @@ function CurrentMarker({
       );
       tree.style.setProperty('--trail-glide', `${ms}ms`);
     }
-    const inset = row.dataset.flat === 'true' ? 0 : SURFACE_INSET;
+    const inset = minimal || row.dataset.flat === 'true' ? 0 : SURFACE_INSET;
     move(surface, glide, {
       translate: `${at.left - box.left + inset}px ${y}px`,
       width: `${at.width - inset}px`,
@@ -1017,7 +1252,7 @@ function CurrentMarker({
       light.dataset.shown = 'false';
     }
     spot.current = { id: activeId, y };
-  }, [treeRef, activeId, dragging]);
+  }, [treeRef, activeId, dragging, minimal]);
   // Every render: rows open, close and move under it.
   useLayoutEffect(place);
   useEffect(() => {
@@ -1193,7 +1428,7 @@ function HiddenState({
           onPointerDown={(event) => event.stopPropagation()}
           className="-my-1 grid size-6 shrink-0 place-items-center rounded-inner text-accent hover:bg-pressed"
         >
-          <Volume2 size={13} strokeWidth={2} />
+          <Volume2 size={13} />
         </button>
       )}
       {failedId && failedLabel && (
@@ -1209,7 +1444,7 @@ function HiddenState({
           onPointerDown={(event) => event.stopPropagation()}
           className="-my-1 grid size-6 shrink-0 place-items-center rounded-inner text-danger hover:bg-pressed"
         >
-          <CircleAlert size={13} strokeWidth={2} />
+          <CircleAlert size={13} />
         </button>
       )}
       <span
@@ -1245,14 +1480,13 @@ function RenameField({
     if (name === initial) return;
     const splash = api();
     void splash.renamePage(pageId, name || null).then(() => {
-      useToast
-        .getState()
-        .show(
-          renamedToast(
-            name || null,
-            () => void splash.renamePage(pageId, previous),
-          ),
-        );
+      useToast.getState().show(
+        renamedToast(
+          name || null,
+          () => splash.renamePage(pageId, previous),
+          () => splash.renamePage(pageId, name || null),
+        ),
+      );
     });
   };
   const cancel = () => {

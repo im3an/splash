@@ -113,7 +113,7 @@ function PanelBody() {
               title="Back"
               onClick={() => void api().actOnAiPanel('back')}
             >
-              <ArrowLeft size={15} strokeWidth={1.75} />
+              <ArrowLeft size={15} />
             </button>
           )}
           <button
@@ -123,7 +123,7 @@ function PanelBody() {
             title="Open this conversation as a page"
             onClick={() => void api().actOnAiPanel('open-as-page')}
           >
-            <ExternalLink size={15} strokeWidth={1.75} />
+            <ExternalLink size={15} />
           </button>
           <button
             type="button"
@@ -132,7 +132,7 @@ function PanelBody() {
             title="Close AI panel (⇧⌘A)"
             onClick={() => useAiPanel.getState().close()}
           >
-            <X size={16} strokeWidth={1.75} />
+            <X size={16} />
           </button>
         </div>
       </header>
@@ -146,12 +146,7 @@ function PanelBody() {
             role="alert"
             className="grid h-full place-content-center justify-items-center gap-3 p-6 text-center"
           >
-            <CircleAlert
-              size={20}
-              strokeWidth={1.5}
-              className="text-fg-subtle"
-              aria-hidden
-            />
+            <CircleAlert size={20} className="text-fg-subtle" aria-hidden />
             <p className="text-fg">
               {aiProvider(provider).name} couldn’t be reached
             </p>
@@ -163,7 +158,7 @@ function PanelBody() {
               className="button button-raised"
               onClick={() => void api().actOnAiPanel('reload')}
             >
-              <RotateCw size={13} strokeWidth={1.75} />
+              <RotateCw size={13} />
               Try again
             </button>
           </div>

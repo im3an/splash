@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DEFAULT_APPEARANCE } from '../../shared/appearance';
+import type { PageGroup } from '../../shared/types';
 import { migrate, MIGRATIONS, schemaVersion } from './migrations';
 import {
   openTrailStore,
@@ -221,6 +222,35 @@ describe('SqliteTrailStore sessions', () => {
     expect(loaded.workspaces.map((w) => w.appearance)).toEqual([
       DEFAULT_APPEARANCE,
       DEFAULT_APPEARANCE,
+    ]);
+  });
+
+  it('keeps a group’s icon, and drops one it can’t draw', () => {
+    const store = memoryStore();
+    const group = (id: string, icon: unknown) =>
+      ({ id, name: id, collapsed: false, icon }) as PageGroup;
+    store.saveSession({
+      ...SESSION,
+      workspaces: SESSION.workspaces.map((workspace, index) =>
+        index === 0
+          ? {
+              ...workspace,
+              groups: [
+                group('emoji', { kind: 'emoji', value: '🐎' }),
+                group('empty', { kind: 'emoji', value: '' }),
+                group('symbol', { kind: 'symbol', name: 'leaf' }),
+                group('broken', 7),
+              ],
+            }
+          : workspace,
+      ),
+    });
+    const groups = store.loadSession()!.workspaces[0]!.groups!;
+    expect(groups.map((item) => item.icon)).toEqual([
+      { kind: 'emoji', value: '🐎' },
+      undefined,
+      undefined,
+      undefined,
     ]);
   });
 

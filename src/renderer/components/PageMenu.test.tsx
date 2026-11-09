@@ -95,7 +95,7 @@ describe('PageMenu', () => {
     );
     fireEvent.keyDown(menu, { key: 'ArrowDown' });
     expect(document.activeElement?.getAttribute('data-label')).toBe(
-      'Duplicate',
+      'New Sibling Page',
     );
     fireEvent.keyDown(menu, { key: 'ArrowUp' });
     fireEvent.keyDown(menu, { key: 'ArrowUp' });

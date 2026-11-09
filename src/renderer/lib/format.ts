@@ -1,7 +1,10 @@
 import type {
+  ThreatListStatus,
   ContentBlockingStatus,
+  DownloadSummary,
   PageError,
   PageSnapshot,
+  PermissionDecision,
   SitePermission,
 } from '../../shared/types';
 
@@ -13,8 +16,18 @@ function parse(url: string): URL | null {
   }
 }
 
+/** The site a URL belongs to; a local file goes by its name. */
 export function hostOf(url: string): string {
-  return parse(url)?.host ?? url;
+  const parsed = parse(url);
+  if (parsed?.protocol === 'file:') {
+    const name = parsed.pathname.split('/').at(-1) ?? '';
+    try {
+      return decodeURIComponent(name) || url;
+    } catch {
+      return name || url;
+    }
+  }
+  return parsed?.host ?? url;
 }
 
 /** How a URL reads in the address bar when it is not being edited. */
@@ -160,6 +173,18 @@ function loadFailure(
   host: string,
 ): { title: string; detail: string } {
   switch (code) {
+    case -6:
+      return {
+        title: `Couldn’t find ${host}`,
+        detail: 'It may have been moved, renamed or deleted.',
+      };
+    case -107:
+    case -113:
+      return {
+        title: `Couldn’t connect securely to ${host}`,
+        detail:
+          'The site and Splash couldn’t agree on a secure connection, so nothing was sent. The site may be misconfigured or out of date.',
+      };
     case -106:
       return {
         title: 'You’re offline',
@@ -196,6 +221,21 @@ function loadFailure(
         title: 'That address isn’t valid',
         detail: 'Check it for typos, then try again.',
       };
+    case -200:
+      return {
+        title: 'This connection isn’t private',
+        detail: `This certificate is made out to a different site than ${host}, so someone could be posing as it. Splash stopped loading it to protect what you send.`,
+      };
+    case -201:
+      return {
+        title: 'This connection isn’t private',
+        detail: `${host}’s certificate has expired or isn’t valid yet, or this Mac’s clock is wrong. Splash stopped loading it to protect what you send.`,
+      };
+    case -202:
+      return {
+        title: 'This connection isn’t private',
+        detail: `No authority Splash trusts vouches for ${host}’s certificate, so someone could be posing as it. That’s normal for your own server or a local one, and suspicious anywhere else.`,
+      };
     default:
       if (code <= -200 && code > -300) {
         return {
@@ -215,10 +255,49 @@ export function describeError(error: PageError): {
   detail: string;
 } {
   if (error.kind === 'crashed') {
+    if (error.description === 'oom') {
+      return {
+        title: 'This page ran out of memory',
+        detail: 'Reloading usually brings it back.',
+      };
+    }
+    if (error.description === 'killed') {
+      return {
+        title: 'This page was stopped',
+        detail: 'Something ended its process. Reload it when you need it.',
+      };
+    }
     return {
-      title: 'This page stopped working',
+      title: 'This page crashed',
       detail:
         'Its process ended unexpectedly. Reloading usually brings it back.',
+    };
+  }
+  if (error.certificateLocked) {
+    return {
+      title: 'This connection isn’t private',
+      detail: `${hostOf(error.url)} only allows connections with a valid certificate, and this one isn’t, so Splash can’t let you continue. Something on your network may be interfering. Try another network, or try again later.`,
+    };
+  }
+  if (error.kind === 'no-secure-connection') {
+    return {
+      title: `Couldn’t connect securely to ${hostOf(error.url)}`,
+      detail:
+        'Splash tried HTTPS and it didn’t work, so nothing was sent unencrypted. Over HTTP, anyone on your network could read or change what you send and see.',
+    };
+  }
+  if (error.kind === 'file-download') {
+    return {
+      title: `“${error.description}” is a file, not a page`,
+      detail:
+        'Pages that come back by themselves don’t start downloads, so Splash didn’t fetch it. Download it if you still want it.',
+    };
+  }
+  if (error.kind === 'dangerous-site') {
+    return {
+      title: `${hostOf(error.url)} was reported as dangerous`,
+      detail:
+        'It’s on public lists of phishing and malware sites, so Splash didn’t open it. Sites like this try to steal passwords and card details, or install harmful software.',
     };
   }
   return loadFailure(error.code, error.url ? hostOf(error.url) : 'The site');
@@ -229,12 +308,67 @@ const PERMISSION_NAMES: Record<SitePermission, string> = {
   microphone: 'microphone',
   location: 'location',
   notifications: 'notifications',
+  popups: 'popups',
   midi: 'MIDI devices',
   clipboard: 'clipboard',
   sound: 'sound',
   ads: 'ads and trackers',
   apps: 'other apps',
+  insecure: 'unencrypted HTTP',
+  javascript: 'JavaScript',
+  images: 'images',
+  autoplay: 'autoplay',
+  'third-party-cookies': 'third-party cookies',
+  dangerous: 'a site reported as dangerous',
+  certificate: 'an untrusted certificate',
+  'save-passwords': 'saved passwords',
+  'picture-in-picture': 'picture in picture',
 };
+
+const DECIDED_BY_SPLASH: ReadonlySet<SitePermission> = new Set<SitePermission>([
+  'sound',
+  'ads',
+  'insecure',
+  'javascript',
+  'images',
+  'autoplay',
+  'third-party-cookies',
+  'dangerous',
+  'certificate',
+  'save-passwords',
+  'picture-in-picture',
+]);
+
+/**
+ * The choices a site permission offers. Sound, ads and what a page may load
+ * are decided by Splash, so no site asks about them; a popup never asks
+ * either, and its middle choice lets through only what the user clicked for.
+ */
+export function siteDecisionOptions(
+  permission: SitePermission,
+): { value: PermissionDecision; label: string }[] {
+  const middle =
+    permission === 'popups'
+      ? [{ value: 'ask' as const, label: 'On click' }]
+      : DECIDED_BY_SPLASH.has(permission)
+        ? []
+        : [{ value: 'ask' as const, label: 'Ask' }];
+  return [
+    { value: 'allow', label: 'Allow' },
+    ...middle,
+    { value: 'block', label: 'Block' },
+  ];
+}
+
+/** When a cookie ends, as the cookie viewer says it. */
+export function formatCookieExpiry(expires: number | null): string {
+  if (expires === null) return 'Until you quit';
+  return `Until ${new Date(expires).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })}`;
+}
 
 /** "camera and microphone", "camera, microphone and location". */
 export function permissionNames(
@@ -258,9 +392,74 @@ export function formatBytes(bytes: number): string {
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
 
+/** "3.2 MB/s" */
+export function formatSpeed(bytesPerSecond: number): string {
+  return `${formatBytes(Math.round(bytesPerSecond))}/s`;
+}
+
+/** "8 s left", "4 min left", "1 h 5 min left" */
+export function formatTimeLeft(seconds: number): string {
+  const whole = Math.ceil(seconds);
+  if (whole < 60) return `${whole} s left`;
+  const minutes = Math.round(whole / 60);
+  if (minutes < 60) return `${minutes} min left`;
+  const rest = minutes % 60;
+  return `${Math.floor(minutes / 60)} h ${rest > 0 ? `${rest} min ` : ''}left`;
+}
+
+/** How long is left at this speed, when both the size and the speed are known. */
+export function secondsLeft(
+  received: number,
+  total: number,
+  bytesPerSecond: number,
+): number | null {
+  if (total <= 0 || bytesPerSecond <= 0) return null;
+  return Math.max(0, total - received) / bytesPerSecond;
+}
+
+/** "2 in progress · 1 paused · 8 s left", or null when nothing is running. */
+export function downloadsSummary(
+  downloads: readonly DownloadSummary[],
+): string | null {
+  const running = downloads.filter((d) => d.state === 'progressing');
+  const paused = downloads.filter((d) => d.state === 'paused').length;
+  const parts: string[] = [];
+  if (running.length > 0) parts.push(`${running.length} in progress`);
+  if (paused > 0) parts.push(`${paused} paused`);
+  // One with an unknown size or a stall makes any total a guess, so say none.
+  const lefts = running.map((d) =>
+    secondsLeft(d.receivedBytes, d.totalBytes, d.bytesPerSecond),
+  );
+  if (running.length > 0 && lefts.every((left) => left !== null)) {
+    parts.push(formatTimeLeft(Math.max(...(lefts as number[]))));
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
 const DAY = 24 * 60 * 60 * 1000;
 
 /** "Updated today", or why ad blocking isn't working yet. */
+export function threatListSummary(
+  status: ThreatListStatus,
+  now: number,
+): string {
+  if (status.state === 'off') return '';
+  if (status.state === 'loading') return 'Downloading the lists…';
+  if (status.state === 'failed' || status.updatedAt === null) {
+    return 'Couldn’t download the lists, so no site is checked yet. Splash keeps trying.';
+  }
+  const hours = Math.floor((now - status.updatedAt) / (60 * 60 * 1000));
+  const updated =
+    hours <= 0
+      ? 'Updated just now.'
+      : hours < 24
+        ? `Updated ${hours === 1 ? 'an hour' : `${hours} hours`} ago.`
+        : `Updated ${Math.floor(hours / 24)} days ago.`;
+  return status.updateFailed
+    ? `${updated} Couldn’t download newer lists; these stay in use.`
+    : updated;
+}
+
 export function filterListsSummary(
   status: ContentBlockingStatus,
   now: number,

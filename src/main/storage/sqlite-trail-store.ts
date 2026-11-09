@@ -4,6 +4,8 @@ import { DEFAULT_APPEARANCE } from '../../shared/appearance';
 import { workspaceAppearanceSchema } from '../../shared/ipc';
 import type {
   DownloadSummary,
+  GroupIcon,
+  PageGroup,
   PageId,
   SitePermission,
   SplitView,
@@ -26,10 +28,12 @@ import type {
   StoredPage,
   StoredSession,
   StoredWorkspace,
+  VaultRow,
   TrailStore,
 } from './trail-store';
 
 const ACTIVE_WORKSPACE_KEY = 'session.activeWorkspaceId';
+const SAVED_AT_KEY = 'session.savedAt';
 const MAX_FAVICON_URL_LENGTH = 16_384;
 
 interface WorkspaceRow {
@@ -37,6 +41,7 @@ interface WorkspaceRow {
   name: string;
   appearance: string | null;
   split: string | null;
+  groups: string | null;
   active_page_id: string | null;
   created_at: number;
 }
@@ -53,6 +58,8 @@ interface PageRow {
   note: string | null;
   collapsed: number;
   pinned: number;
+  group_id: string | null;
+  emoji: string | null;
   history: string | null;
   created_at: number;
   last_active_at: number;
@@ -107,6 +114,41 @@ function parseAppearance(value: string | null): WorkspaceAppearance {
   }
 }
 
+/** A group's saved mark; one this version can't draw is dropped. */
+function parseGroupIcon(value: unknown): GroupIcon | null {
+  const icon = value as Partial<{ kind: string; value: string }>;
+  if (icon?.kind === 'emoji' && typeof icon.value === 'string' && icon.value) {
+    return { kind: 'emoji', value: icon.value.slice(0, 16) };
+  }
+  return null;
+}
+
+/** A workspace's saved groups; anything malformed is dropped. */
+function parseGroups(value: string | null): PageGroup[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item): PageGroup[] => {
+      const group = item as Partial<PageGroup> | null;
+      if (typeof group?.id !== 'string' || typeof group.name !== 'string') {
+        return [];
+      }
+      const icon = parseGroupIcon(group.icon);
+      return [
+        {
+          id: group.id,
+          name: group.name.slice(0, 100),
+          collapsed: group.collapsed === true,
+          ...(icon ? { icon } : {}),
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** A saved split view; the controller checks its pages still exist. */
 function parseSplit(value: string | null): SplitView | null {
   if (!value) return null;
@@ -119,6 +161,28 @@ function parseSplit(value: string | null): SplitView | null {
   } catch {
     return null;
   }
+}
+
+interface VaultRecord {
+  id: string;
+  kind: VaultRow['kind'];
+  origin: string | null;
+  secret: Uint8Array;
+  created_at: number;
+  updated_at: number;
+  last_used_at: number | null;
+}
+
+function vaultRow(record: VaultRecord): VaultRow {
+  return {
+    id: record.id,
+    kind: record.kind,
+    origin: record.origin,
+    secret: record.secret,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at,
+    lastUsedAt: record.last_used_at,
+  };
 }
 
 function escapeLike(value: string): string {
@@ -135,7 +199,7 @@ export class SqliteTrailStore implements TrailStore {
   loadSession(): StoredSession | null {
     const workspaceRows = this.db
       .prepare(
-        'SELECT id, name, appearance, split, active_page_id, created_at FROM workspaces ORDER BY position',
+        'SELECT id, name, appearance, split, groups, active_page_id, created_at FROM workspaces ORDER BY position',
       )
       .all() as unknown as WorkspaceRow[];
     if (workspaceRows.length === 0) return null;
@@ -173,6 +237,8 @@ export class SqliteTrailStore implements TrailStore {
             note: row.note,
             collapsed: row.collapsed === 1,
             pinned: row.pinned === 1,
+            ...(row.group_id ? { groupId: row.group_id } : {}),
+            ...(row.emoji ? { emoji: row.emoji } : {}),
             history: parseHistory(row.history),
             createdAt: row.created_at,
             lastActiveAt: row.last_active_at,
@@ -182,6 +248,7 @@ export class SqliteTrailStore implements TrailStore {
       };
       visit(null);
       const split = parseSplit(workspace.split);
+      const groups = parseGroups(workspace.groups);
       const activeExists =
         workspace.active_page_id !== null &&
         byId.get(workspace.active_page_id)?.workspace_id === workspace.id;
@@ -192,11 +259,14 @@ export class SqliteTrailStore implements TrailStore {
         activePageId: activeExists ? workspace.active_page_id : null,
         createdAt: workspace.created_at,
         ...(split ? { split } : {}),
+        ...(groups.length ? { groups } : {}),
       });
     }
 
     const activeWorkspaceId = this.getPreference(ACTIVE_WORKSPACE_KEY);
+    const savedAt = Number(this.getPreference(SAVED_AT_KEY));
     return {
+      ...(savedAt > 0 ? { savedAt } : {}),
       workspaces,
       pages,
       activeWorkspaceId: workspaces.some((w) => w.id === activeWorkspaceId)
@@ -224,13 +294,13 @@ export class SqliteTrailStore implements TrailStore {
 
   saveSession(session: StoredSession): void {
     const insertWorkspace = this.db.prepare(
-      `INSERT INTO workspaces (id, name, appearance, split, position, active_page_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO workspaces (id, name, appearance, split, groups, position, active_page_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertPage = this.db.prepare(
       `INSERT INTO pages (id, workspace_id, parent_id, position, url, title,
-         favicon_url, custom_title, note, collapsed, pinned, history, created_at, last_active_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         favicon_url, custom_title, note, collapsed, pinned, group_id, emoji, history, created_at, last_active_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.transaction(() => {
       this.db.exec('DELETE FROM pages; DELETE FROM workspaces;');
@@ -240,6 +310,7 @@ export class SqliteTrailStore implements TrailStore {
           workspace.name,
           workspace.appearance ? JSON.stringify(workspace.appearance) : null,
           workspace.split ? JSON.stringify(workspace.split) : null,
+          workspace.groups?.length ? JSON.stringify(workspace.groups) : null,
           position,
           workspace.activePageId,
           workspace.createdAt,
@@ -262,6 +333,8 @@ export class SqliteTrailStore implements TrailStore {
           page.note,
           page.collapsed ? 1 : 0,
           page.pinned ? 1 : 0,
+          page.groupId ?? null,
+          page.emoji ?? null,
           page.history ? toStoredJson(page.history) : null,
           page.createdAt,
           page.lastActiveAt,
@@ -269,6 +342,9 @@ export class SqliteTrailStore implements TrailStore {
       }
       if (session.activeWorkspaceId) {
         this.setPreference(ACTIVE_WORKSPACE_KEY, session.activeWorkspaceId);
+      }
+      if (session.savedAt) {
+        this.setPreference(SAVED_AT_KEY, String(session.savedAt));
       }
       this.db.exec('DELETE FROM closed_records');
       const insertClosed = this.db.prepare(
@@ -495,6 +571,100 @@ export class SqliteTrailStore implements TrailStore {
         .run(since);
     });
     return removed;
+  }
+
+  importHistory(rows: HistoryRow[]): string[] {
+    const known = this.db.prepare('SELECT 1 FROM history WHERE url = ?');
+    const upsert = this.db.prepare(
+      `INSERT INTO history (url, title, visit_count, last_visited_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (url) DO UPDATE SET
+         title = CASE WHEN history.title = '' THEN excluded.title ELSE history.title END,
+         visit_count = max(history.visit_count, excluded.visit_count),
+         last_visited_at = max(history.last_visited_at, excluded.last_visited_at)`,
+    );
+    const added: string[] = [];
+    this.transaction(() => {
+      for (const row of rows) {
+        if (!known.get(row.url)) added.push(row.url);
+        upsert.run(row.url, row.title, row.visitCount, row.lastVisitedAt);
+      }
+    });
+    return added;
+  }
+
+  forgetHistory(urls: string[]): void {
+    const forget = this.db.prepare('DELETE FROM history WHERE url = ?');
+    this.transaction(() => {
+      for (const url of urls) forget.run(url);
+    });
+  }
+
+  listVault(kind: VaultRow['kind']): VaultRow[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT id, kind, origin, secret, created_at, updated_at, last_used_at
+           FROM vault WHERE kind = ? ORDER BY coalesce(origin, ''), created_at`,
+        )
+        .all(kind) as unknown as VaultRecord[]
+    ).map(vaultRow);
+  }
+
+  getVaultRow(id: string): VaultRow | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, kind, origin, secret, created_at, updated_at, last_used_at
+         FROM vault WHERE id = ?`,
+      )
+      .get(id) as unknown as VaultRecord | undefined;
+    return row ? vaultRow(row) : null;
+  }
+
+  putVaultRow(row: VaultRow): void {
+    this.putVaultRows([row]);
+  }
+
+  putVaultRows(rows: VaultRow[]): void {
+    const put = this.db.prepare(
+      `INSERT INTO vault (id, kind, origin, secret, created_at, updated_at, last_used_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET
+         origin = excluded.origin,
+         secret = excluded.secret,
+         updated_at = excluded.updated_at,
+         last_used_at = excluded.last_used_at`,
+    );
+    this.transaction(() => {
+      for (const row of rows) {
+        put.run(
+          row.id,
+          row.kind,
+          row.origin,
+          row.secret,
+          row.createdAt,
+          row.updatedAt,
+          row.lastUsedAt,
+        );
+      }
+    });
+  }
+
+  deleteVaultRow(id: string): void {
+    this.deleteVaultRows([id]);
+  }
+
+  deleteVaultRows(ids: string[]): void {
+    const remove = this.db.prepare('DELETE FROM vault WHERE id = ?');
+    this.transaction(() => {
+      for (const id of ids) remove.run(id);
+    });
+  }
+
+  touchVaultRow(id: string, at: number): void {
+    this.db
+      .prepare('UPDATE vault SET last_used_at = ? WHERE id = ?')
+      .run(at, id);
   }
 
   restoreHistory(rows: HistoryRow[]): void {

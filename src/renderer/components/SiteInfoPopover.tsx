@@ -1,25 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CircleAlert, Lock, LockOpen, RotateCw } from 'lucide-react';
 import type {
+  CookieSite,
   PermissionDecision,
   SiteInfo,
   SitePermission,
+  SystemPermission,
 } from '../../shared/types';
+import { permissionNames, siteDecisionOptions } from '../lib/format';
 import { api } from '../splash-api';
 import { useOverlay } from '../stores/overlay-store';
 import { selectActivePage, useShell } from '../stores/shell-store';
 import { AnchoredPanel } from './AnchoredPanel';
 import { PanelState } from './PanelState';
 import { SegmentedControl } from './SegmentedControl';
-
-/** Decided by Splash itself, so a site never asks for them. */
-const NEVER_ASKED = new Set<SitePermission>(['sound', 'ads']);
-
-const DECISIONS: { value: PermissionDecision; label: string }[] = [
-  { value: 'allow', label: 'Allow' },
-  { value: 'ask', label: 'Ask' },
-  { value: 'block', label: 'Block' },
-];
 
 /** Connection security and this site's permissions, from the address bar. */
 export function SiteInfoPopover() {
@@ -116,17 +110,9 @@ export function SiteInfoPopover() {
           <>
             <div className="flex items-start gap-2.5 border-b border-divider px-4 py-3">
               {info.security === 'secure' ? (
-                <Lock
-                  size={15}
-                  strokeWidth={2}
-                  className="mt-0.5 shrink-0 text-fg-muted"
-                />
+                <Lock size={15} className="mt-0.5 shrink-0 text-fg-muted" />
               ) : (
-                <LockOpen
-                  size={15}
-                  strokeWidth={2}
-                  className="mt-0.5 shrink-0 text-danger"
-                />
+                <LockOpen size={15} className="mt-0.5 shrink-0 text-danger" />
               )}
               <div className="min-w-0">
                 <p className="truncate font-medium">{info.host}</p>
@@ -137,6 +123,15 @@ export function SiteInfoPopover() {
                 </p>
               </div>
             </div>
+            {info.refusedBySystem.length > 0 && (
+              <RefusedBySystem
+                permissions={info.refusedBySystem}
+                onFailed={() => setError('Couldn’t open System Settings.')}
+              />
+            )}
+            {page && page.blockedPopups.length > 0 && (
+              <BlockedPopups pageId={page.id} urls={page.blockedPopups} />
+            )}
             <div className="flex flex-col gap-0.5 px-2 py-2">
               {info.permissions.map(({ permission, label, decision }) => (
                 <div
@@ -158,15 +153,13 @@ export function SiteInfoPopover() {
                     label={label}
                     value={decision}
                     disabled={busy}
-                    options={DECISIONS.filter(
-                      (option) =>
-                        !NEVER_ASKED.has(permission) || option.value !== 'ask',
-                    )}
+                    options={siteDecisionOptions(permission)}
                     onChange={(value) => void decide(permission, value)}
                   />
                 </div>
               ))}
             </div>
+            <SiteCookies host={info.host} onChange={() => setChanged(true)} />
             {error && (
               <p
                 role="alert"
@@ -185,7 +178,7 @@ export function SiteInfoPopover() {
                   }}
                   className="button button-sm text-fg"
                 >
-                  <RotateCw size={12} strokeWidth={2} />
+                  <RotateCw size={12} />
                   Reload to apply
                 </button>
               ) : (
@@ -206,5 +199,149 @@ export function SiteInfoPopover() {
         )}
       </AnchoredPanel>
     </>
+  );
+}
+
+/** How many cookies the site keeps, and a way to delete them. */
+function SiteCookies({ host, onChange }: { host: string; onChange(): void }) {
+  const [site, setSite] = useState<CookieSite | null | undefined>(undefined);
+  const [undoToken, setUndoToken] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const load = useCallback(async () => {
+    setSite((await api().listCookies(host))[0] ?? null);
+  }, [host]);
+  useEffect(() => {
+    load().catch(() => setFailed(true));
+  }, [load]);
+
+  const act = async (run: () => Promise<void>) => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      await run();
+      await load();
+      onChange();
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const count = site?.cookies.length ?? 0;
+
+  if (site === undefined && !failed) return null;
+  return (
+    <div className="flex min-h-9 items-center justify-between gap-3 border-t border-divider px-4 py-1.5">
+      <span
+        role="status"
+        className={`min-w-0 text-small ${failed ? 'text-danger' : 'text-fg-muted'}`}
+      >
+        {failed
+          ? 'Couldn’t read or change cookies.'
+          : undoToken
+            ? 'Cookies deleted.'
+            : count === 0
+              ? 'No cookies from this site.'
+              : `${count === 1 ? 'A cookie' : `${count} cookies`} from this site.`}
+      </span>
+      {undoToken ? (
+        <button
+          type="button"
+          disabled={busy}
+          className="button button-sm shrink-0"
+          onClick={() =>
+            void act(async () => {
+              await api().undoDeleteCookies(undoToken);
+              setUndoToken(null);
+            })
+          }
+        >
+          Undo
+        </button>
+      ) : (
+        count > 0 &&
+        site && (
+          <button
+            type="button"
+            disabled={busy}
+            className="button button-sm shrink-0"
+            aria-label={`Delete cookies from ${site.site}`}
+            onClick={() =>
+              void act(async () => {
+                setUndoToken((await api().deleteCookies(site.site)).undoToken);
+              })
+            }
+          >
+            Delete
+          </button>
+        )
+      )}
+    </div>
+  );
+}
+
+/** Allowed here, which changes nothing while macOS says no to Splash itself. */
+function RefusedBySystem({
+  permissions,
+  onFailed,
+}: {
+  permissions: SystemPermission[];
+  onFailed: () => void;
+}) {
+  return (
+    <section
+      aria-label="Refused by macOS"
+      className="flex items-center justify-between gap-3 border-b border-divider px-4 py-2.5"
+    >
+      <p className="min-w-0 text-small text-fg-muted">
+        macOS hasn’t allowed Splash to use your {permissionNames(permissions)}.
+      </p>
+      <button
+        type="button"
+        onClick={() =>
+          void api().openPermissionSettings(permissions[0]!).catch(onFailed)
+        }
+        className="button button-sm shrink-0"
+      >
+        Open System Settings
+      </button>
+    </section>
+  );
+}
+
+/** What this page tried to open on its own, each one a click away. */
+function BlockedPopups({ pageId, urls }: { pageId: string; urls: string[] }) {
+  return (
+    <section
+      aria-label="Blocked popups"
+      className="border-b border-divider px-4 py-2.5"
+    >
+      <p className="text-small text-fg-muted">
+        {urls.length === 1
+          ? 'A popup was blocked on this page.'
+          : `${urls.length} popups were blocked on this page.`}
+      </p>
+      <ul className="mt-1.5 flex max-h-32 flex-col gap-1 overflow-y-auto">
+        {urls.map((url) => (
+          <li key={url} className="flex items-center justify-between gap-3">
+            <span
+              className="min-w-0 truncate text-small text-fg-subtle"
+              title={url}
+            >
+              {url}
+            </span>
+            <button
+              type="button"
+              onClick={() => void api().openBlockedPopup(pageId, url)}
+              className="button button-sm shrink-0"
+            >
+              Open
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

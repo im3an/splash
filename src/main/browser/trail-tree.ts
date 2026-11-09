@@ -4,7 +4,6 @@ export interface TrailNode {
   id: PageId;
   parentId: PageId | null;
   childIds: PageId[];
-  collapsed: boolean;
 }
 
 /**
@@ -42,7 +41,7 @@ export class TrailTree {
   ): Readonly<TrailNode> {
     if (this.nodes.has(id)) throw new Error(`Node ${id} already exists`);
     const siblings = this.siblingsOf(parentId);
-    const node: TrailNode = { id, parentId, childIds: [], collapsed: false };
+    const node: TrailNode = { id, parentId, childIds: [] };
     this.nodes.set(id, node);
     siblings.splice(clampIndex(index, siblings.length), 0, id);
     return node;
@@ -114,20 +113,6 @@ export class TrailTree {
       this.require(childId).parentId = node.parentId;
     }
     this.nodes.delete(id);
-  }
-
-  setCollapsed(id: PageId, collapsed: boolean): void {
-    this.require(id).collapsed = collapsed;
-  }
-
-  /** Expands every ancestor so that `id` is visible in the sidebar. */
-  reveal(id: PageId): void {
-    let parentId = this.require(id).parentId;
-    while (parentId !== null) {
-      const parent = this.require(parentId);
-      parent.collapsed = false;
-      parentId = parent.parentId;
-    }
   }
 
   /** Every node in depth-first, sidebar order. */

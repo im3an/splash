@@ -262,7 +262,7 @@ export function ContextMenu({
         {submenu && (
           <>
             <MenuRow
-              icon={<ChevronLeft size={14} strokeWidth={1.75} />}
+              icon={<ChevronLeft size={14} />}
               label={submenu.label}
               muted
               onPick={back}
@@ -283,7 +283,7 @@ export function ContextMenu({
             />
           ) : (
             <MenuRow
-              key={entry.label}
+              key={`${entry.label}-${index}`}
               icon={entry.icon}
               label={entry.label}
               shortcut={entry.kind === 'action' ? entry.shortcut : undefined}
@@ -361,7 +361,6 @@ function MenuRow({
       {submenu && (
         <ChevronRight
           size={12}
-          strokeWidth={2}
           aria-hidden
           className="shrink-0 text-fg-subtle"
         />

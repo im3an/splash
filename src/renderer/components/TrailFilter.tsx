@@ -46,12 +46,7 @@ export function TrailFilter() {
 
   return (
     <div className="mt-1 mb-1 flex h-8 shrink-0 items-center gap-2 rounded-control bg-field pr-1 pl-2.5 transition-[background-color,box-shadow] duration-base ease-out focus-within:bg-field-focus focus-within:shadow-focus">
-      <ListFilter
-        size={14}
-        strokeWidth={1.75}
-        aria-hidden
-        className="shrink-0 text-fg-subtle"
-      />
+      <ListFilter size={14} aria-hidden className="shrink-0 text-fg-subtle" />
       <input
         ref={inputRef}
         value={filter}
@@ -73,7 +68,7 @@ export function TrailFilter() {
         title="Close filter (esc)"
         onClick={close}
       >
-        <X size={12} strokeWidth={2} />
+        <X size={12} />
       </button>
     </div>
   );

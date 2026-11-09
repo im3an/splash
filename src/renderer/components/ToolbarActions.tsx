@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Puzzle, Settings2, Share, Sparkles, Star } from 'lucide-react';
+import {
+  Check,
+  Puzzle,
+  Settings2,
+  Share,
+  Sparkles,
+  Star,
+  House,
+} from 'lucide-react';
 import {
   DEFAULT_PREFERENCES,
   TOOLBAR_ACTIONS,
@@ -11,25 +19,32 @@ import {
   saveToolbar,
   toggleBookmark,
 } from '../lib/collections';
-import { selectActivePage, useShell } from '../stores/shell-store';
+import {
+  selectActivePage,
+  selectAddressInSidebar,
+  useShell,
+} from '../stores/shell-store';
 import { useAiPanel } from '../stores/ai-store';
 import { useOverlay } from '../stores/overlay-store';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { ExtensionActions } from './ExtensionActions';
+import { PrivateChip } from './PrivateChip';
 import { SplitButton } from './Toolbar';
 import { DownloadsButton } from './DownloadsButton';
 
 export const toolbarLabels: Record<ToolbarAction, string> = {
-  bookmark: 'Favorite',
+  bookmark: 'Bookmark',
   share: 'Share',
   extensions: 'Extensions',
   split: 'Split view',
   downloads: 'Downloads',
+  home: 'Home',
 };
 export function ToolbarActions() {
   const aiOpen = useAiPanel((state) => state.open);
   const page = useShell(selectActivePage);
   const preferences = useShell((state) => state.preferences);
+  const inSidebar = useShell(selectAddressInSidebar);
   const actions =
     preferences?.toolbarActions ?? DEFAULT_PREFERENCES.toolbarActions;
   const saved = preferences?.collections?.some(
@@ -137,11 +152,29 @@ export function ToolbarActions() {
         });
       }}
     >
+      <PrivateChip />
       {actions.map((action) => {
         if (action === 'extensions') return <ExtensionActions key={action} />;
         if (action === 'split') return <SplitButton key={action} compact />;
         if (action === 'downloads')
           return <DownloadsButton key={action} always />;
+        if (action === 'home')
+          return (
+            <button
+              key={action}
+              type="button"
+              className="icon-button"
+              aria-label="Go to homepage"
+              title={
+                preferences?.homepage
+                  ? 'Go to homepage (⇧⌘H)'
+                  : 'Choose a homepage in Settings'
+              }
+              onClick={() => void api().goHome()}
+            >
+              <House size={16} />
+            </button>
+          );
         return (
           <button
             key={action}
@@ -152,16 +185,16 @@ export function ToolbarActions() {
             aria-label={
               action === 'bookmark'
                 ? saved
-                  ? 'Remove from Favorites'
-                  : 'Add to Favorites'
+                  ? 'Remove from Bookmarks'
+                  : 'Add to Bookmarks'
                 : 'Share page'
             }
             aria-pressed={action === 'bookmark' ? Boolean(saved) : undefined}
             title={
               action === 'bookmark'
                 ? saved
-                  ? 'Remove from Favorites'
-                  : 'Add to Favorites'
+                  ? 'Remove from Bookmarks'
+                  : 'Add to Bookmarks'
                 : 'Share page'
             }
             onClick={() => {
@@ -186,16 +219,21 @@ export function ToolbarActions() {
           >
             {action === 'bookmark' ? (
               <Star
-                size={15}
+                size={16}
                 fill={saved ? 'currentColor' : 'none'}
                 className={saved ? 'text-accent' : ''}
               />
             ) : (
-              <Share size={15} />
+              <Share size={16} />
             )}
           </button>
         );
       })}
+      {/*
+       * Not pinned: it still comes up while a download needs following. The
+       * sidebar's narrow row has no room for it, so there it sits a row above.
+       */}
+      {!actions.includes('downloads') && !inSidebar && <DownloadsButton />}
       <button
         type="button"
         className="icon-button data-[on=true]:text-accent"
@@ -205,7 +243,7 @@ export function ToolbarActions() {
         title={aiOpen ? 'Close AI panel (⇧⌘A)' : 'Ask AI (⇧⌘A)'}
         onClick={() => useAiPanel.getState().toggle()}
       >
-        <Sparkles size={15} strokeWidth={1.75} />
+        <Sparkles size={16} />
       </button>
       <button
         className="icon-button"
@@ -224,7 +262,7 @@ export function ToolbarActions() {
           });
         }}
       >
-        <Settings2 size={14} />
+        <Settings2 size={16} />
       </button>
       {menu && menuReady && (
         <ContextMenu

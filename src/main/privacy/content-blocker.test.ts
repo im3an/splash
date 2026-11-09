@@ -12,6 +12,12 @@ import {
 const NOW = 1_000_000_000;
 const LIST = [
   '||ads.example^',
+  '||tags.example/gpt.js$script,redirect=googletagservices_gpt.js',
+  '||tags.example/pixel.gif$image,redirect=1x1.gif',
+  '$removeparam=s_cid',
+  '$removeparam=fbclid',
+  '$removeparam=gclid',
+  '||shop.example^$doc,removeparam=ref_campaign',
   'news.example##.banner',
   'news.example##+js(set-cookie, consent, yes)',
 ].join('\n');
@@ -140,6 +146,123 @@ describe('ContentBlocker', () => {
     expect(urls.filter((url) => !url.endsWith('resources.json'))).toEqual(
       COOKIE_NOTICE_LISTS,
     );
+  });
+});
+
+describe('stand-ins for blocked scripts', () => {
+  const tag = {
+    id: 3,
+    url: 'https://tags.example/gpt.js',
+    resourceType: 'script',
+    referrer: 'https://news.example/',
+  };
+
+  // Chromium refuses a redirect to a `data:` address (ERR_UNSAFE_REDIRECT),
+  // so the page saw a failed script where uBlock Origin gives a working one.
+  it('are served from Splash’s own scheme, not a data: address', async () => {
+    const { blocker } = setup(null, NOW, { standInSecret: 's3cret' });
+    await blocker.load();
+    expect(blocker.onRequest(tag, 'page', 'https://news.example/')).toEqual({
+      redirectURL: 'splash-stand-in://s3cret/googletagservices_gpt.js',
+    });
+    expect(blocker.blockedOn('page')).toBe(1);
+  });
+
+  it('hand over the resource the address names', async () => {
+    const { blocker } = setup(null, NOW, { standInSecret: 's3cret' });
+    await blocker.load();
+    const script = blocker.standIn('googletagservices_gpt.js');
+    expect(script?.contentType).toBe('application/javascript');
+    expect(typeof script?.body).toBe('string');
+    expect(blocker.standIn('1x1.gif')?.contentType).toBe('image/gif');
+  });
+
+  it('have nothing to hand over before the lists load', () => {
+    expect(setup().blocker.standIn('googletagservices_gpt.js')).toBeNull();
+  });
+});
+
+describe('tracking parameters the lists name', () => {
+  const page = (url: string, resourceType = 'mainFrame') => ({
+    id: 2,
+    url,
+    resourceType,
+    referrer: '',
+  });
+
+  it('come off a page’s address', async () => {
+    const { blocker } = setup();
+    await blocker.load();
+    expect(
+      blocker.cleanedAddress(
+        page('https://news.example/story?id=7&fbclid=IwAR0abc&gclid=Cj0'),
+      ),
+    ).toBe('https://news.example/story?id=7');
+  });
+
+  // Ghostery's optimiser fuses rules like these into one and keeps only the
+  // first rule's parameter (2.20.3 still does).
+  it('each come off, however many rules the lists have', async () => {
+    const { blocker } = setup();
+    await blocker.load();
+    for (const name of ['s_cid', 'fbclid', 'gclid']) {
+      expect(
+        blocker.cleanedAddress(page(`https://news.example/?${name}=1&id=2`)),
+      ).toBe('https://news.example/?id=2');
+    }
+  });
+
+  it('come off with lists loaded from the Mac', async () => {
+    const saved = FiltersEngine.parse(LIST).serialize();
+    const { blocker } = setup(saved);
+    await blocker.load();
+    expect(
+      blocker.cleanedAddress(page('https://news.example/?gclid=1&fbclid=2')),
+    ).toBe('https://news.example/');
+  });
+
+  it('leave the rest of the address alone', async () => {
+    const { blocker } = setup();
+    await blocker.load();
+    expect(
+      blocker.cleanedAddress(page('https://news.example/story?id=7&page=2')),
+    ).toBeNull();
+    expect(blocker.cleanedAddress(page('https://news.example/'))).toBeNull();
+  });
+
+  it('follow the list’s scope: a site’s own rule, for its pages only', async () => {
+    const { blocker } = setup();
+    await blocker.load();
+    expect(
+      blocker.cleanedAddress(page('https://shop.example/?ref_campaign=mail')),
+    ).toBe('https://shop.example/');
+    expect(
+      blocker.cleanedAddress(page('https://news.example/?ref_campaign=mail')),
+    ).toBeNull();
+  });
+
+  it('stay on what a page loads: only addresses you go to are cleaned', async () => {
+    const { blocker } = setup();
+    await blocker.load();
+    expect(
+      blocker.onRequest(
+        {
+          ...ad,
+          url: 'https://news.example/api?fbclid=x&q=1',
+          resourceType: 'xhr',
+        },
+        'page',
+        'https://news.example/',
+      ),
+    ).toEqual({});
+    expect(blocker.blockedOn('page')).toBe(0);
+  });
+
+  it('stay until the lists have loaded', () => {
+    const { blocker } = setup();
+    expect(
+      blocker.cleanedAddress(page('https://news.example/?fbclid=x')),
+    ).toBeNull();
   });
 });
 

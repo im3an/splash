@@ -16,7 +16,6 @@ import {
   useShell,
 } from '../stores/shell-store';
 import { AddressBar } from './AddressBar';
-import { DownloadsButton } from './DownloadsButton';
 import { ToolbarActions } from './ToolbarActions';
 import { Toast } from './Toast';
 
@@ -48,7 +47,7 @@ export function Toolbar() {
           shortcut="⌘S"
           onClick={toggleSidebar}
         >
-          <PanelLeft size={16} strokeWidth={1.75} />
+          <PanelLeft size={16} />
         </ToolbarButton>
       )}
       {!blank && (
@@ -68,7 +67,6 @@ export function Toolbar() {
       )}
       {/* With the sidebar hidden, its feedback moves up here. */}
       <Toast placement="toolbar" />
-      {!sidebarOpen && <DownloadsButton />}
     </header>
   );
 }
@@ -84,7 +82,7 @@ export function NavigationButtons() {
         disabled={!page?.canGoBack}
         onClick={() => page && void api().goBack(page.id)}
       >
-        <ArrowLeft size={16} strokeWidth={1.75} />
+        <ArrowLeft size={16} />
       </ToolbarButton>
       <ToolbarButton
         label="Forward"
@@ -92,7 +90,7 @@ export function NavigationButtons() {
         disabled={!page?.canGoForward}
         onClick={() => page && void api().goForward(page.id)}
       >
-        <ArrowRight size={16} strokeWidth={1.75} />
+        <ArrowRight size={16} />
       </ToolbarButton>
       {page?.isLoading ? (
         <ToolbarButton
@@ -100,7 +98,7 @@ export function NavigationButtons() {
           shortcut="⌘."
           onClick={() => void api().stop(page.id)}
         >
-          <X size={16} strokeWidth={1.75} />
+          <X size={16} />
         </ToolbarButton>
       ) : (
         <ToolbarButton
@@ -109,7 +107,7 @@ export function NavigationButtons() {
           disabled={!page?.url}
           onClick={() => page && void api().reload(page.id)}
         >
-          <RotateCw size={15} strokeWidth={1.75} />
+          <RotateCw size={16} />
         </ToolbarButton>
       )}
     </>
@@ -136,7 +134,7 @@ export function SplitButton({ compact }: { compact?: boolean }) {
       }
       onClick={() => page && void api().toggleSplit(page.id)}
     >
-      <Columns2 size={compact ? 14 : 16} strokeWidth={1.75} />
+      <Columns2 size={compact ? 14 : 16} />
     </ToolbarButton>
   );
 }

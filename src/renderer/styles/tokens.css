@@ -15,6 +15,7 @@
   /* The frame's ink as "r g b", used for tints in light mode. */
   --ink: 70 52 32;
   --field: rgb(var(--ink) / 0.065);
+  --field-hover: rgb(var(--ink) / 0.1);
   --field-focus: #ffffff;
   --hover: rgb(var(--ink) / 0.06);
   --pressed: rgb(var(--ink) / 0.1);
@@ -38,6 +39,7 @@
   --drop-outline: rgb(255 255 255 / 0.45);
   /* Behind a site icon that has to read on any surface, dark ones too. */
   --icon-chip: var(--elevated);
+  --favicon-halo: none;
   /* The picked row in the palette and suggestions: a step past hover. */
   --option-selected: rgb(var(--ink) / 0.09);
   /* A key in a legend, such as the palette's footer. */
@@ -55,7 +57,15 @@
   --fg: #221d17;
   --fg-muted: #585047;
   --fg-subtle: #675e55;
-  --fg-disabled: rgb(var(--ink) / 0.38);
+  /*
+   * A gradient's frame is already as far as text allows, and a field on it
+   * takes it further, so secondary text there goes a step stronger to keep
+   * 4.5:1. Plain frames have the room. use-workspace-theme picks.
+   */
+  --fg-muted-on-gradient: #474038;
+  --fg-subtle-on-gradient: #514941;
+  --disabled-alpha: 0.38;
+  --fg-disabled: rgb(var(--ink) / var(--disabled-alpha));
 
   /* Named borders: structural separators, then control and hover edges. */
   --border: var(--divider);
@@ -65,10 +75,12 @@
   --accent: #b4542d;
   --accent-soft: rgb(180 84 45 / 0.16);
   --accent-hover: color-mix(in oklab, var(--accent), black 8%);
-  --on-accent: var(--chrome);
+  /* White on the light accents, chrome on the pale dark ones: 4.6:1 or more. */
+  --on-accent: #ffffff;
   --focus-ring: var(--accent);
   /* Status colours. Never the only cue: pair with an icon or words. */
-  --danger: #b03a2e;
+  /* Error text sits on any frame and field: 4.5:1 on all of them. */
+  --danger: #911a12;
   --success: #3f7a3a;
   --warning: #9a6a0a;
   --info: #2d6cb0;
@@ -80,6 +92,19 @@
 
   --shadow-content:
     0 0 0 0.5px rgb(var(--ink) / 0.14), 0 1px 3px rgb(var(--ink) / 0.06);
+  /*
+   * The palette floats over page content, so the page shows faintly behind
+   * its results. Any more than this and a page of the opposite brightness
+   * takes its secondary text below 4.5:1: 3.13 at 70% in dark over white.
+   */
+  --glass-panel: color-mix(in oklab, var(--elevated) 92%, transparent);
+  --shadow-glass-panel:
+    var(--shadow-panel), inset 0 1px 0 rgb(255 255 255 / 0.8),
+    inset 0 0 0 1px rgb(255 255 255 / 0.35);
+  /* An unfolded saved group: a thin pane over the workspace's frame. */
+  --group-glass: rgb(255 255 255 / 0.26);
+  --shadow-group-glass:
+    inset 0 0 0 0.5px var(--hairline), inset 0 1px 0 rgb(255 255 255 / 0.4);
   /* Popovers, the palette and dialogs float over the page. */
   --shadow-panel: 0 0 0 0.5px var(--hairline), 0 14px 40px rgb(0 0 0 / 0.18);
   /* A thin outline for swatches and marks that sit on any colour. */
@@ -87,25 +112,13 @@
   /* A card lifted off the sheet; the edge of one card over the next. */
   --shadow-card: 0 6px 16px -6px rgb(0 0 0 / 0.25);
   --shadow-stacked: -1px 0 3px rgb(0 0 0 / 0.18);
-  /* A theme swatch lit from the top left, like a small sphere. */
-  --shadow-orb:
-    inset 0 0 0 1px rgb(0 0 0 / 0.08), inset 0 -6px 10px -4px rgb(0 0 0 / 0.18),
-    0 2px 6px -2px rgb(0 0 0 / 0.25);
-  --orb-highlight: rgb(255 255 255 / 0.7);
   /* A focused text field: an accent edge with a soft halo, like AppKit. */
   --shadow-focus: 0 0 0 1px var(--accent), 0 0 0 3.5px var(--accent-soft);
   --skeleton: rgb(var(--ink) / 0.07);
   --switch-knob: #ffffff;
-  /*
-   * The accent wheel shows real colours on any theme: darker towards the
-   * centre, lighter towards the rim, with white rings around its dots.
-   */
-  --wheel-shade: radial-gradient(
-    closest-side,
-    rgb(0 0 0 / 0.5),
-    transparent 50%,
-    rgb(255 255 255 / 0.45)
-  );
+  /* Dark enough that the off track and its knob each reach 3:1. */
+  --switch-off: rgb(var(--ink) / 0.54);
+  /* The colour disc's dots and the sliders' thumbs in white. */
   --wheel-handle-ring: #ffffff;
   --shadow-wheel-handle: 0 1px 4px rgb(0 0 0 / 0.3);
 
@@ -139,6 +152,12 @@
   --icon-sm: 14px;
   --icon-md: 16px;
   --icon-lg: 20px;
+  /* Stroke on a 24-unit grid. Small icons go heavier to look the same weight. */
+  --icon-stroke: 2.4;
+  /* 1.5px exactly at the 16px every icon button uses. */
+  --icon-stroke-md: 2.25;
+  --icon-stroke-small: 2.8;
+  --icon-stroke-large: 2.1;
   --control-height: 28px;
   --control-height-sm: 24px;
 
@@ -152,7 +171,6 @@
   /* Sheets like the workspace editor, and the panels inside them. */
   --radius-sheet: 18px;
   --radius-panel: 13px;
-  /* The fanned cards over the workspace editor. */
   --radius-card: 12px;
   /* Pills, switches, progress lines. */
   --radius-full: 999px;
@@ -215,19 +233,24 @@
     --border-hover: rgb(var(--ink) / 0.2);
     --scrim: rgb(8 6 4 / 0.42);
     --icon-chip: #ece6dd;
+    /* Keeps a dark site icon legible where it has no chip behind it. */
+    --favicon-halo: drop-shadow(0 0 0.5px rgb(255 255 255 / 0.55));
     --option-selected: rgb(var(--ink) / 0.08);
     --keycap: rgb(var(--ink) / 0.08);
     --guide-path: rgb(var(--ink) / 0.28);
 
     --fg: #ede6dd;
     --fg-muted: #b3a89b;
-    --fg-subtle: #a09588;
-    --fg-disabled: rgb(var(--ink) / 0.34);
+    --fg-subtle: #a89c8f;
+    --fg-muted-on-gradient: #c8bfb4;
+    --fg-subtle-on-gradient: #bcb2a6;
+    --disabled-alpha: 0.34;
 
     --accent: #e3906a;
     --accent-soft: rgb(227 144 106 / 0.2);
     --accent-hover: color-mix(in oklab, var(--accent), white 8%);
-    --danger: #ec7a6b;
+    --on-accent: var(--chrome);
+    --danger: #ff998b;
     --success: #8fc27a;
     --warning: #e6b04f;
     --info: #7eafea;
@@ -239,10 +262,18 @@
 
     --shadow-content:
       0 0 0 0.5px rgb(var(--ink) / 0.08), 0 1px 3px rgb(0 0 0 / 0.3);
+    --glass-panel: color-mix(in oklab, var(--elevated) 92%, transparent);
+    --shadow-glass-panel:
+      var(--shadow-panel), inset 0 1px 0 rgb(var(--ink) / 0.14),
+      inset 0 0 0 1px rgb(var(--ink) / 0.06);
+    --group-glass: rgb(var(--ink) / 0.045);
+    --shadow-group-glass:
+      inset 0 0 0 0.5px var(--hairline), inset 0 1px 0 rgb(var(--ink) / 0.05);
     --shadow-panel:
       0 0 0 0.5px rgb(var(--ink) / 0.1), 0 16px 44px rgb(0 0 0 / 0.5);
     --skeleton: rgb(var(--ink) / 0.06);
     --switch-knob: #f4eee7;
+    --switch-off: rgb(var(--ink) / 0.4);
   }
 }
 
@@ -257,6 +288,53 @@
   --duration-exit: 0ms;
 }
 
+/* The Minimal trail is a touch tighter; Compact below still goes further. */
+:root[data-trail='minimal'] {
+  --row-height: 30px;
+}
 :root[data-density='compact'] {
   --row-height: 28px;
+}
+
+/*
+ * macOS › Accessibility › Display. Tokens the workspace themes don't set, so these
+ * apply on every frame and accent.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-panel: var(--elevated);
+    --group-glass: var(--surface);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --fg-muted: #332d26;
+    --fg-subtle: #39322a;
+    --fg-muted-on-gradient: #332d26;
+    --fg-subtle-on-gradient: #39322a;
+    --disabled-alpha: 0.55;
+    --field: rgb(var(--ink) / 0.11);
+    --divider: rgb(var(--ink) / 0.3);
+    --hairline: rgb(var(--ink) / 0.5);
+    --border-hover: rgb(var(--ink) / 0.65);
+    --scrollbar-thumb: rgb(var(--ink) / 0.45);
+    --scrollbar-thumb-hover: rgb(var(--ink) / 0.6);
+  }
+}
+
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root {
+    --fg-muted: #dfd6cb;
+    --fg-subtle: #d9cfc3;
+    --fg-muted-on-gradient: #dfd6cb;
+    --fg-subtle-on-gradient: #d9cfc3;
+    --disabled-alpha: 0.5;
+    --field: rgb(var(--ink) / 0.11);
+    --divider: rgb(var(--ink) / 0.3);
+    --hairline: rgb(var(--ink) / 0.5);
+    --border-hover: rgb(var(--ink) / 0.65);
+    --scrollbar-thumb: rgb(var(--ink) / 0.45);
+    --scrollbar-thumb-hover: rgb(var(--ink) / 0.6);
+  }
 }

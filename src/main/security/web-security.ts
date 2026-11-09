@@ -1,26 +1,49 @@
-import { app, systemPreferences, type Session } from 'electron';
-import type { SitePermission } from '../../shared/types';
+import { app, ipcMain, systemPreferences, type Session } from 'electron';
+import { LOCATION_REFUSED } from '../../shared/page-bridge';
+import type { SitePermission, SystemPermission } from '../../shared/types';
 import { pageHandleFor } from '../browser/electron-page-host';
 import {
   AUTO_GRANTED,
+  isAllowedOnAny,
+  refusedBySystem,
   resolvePermissionRequest,
   sitePermissionsFor,
   webOrigin,
   type PermissionDecisions,
 } from './permissions';
+import { webUserAgent } from './user-agent';
 
 /** Web pages browse in their own persistent session, apart from the app shell. */
 export const WEB_PARTITION = 'persist:web';
 
 /** macOS also has to let Splash itself use the camera and microphone. */
-async function systemAllows(permissions: SitePermission[]): Promise<boolean> {
-  if (process.platform !== 'darwin') return true;
-  for (const kind of ['camera', 'microphone'] as const) {
-    if (!permissions.includes(kind)) continue;
-    if (systemPreferences.getMediaAccessStatus(kind) === 'granted') continue;
-    if (!(await systemPreferences.askForMediaAccess(kind))) return false;
-  }
-  return true;
+function refusedByMacOS(permissions: SitePermission[]) {
+  if (process.platform !== 'darwin') return Promise.resolve([]);
+  return refusedBySystem(permissions, {
+    status: (kind) => systemPreferences.getMediaAccessStatus(kind),
+    ask: (kind) => systemPreferences.askForMediaAccess(kind),
+  });
+}
+
+function isCapture(permission: SitePermission): boolean {
+  return permission === 'camera' || permission === 'microphone';
+}
+
+/** Each session's answers, for what a page in it reports. */
+const sessionDecisions = new WeakMap<Session, PermissionDecisions>();
+
+/** A site that was allowed its location and still got refused: macOS did that. */
+function listenForLocationRefusals(): void {
+  if (ipcMain.listenerCount(LOCATION_REFUSED) > 0) return;
+  ipcMain.on(LOCATION_REFUSED, (event) => {
+    const decisions = sessionDecisions.get(event.sender.session);
+    const target = pageHandleFor(event.sender);
+    if (!decisions || !target) return;
+    const urls = [event.senderFrame?.url, event.sender.getURL()];
+    if (isAllowedOnAny(decisions, 'location', urls)) {
+      target.refusedBySystem(['location']);
+    }
+  });
 }
 
 /**
@@ -33,6 +56,9 @@ export function configureWebSession(
   session: Session,
   decisions: PermissionDecisions,
 ): void {
+  session.setUserAgent(webUserAgent(session.getUserAgent()));
+  sessionDecisions.set(session, decisions);
+  listenForLocationRefusals();
   session.setPermissionRequestHandler(
     (contents, permission, callback, details) => {
       if (AUTO_GRANTED.has(permission)) {
@@ -52,9 +78,15 @@ export function configureWebSession(
         target.request(origin, undecided),
       )
         .then(async (granted) => {
-          const allowed = granted && (await systemAllows(permissions));
-          if (!allowed) target.blocked(permissions);
-          callback(allowed);
+          if (!granted) {
+            target.blocked(permissions);
+            callback(false);
+            return;
+          }
+          const refused: SystemPermission[] = await refusedByMacOS(permissions);
+          if (refused.length > 0) target.refusedBySystem(refused);
+          else if (permissions.some(isCapture)) target.capturing();
+          callback(refused.length === 0);
         })
         .catch(() => callback(false));
     },
@@ -80,6 +112,7 @@ export function configureWebSession(
 
 /** The shell UI is our own code and needs no web permissions at all. */
 export function configureAppSession(session: Session): void {
+  sessionDecisions.delete(session);
   session.setPermissionRequestHandler((_contents, _permission, callback) => {
     callback(false);
   });

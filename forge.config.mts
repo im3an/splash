@@ -1,11 +1,85 @@
 import { execFileSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
-import { join } from 'node:path';
-import type { ForgeConfig } from '@electron-forge/shared-types';
+import { mkdtempSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import type { ForgeConfig, ForgePlatform } from '@electron-forge/shared-types';
+import { MakerBase, type MakerOptions } from '@electron-forge/maker-base';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import {
+  diskImageSteps,
+  packagerSigning,
+  signingFrom,
+} from './src/build/signing';
+
+/** Developer ID and notarisation when the environment names them; else ad hoc. */
+const signing = signingFrom(process.env);
+
+/**
+ * A drag-to-Applications disk image, made with macOS's own `hdiutil`, so the
+ * build needs no native modules. The app is copied with `ditto`, which keeps
+ * its signature and symlinks intact.
+ */
+class MakerDMG extends MakerBase<Record<string, never>> {
+  name = 'dmg';
+  defaultPlatforms: ForgePlatform[] = ['darwin'];
+
+  override isSupportedOnCurrentPlatform() {
+    return process.platform === 'darwin';
+  }
+
+  override async make({
+    dir,
+    makeDir,
+    appName,
+    packageJSON,
+    targetArch,
+  }: MakerOptions): Promise<string[]> {
+    const version = String(packageJSON.version);
+    const dmgPath = resolve(
+      makeDir,
+      'dmg',
+      targetArch,
+      `${appName}-${version}-${targetArch}.dmg`,
+    );
+    await this.ensureFile(dmgPath);
+    const staging = mkdtempSync(join(tmpdir(), 'splash-dmg-'));
+    try {
+      execFileSync('ditto', [
+        join(dir, `${appName}.app`),
+        join(staging, `${appName}.app`),
+      ]);
+      symlinkSync('/Applications', join(staging, 'Applications'));
+      execFileSync(
+        'hdiutil',
+        [
+          'create',
+          '-volname',
+          appName,
+          '-srcfolder',
+          staging,
+          '-fs',
+          'HFS+',
+          '-format',
+          'UDZO',
+          '-ov',
+          dmgPath,
+        ],
+        { stdio: 'inherit' },
+      );
+      for (const [command, args] of signing
+        ? diskImageSteps(signing, dmgPath)
+        : []) {
+        execFileSync(command, args, { stdio: 'inherit' });
+      }
+    } finally {
+      rmSync(staging, { recursive: true, force: true });
+    }
+    return [dmgPath];
+  }
+}
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -18,8 +92,16 @@ const config: ForgeConfig = {
       !['/LICENSE', '/README.md'].includes(file),
     icon: 'assets/macos/Splash',
     // Bundled extensions load from disk, outside the asar archive.
-    extraResource: ['extensions', 'assets/macos/Splash.png'],
+    // So are the licence notices Settings › About shows. Chromium's licences
+    // would otherwise sit beside the app and miss the disk image.
+    extraResource: [
+      'extensions',
+      'assets/macos/Splash.png',
+      'build/third-party-notices.txt',
+      'node_modules/electron/dist/LICENSES.chromium.html',
+    ],
     appBundleId: 'app.splash.browser',
+    ...(signing ? packagerSigning(signing) : {}),
     appCategoryType: 'public.app-category.productivity',
     darwinDarkModeSupport: true,
     extendInfo: {
@@ -28,6 +110,40 @@ const config: ForgeConfig = {
         {
           CFBundleURLName: 'Web site URL',
           CFBundleURLSchemes: ['http', 'https'],
+        },
+      ],
+      // Lists Splash under "Open With" in the Finder, without taking over
+      // anything: an Alternate handler is never the default for these.
+      CFBundleDocumentTypes: [
+        {
+          CFBundleTypeName: 'Web page',
+          CFBundleTypeRole: 'Viewer',
+          LSHandlerRank: 'Alternate',
+          LSItemContentTypes: ['public.html', 'public.xhtml'],
+        },
+        {
+          CFBundleTypeName: 'PDF document',
+          CFBundleTypeRole: 'Viewer',
+          LSHandlerRank: 'Alternate',
+          LSItemContentTypes: ['com.adobe.pdf'],
+        },
+        {
+          CFBundleTypeName: 'Image',
+          CFBundleTypeRole: 'Viewer',
+          LSHandlerRank: 'Alternate',
+          LSItemContentTypes: ['public.image', 'public.svg-image'],
+        },
+        {
+          CFBundleTypeName: 'Text',
+          CFBundleTypeRole: 'Viewer',
+          LSHandlerRank: 'Alternate',
+          LSItemContentTypes: ['public.plain-text', 'public.json'],
+        },
+        {
+          CFBundleTypeName: 'Audio or video',
+          CFBundleTypeRole: 'Viewer',
+          LSHandlerRank: 'Alternate',
+          LSItemContentTypes: ['public.audio', 'public.movie'],
         },
       ],
       NSCameraUsageDescription:
@@ -42,18 +158,23 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   hooks: {
-    // Before `start` and `package`: make sure the bundled extensions are there.
+    // Before `start` and `package`: make sure the bundled extensions and the
+    // licence notices are there.
     generateAssets: async () => {
       execFileSync(process.execPath, ['scripts/fetch-extensions.mjs'], {
+        stdio: 'inherit',
+      });
+      execFileSync(process.execPath, ['scripts/third-party-notices.mjs'], {
         stdio: 'inherit',
       });
     },
     // Packaging rewrites Info.plist after Electron's ad-hoc signature, which
     // leaves it invalid and under Electron's identity. Re-sign so macOS sees
     // a valid app.splash.browser, which camera, microphone and the keychain
-    // depend on. Replace this with `osxSign` once there's a Developer ID.
+    // depend on. A Developer ID build is signed by `osxSign` instead, and
+    // re-signing it here would throw that signature away.
     postPackage: async (_config, { platform, outputPaths }) => {
-      if (platform !== 'darwin') return;
+      if (platform !== 'darwin' || signing) return;
       for (const outputPath of outputPaths) {
         const app = readdirSync(outputPath).find((name) =>
           name.endsWith('.app'),
@@ -67,7 +188,8 @@ const config: ForgeConfig = {
       }
     },
   },
-  makers: [new MakerZIP({}, ['darwin'])],
+  // The disk image is what testers install from; the zip is for updates.
+  makers: [new MakerDMG({}), new MakerZIP({}, ['darwin'])],
   plugins: [
     new VitePlugin({
       build: [
@@ -94,6 +216,11 @@ const config: ForgeConfig = {
         {
           entry: 'src/preload/extension-preload.ts',
           config: 'vite.extension-preload.config.mts',
+          target: 'preload',
+        },
+        {
+          entry: 'src/preload/web-store-preload.ts',
+          config: 'vite.web-store-preload.config.mts',
           target: 'preload',
         },
       ],

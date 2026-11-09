@@ -1,3 +1,5 @@
+import type { SplashApi } from '../../shared/api';
+import type { Notice } from '../../shared/types';
 import { noticeMessage, noticeToast, undoMessage } from './notices';
 
 describe('undoMessage', () => {
@@ -11,6 +13,31 @@ describe('undoMessage', () => {
     expect(message).toBe(
       'Deleted workspace “Research and reading fo…” and its 2 pages.',
     );
+  });
+
+  it('says why a page a download left empty closed', () => {
+    expect(
+      undoMessage({
+        kind: 'pages',
+        label: 'report.mov',
+        pageCount: 1,
+        serial: 1,
+        forDownload: true,
+      }),
+    ).toBe('Downloading “report.mov”, so its empty page closed.');
+  });
+
+  it('offers to reload a page whose download was held', () => {
+    const toast = noticeToast({
+      kind: 'download-held',
+      pageId: 'p1',
+      host: 'files.example',
+      filename: 'report.mov',
+    });
+    expect(toast.message).toBe(
+      'files.example tried to download “report.mov” as it came back. Splash held it.',
+    );
+    expect(toast.actions.map((action) => action.label)).toEqual(['Reload']);
   });
 
   it('describes pages and empty workspaces', () => {
@@ -28,6 +55,15 @@ describe('undoMessage', () => {
         serial: 1,
       }),
     ).toBe('Deleted workspace “Work”.');
+  });
+
+  it('describes a deleted group, with or without pages', () => {
+    expect(
+      undoMessage({ kind: 'group', label: 'Trip', pageCount: 3, serial: 1 }),
+    ).toBe('Deleted group “Trip” and its 3 pages.');
+    expect(
+      undoMessage({ kind: 'group', label: 'Trip', pageCount: 0, serial: 1 }),
+    ).toBe('Deleted group “Trip”.');
   });
 });
 
@@ -52,6 +88,7 @@ describe('noticeMessage', () => {
       workspaceId: 'w',
       workspaceName: 'Research',
       origin: { workspaceId: 'h', parentId: null, index: 0, wasActive: false },
+      index: 3,
     } as const;
     expect(noticeMessage({ ...moved, pageCount: 1 })).toBe(
       'Moved “Docs” to Research.',
@@ -63,6 +100,7 @@ describe('noticeMessage', () => {
 
   it('confirms pinning and explains a pinned page that stayed', () => {
     const origin = { parentId: null, index: 2 };
+    const at = { parentId: null, index: 0 };
     expect(
       noticeMessage({
         kind: 'pinned',
@@ -70,6 +108,7 @@ describe('noticeMessage', () => {
         label: 'Inbox',
         pinned: true,
         origin,
+        at,
       }),
     ).toBe('Pinned “Inbox” to the top of the trail.');
     expect(
@@ -79,6 +118,7 @@ describe('noticeMessage', () => {
         label: 'Inbox',
         pinned: false,
         origin,
+        at,
       }),
     ).toBe('Unpinned “Inbox”.');
     expect(
@@ -97,5 +137,70 @@ describe('noticeMessage', () => {
         asleep: false,
       }).actions.map((action) => action.label),
     ).toEqual(['Unpin and close']);
+  });
+});
+
+describe('a word added to the dictionary', () => {
+  it('confirms it, with a way to take it out', () => {
+    const toast = noticeToast({ kind: 'word-added', word: 'Splashy' });
+    expect(toast.message).toBe('Added “Splashy” to the dictionary.');
+    const [undo] = toast.actions;
+    expect(undo?.icon).toBe('undo');
+    expect(undo?.redo).toBeTypeOf('function');
+  });
+
+  it('says so when the word wasn’t kept', () => {
+    const toast = noticeToast({ kind: 'word-not-added', word: 'Splashy' });
+    expect(toast.message).toBe('Couldn’t add “Splashy” to the dictionary.');
+    expect(toast.actions).toEqual([]);
+  });
+});
+
+describe('a permission macOS refused', () => {
+  const notice: Notice = {
+    kind: 'system-permission-refused',
+    permissions: ['location'],
+    host: 'maps.example',
+  };
+
+  it('says what can’t happen, and why', () => {
+    expect(noticeMessage(notice)).toBe(
+      'maps.example can’t use your location, because macOS hasn’t allowed Splash to.',
+    );
+  });
+
+  it('offers the place to change it', async () => {
+    const openPermissionSettings = vi.fn(async () => undefined);
+    vi.stubGlobal('window', {
+      splash: { openPermissionSettings } as unknown as SplashApi,
+    });
+    const toast = noticeToast(notice);
+    expect(toast.detail).toBe(
+      'Turn it on in System Settings, then reload the page.',
+    );
+    expect(toast.actions.map((action) => action.label)).toEqual([
+      'Open System Settings',
+    ]);
+    await toast.actions[0]!.run();
+    expect(openPermissionSettings).toHaveBeenCalledWith('location');
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('the default browser offer', () => {
+  it('asks once, with the one button that asks macOS', async () => {
+    const becomeDefaultBrowser = vi.fn(async () => undefined);
+    vi.stubGlobal('window', {
+      splash: { becomeDefaultBrowser } as unknown as SplashApi,
+    });
+    const toast = noticeToast({ kind: 'default-browser-offer' });
+    expect(toast.message).toBe('Open links from other apps in Splash?');
+    expect(toast.detail).toContain('Settings › General');
+    expect(toast.actions.map((action) => action.label)).toEqual([
+      'Make Default',
+    ]);
+    await toast.actions[0]!.run();
+    expect(becomeDefaultBrowser).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
   });
 });

@@ -1,10 +1,17 @@
 import type { PaletteScope } from '../../shared/palette';
 import type { PaletteItem } from '../../shared/types';
+import { bookmarkBranch, setBookmarksBar } from './bookmarks';
 import { pageLabel } from './format';
 import { noticeToast } from './notices';
 import { api } from '../splash-api';
-import { openLocation, useOverlay } from '../stores/overlay-store';
-import { selectActivePage, useShell } from '../stores/shell-store';
+import { useAiPanel } from '../stores/ai-store';
+import { showBookmarks } from '../stores/bookmarks-view-store';
+import { useOverlay } from '../stores/overlay-store';
+import {
+  openLocation,
+  selectActivePage,
+  useShell,
+} from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 
 /**
@@ -24,13 +31,12 @@ async function performPaletteItem(
   // Commands that open another overlay take over the current one.
   if (item.kind === 'command') {
     if (item.command === 'new-workspace') {
-      return overlay.open({ kind: 'workspace-editor', workspaceId: null });
+      overlay.close();
+      return shell.editWorkspace(null);
     }
     if (item.command === 'customize-workspace' && shell.snapshot) {
-      return overlay.open({
-        kind: 'workspace-editor',
-        workspaceId: shell.snapshot.activeWorkspaceId,
-      });
+      overlay.close();
+      return shell.editWorkspace(shell.snapshot.activeWorkspaceId);
     }
     if (item.command === 'site-info' && active?.url) {
       return overlay.open({ kind: 'site-info' });
@@ -40,6 +46,27 @@ async function performPaletteItem(
       return shell.setSidebarPanel(
         item.command === 'show-downloads' ? 'downloads' : 'history',
       );
+    }
+    if (item.command === 'show-bookmarks') {
+      overlay.close();
+      return shell.setSidebarPanel('bookmarks');
+    }
+    if (item.command === 'show-trail-summary') {
+      overlay.close();
+      return shell.setSidebarPanel('trails');
+    }
+    if (item.command === 'show-tasks') {
+      overlay.close();
+      return shell.setSidebarPanel('tasks');
+    }
+    if (item.command === 'show-alma-view') {
+      // Swaps with the palette, so the page stays frozen in between.
+      return overlay.open({ kind: 'alma-view' });
+    }
+    if (item.command === 'filter-pages') {
+      // Closed first: closing puts focus back, and the field should keep it.
+      overlay.close();
+      return shell.openTrailFilter();
     }
   }
 
@@ -53,6 +80,7 @@ async function performPaletteItem(
       splash.focusPage();
       return;
     case 'history':
+    case 'bookmark':
     case 'search':
       if (from !== 'palette' && active)
         await splash.navigate(active.id, item.url);
@@ -74,6 +102,32 @@ async function performPaletteItem(
           if (active) await splash.createChildPage(active.id);
           else await splash.createPage();
           return void openLocation();
+        case 'new-sibling-page':
+          if (active) await splash.createSiblingPage(active.id);
+          else await splash.createPage();
+          return void openLocation();
+        case 'collapse-other-trails':
+          if (active) await splash.collapseOtherTrails(active.id);
+          return;
+        case 'import-trail':
+          return void splash.importTrailFile();
+        case 'paste-outline':
+          return void splash.pasteOutline(null);
+        case 'open-file':
+          return void splash.chooseFiles();
+        case 'new-private-window':
+          return void splash.newPrivateWindow();
+        case 'manage-passwords':
+          return void splash.openSettingsSection('passwords');
+        case 'import-data':
+          return void splash.openSettingsSection('transfer');
+        case 'export-bookmarks':
+          return void splash.exportBookmarks();
+        case 'export-trail':
+          return void splash.exportTrail();
+        case 'picture-in-picture':
+          if (active) await splash.togglePictureInPicture(active.id);
+          return;
         case 'reopen-closed':
           await splash.reopenClosed();
           return;
@@ -112,11 +166,47 @@ async function performPaletteItem(
               subject: pageLabel(active),
             }),
           );
+        case 'copy-markdown':
+        case 'copy-text':
+          if (active)
+            await splash.copyPageAs(
+              active.id,
+              item.command === 'copy-markdown' ? 'markdown' : 'text',
+            );
+          return;
+        case 'paste-and-go':
+          await splash.pasteAndGo();
+          return;
+        case 'go-home':
+          await splash.goHome();
+          return;
         case 'close-branch':
           if (active) await splash.closeBranch(active.id);
           return;
         case 'close-others':
           if (active) await splash.closeOtherPages(active.id);
+          return;
+        case 'close-below':
+          if (active) await splash.closePagesBelow(active.id);
+          return;
+        case 'view-source':
+          if (active) await splash.viewSource(active.id);
+          return;
+        case 'dev-tools':
+          if (active) await splash.toggleDevTools(active.id);
+          return;
+        case 'toggle-ai-panel':
+          return useAiPanel.getState().toggle();
+        case 'toggle-bookmarks-bar':
+          return setBookmarksBar(!shell.preferences?.bookmarksBar);
+        case 'bookmark-branch':
+          if (active && shell.snapshot)
+            await bookmarkBranch(
+              shell.snapshot,
+              active.id,
+              pageLabel(active),
+              showBookmarks,
+            );
           return;
         case 'go-back':
           if (active) await splash.goBack(active.id);

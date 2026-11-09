@@ -1,16 +1,19 @@
 import type { Rectangle } from 'electron';
 import type { BrowserSnapshot, Notice } from '../../shared/types';
-import { BrowserController } from './browser-controller';
+import { BrowserController, SharedTrails } from './browser-controller';
 import type {
   LoadOptions,
   PageHistory,
   PageHost,
   PageHostEvents,
 } from './page-host';
+import type { OutlineItem, TrailOutline } from '../transfer/trail-markdown';
 
 class FakeHost implements PageHost {
   loaded: string[] = [];
+  comingBack: (boolean | undefined)[] = [];
   referrers: (string | undefined)[] = [];
+  plainAddresses: (string | undefined)[] = [];
   bounds: Rectangle | null = null;
   visible = false;
   destroyed = false;
@@ -23,7 +26,9 @@ class FakeHost implements PageHost {
 
   load(url: string, options?: LoadOptions) {
     this.loaded.push(url);
+    this.comingBack.push(options?.comingBack);
     this.referrers.push(options?.referrer);
+    this.plainAddresses.push(options?.plainAddress);
     this.history = { entries: [{ url, title: '' }], index: 0 };
   }
   captureHistory() {
@@ -35,6 +40,10 @@ class FakeHost implements PageHost {
   }
   isAudible() {
     return this.audible;
+  }
+  inUse = false;
+  isInUse() {
+    return this.inUse;
   }
   muted = false;
   zoomPercent = 100;
@@ -78,11 +87,18 @@ class FakeHost implements PageHost {
   hide() {
     this.visible = false;
   }
+  site: unknown = null;
+  moveTo(site: unknown) {
+    this.site = site;
+  }
   focus() {
     this.calls.push('focus');
   }
   toggleDevTools() {
     this.calls.push('devtools');
+  }
+  applySiteZoom() {
+    this.calls.push('apply-zoom');
   }
   destroy() {
     this.destroyed = true;
@@ -92,7 +108,16 @@ class FakeHost implements PageHost {
 
 const BOUNDS = { x: 260, y: 48, width: 900, height: 700 };
 
-function setup(options: { maxLiveViews?: number; idPrefix?: string } = {}) {
+function setup(
+  options: {
+    maxLiveViews?: number;
+    idPrefix?: string;
+    defaultZoom?: () => number;
+    allowPlainHttp?: (url: string) => void;
+    allowDangerousSite?: (url: string) => void;
+    allowCertificate?: (url: string) => void;
+  } = {},
+) {
   const { idPrefix = 'page', ...controllerOptions } = options;
   const hosts: FakeHost[] = [];
   const snapshots: BrowserSnapshot[] = [];
@@ -142,6 +167,20 @@ describe('BrowserController', () => {
     });
   });
 
+  it('ends loading when a navigation answers with a download', () => {
+    const { controller, hosts, latest } = setup();
+    const id = controller.createPage({ url: 'https://example.com/file' });
+    hosts[0]!.events.onDownload({
+      url: 'https://example.com/file',
+      filename: 'file.zip',
+      held: false,
+      hasDocument: false,
+      firstHeld: false,
+    });
+    expect(latest().pages[id]?.isLoading).toBe(false);
+    expect(latest().pages[id]?.url).toBe('https://example.com/file');
+  });
+
   it('only shows the active page', () => {
     const { controller, hosts } = setup();
     const first = controller.createPage({ input: 'a.com' });
@@ -162,6 +201,279 @@ describe('BrowserController', () => {
       url: 'https://b.com/',
     });
     expect(snapshot.activePageId).toBe(childId);
+  });
+
+  it('reloads a crashed page in place, keeping its history', () => {
+    const { controller, hosts, latest } = setup();
+    const id = controller.createPage({ input: 'a.com' });
+    hosts[0]!.events.onStateChange({
+      error: {
+        kind: 'crashed',
+        code: 5,
+        description: 'crashed',
+        url: 'https://a.com/',
+      },
+    });
+    expect(hosts[0]!.visible).toBe(false);
+    controller.reload(id);
+    expect(hosts[0]!.calls).toContain('reload');
+    expect(hosts[0]!.loaded).toEqual(['https://a.com/']);
+    expect(hosts[0]!.visible).toBe(true);
+    expect(latest().pages[id]!.error).toBeNull();
+  });
+
+  describe('HTTPS-only mode', () => {
+    const failure = (kind: 'no-secure-connection' | 'load-failed') => ({
+      error: {
+        kind,
+        code: -102,
+        description: 'ERR_CONNECTION_REFUSED',
+        url: 'http://a.com/',
+      },
+    });
+
+    it('tells the page a typed host may fall back, but not a typed https://', () => {
+      const { controller, hosts } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      controller.navigate(id, 'https://b.com/');
+      controller.navigate(id, 'c.com');
+      expect(hosts[0]!.plainAddresses).toEqual([
+        'http://a.com/',
+        undefined,
+        'http://c.com/',
+      ]);
+    });
+
+    it('does not treat a link as typed', () => {
+      const { controller, hosts } = setup();
+      controller.createPage({ url: 'https://a.com/' });
+      expect(hosts[0]!.plainAddresses).toEqual([undefined]);
+    });
+
+    it('continues over HTTP only from the warning, and remembers the site', () => {
+      const allowPlainHttp = vi.fn();
+      const { controller, hosts, latest } = setup({ allowPlainHttp });
+      const id = controller.createPage({ url: 'http://a.com/' });
+
+      controller.continueOverHttp(id);
+      expect(allowPlainHttp).not.toHaveBeenCalled();
+      hosts[0]!.events.onStateChange(failure('load-failed'));
+      controller.continueOverHttp(id);
+      expect(allowPlainHttp).not.toHaveBeenCalled();
+
+      hosts[0]!.events.onStateChange(failure('no-secure-connection'));
+      controller.continueOverHttp(id);
+      expect(allowPlainHttp).toHaveBeenCalledWith('http://a.com/');
+      expect(hosts[0]!.loaded.at(-1)).toBe('http://a.com/');
+      expect(latest().pages[id]!.error).toBeNull();
+    });
+
+    it('continues to a dangerous site only from its warning', () => {
+      const allowDangerousSite = vi.fn();
+      const { controller, hosts, latest } = setup({ allowDangerousSite });
+      const id = controller.createPage({ url: 'https://evil.example/' });
+
+      controller.continueToDangerousSite(id);
+      hosts[0]!.events.onStateChange({
+        error: {
+          kind: 'load-failed',
+          code: -20,
+          description: 'ERR_BLOCKED_BY_CLIENT',
+          url: 'https://evil.example/',
+        },
+      });
+      controller.continueToDangerousSite(id);
+      expect(allowDangerousSite).not.toHaveBeenCalled();
+
+      hosts[0]!.events.onStateChange({
+        error: {
+          kind: 'dangerous-site',
+          code: -20,
+          description: 'ERR_BLOCKED_BY_CLIENT',
+          url: 'https://evil.example/',
+        },
+      });
+      controller.continueToDangerousSite(id);
+      expect(allowDangerousSite).toHaveBeenCalledWith('https://evil.example/');
+      expect(hosts[0]!.loaded.at(-1)).toBe('https://evil.example/');
+      expect(latest().pages[id]!.error).toBeNull();
+    });
+
+    it('continues past a certificate only from its warning', () => {
+      const allowCertificate = vi.fn();
+      const { controller, hosts, latest } = setup({ allowCertificate });
+      const id = controller.createPage({ url: 'https://nas.example/' });
+      const fail = (code: number) =>
+        hosts[0]!.events.onStateChange({
+          error: {
+            kind: 'load-failed',
+            code,
+            description: 'ERR',
+            url: 'https://nas.example/',
+          },
+        });
+
+      controller.continuePastCertificate(id);
+      // Refused outright, and a failure that has nothing to do with certificates.
+      fail(-206);
+      controller.continuePastCertificate(id);
+      fail(-105);
+      controller.continuePastCertificate(id);
+      expect(allowCertificate).not.toHaveBeenCalled();
+
+      fail(-202);
+      controller.continuePastCertificate(id);
+      expect(allowCertificate).toHaveBeenCalledWith('https://nas.example/');
+      expect(hosts[0]!.loaded.at(-1)).toBe('https://nas.example/');
+      expect(latest().pages[id]!.error).toBeNull();
+    });
+
+    it('goes to the secure address from a failed upgrade', () => {
+      const allowCertificate = vi.fn();
+      const { controller, hosts } = setup({ allowCertificate });
+      const id = controller.createPage({ url: 'http://nas.example/a' });
+      hosts[0]!.events.onStateChange({
+        error: {
+          kind: 'no-secure-connection',
+          code: -202,
+          description: 'ERR_CERT_AUTHORITY_INVALID',
+          url: 'http://nas.example/a',
+        },
+      });
+      controller.continuePastCertificate(id);
+      expect(allowCertificate).toHaveBeenCalledWith('https://nas.example/a');
+      expect(hosts[0]!.loaded.at(-1)).toBe('https://nas.example/a');
+    });
+
+    it('tries the plain address again, so the upgrade runs again', () => {
+      const { controller, hosts } = setup();
+      const id = controller.createPage({ url: 'http://a.com/' });
+      hosts[0]!.events.onStateChange(failure('no-secure-connection'));
+      controller.reload(id);
+      expect(hosts[0]!.loaded).toEqual(['http://a.com/', 'http://a.com/']);
+    });
+  });
+
+  describe('zoom', () => {
+    it('resets to the default zoom', () => {
+      const { controller, hosts } = setup({ defaultZoom: () => 125 });
+      const id = controller.createPage({ input: 'a.com' });
+      controller.zoom(id, 'reset');
+      expect(hosts[0]!.zoomPercent).toBe(125);
+    });
+
+    it('shows a zoom on every page of the site, and only there', () => {
+      const { controller, hosts, latest } = setup();
+      const a = controller.createPage({ input: 'a.com' });
+      const sibling = controller.createPage({ input: 'a.com/other' });
+      const other = controller.createPage({ input: 'b.com' });
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+      hosts[1]!.events.onStateChange({ url: 'https://a.com/other' });
+      hosts[2]!.events.onStateChange({ url: 'https://b.com/' });
+      hosts[0]!.events.onZoomChange(150);
+      expect(latest().pages[a]!.zoomPercent).toBe(150);
+      expect(latest().pages[sibling]!.zoomPercent).toBe(150);
+      expect(latest().pages[other]!.zoomPercent).toBe(100);
+    });
+
+    it('asks awake pages to apply changed settings', () => {
+      const { controller, hosts } = setup();
+      controller.createPage({ input: 'a.com' });
+      controller.applyZoomSettings();
+      expect(hosts[0]!.calls).toContain('apply-zoom');
+    });
+  });
+
+  describe('rebuilding views for new display settings', () => {
+    it('brings pages on screen straight back and puts others to sleep', () => {
+      const { controller, hosts, latest } = setup();
+      const hidden = controller.createPage({ input: 'a.com' });
+      const shown = controller.createPage({ input: 'b.com' });
+      controller.rebuildViews();
+      expect(hosts[0]!.destroyed).toBe(true);
+      expect(hosts[1]!.destroyed).toBe(true);
+      expect(latest().pages[hidden]!.isDiscarded).toBe(true);
+      expect(latest().pages[shown]!.isDiscarded).toBe(false);
+      expect(hosts[2]!.restored?.entries[0]?.url).toBe('https://b.com/');
+      expect(hosts[2]!.visible).toBe(true);
+    });
+
+    it('leaves alone a page being typed in or playing sound', () => {
+      const { controller, hosts } = setup();
+      controller.createPage({ input: 'a.com' });
+      controller.createPage({ input: 'b.com' });
+      hosts[0]!.events.onStateChange({ hasFormEdits: true });
+      hosts[1]!.audible = true;
+      controller.rebuildViews();
+      expect(hosts[0]!.destroyed).toBe(false);
+      expect(hosts[1]!.destroyed).toBe(false);
+    });
+  });
+
+  describe('blocked popups', () => {
+    it('lists them on the page, each once, and shows them as blocked', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      hosts[0]!.events.onPopupBlocked('https://ads.com/');
+      hosts[0]!.events.onPopupBlocked('https://ads.com/');
+      hosts[0]!.events.onPopupBlocked(null);
+      expect(latest().pages[id]).toMatchObject({
+        blockedPopups: ['https://ads.com/'],
+        blockedPermissions: ['popups'],
+      });
+      expect(latest().pages[id]!.childIds).toEqual([]);
+    });
+
+    it('stops listing a page that keeps trying', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      for (let i = 0; i < 50; i++) {
+        hosts[0]!.events.onPopupBlocked(`https://ads.com/${i}`);
+      }
+      expect(latest().pages[id]!.blockedPopups).toHaveLength(20);
+    });
+
+    it('opens one on request as a child, and forgets it', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      hosts[0]!.events.onPopupBlocked('https://ads.com/');
+      controller.openBlockedPopup(id, 'https://ads.com/');
+      const page = latest().pages[id]!;
+      expect(page.blockedPopups).toEqual([]);
+      expect(page.blockedPermissions).toEqual([]);
+      expect(latest().pages[page.childIds[0]!]!.url).toBe('https://ads.com/');
+    });
+
+    it('opens only what the page actually tried to open', () => {
+      const { controller, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      controller.openBlockedPopup(id, 'https://elsewhere.com/');
+      expect(latest().pages[id]!.childIds).toEqual([]);
+    });
+
+    it('starts each document with a clean slate', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+      hosts[0]!.events.onPopupBlocked('https://ads.com/');
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/#section' });
+      expect(latest().pages[id]!.blockedPopups).toHaveLength(1);
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/other' });
+      expect(latest().pages[id]!.blockedPopups).toEqual([]);
+      expect(latest().pages[id]!.blockedPermissions).toEqual([]);
+    });
+
+    it('stops saying blocked once the site is allowed, keeping the list', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'a.com' });
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+      hosts[0]!.events.onPopupBlocked('https://ads.com/');
+      controller.clearBlockedPopups('https://a.com');
+      expect(latest().pages[id]).toMatchObject({
+        blockedPermissions: [],
+        blockedPopups: ['https://ads.com/'],
+      });
+    });
   });
 
   it('keeps background children inactive', () => {
@@ -371,6 +683,91 @@ describe('BrowserController', () => {
       expect(hosts.map((h) => h.destroyed)).toEqual([false, false]);
     });
 
+    it('never discards a page on a call or open in DevTools', () => {
+      const { controller, hosts } = setup({ maxLiveViews: 1 });
+      controller.createPage({ input: 'a.com' });
+      hosts[0]!.inUse = true;
+      controller.createPage({ input: 'b.com' });
+      expect(hosts.map((h) => h.destroyed)).toEqual([false, false]);
+      hosts[0]!.inUse = false;
+      controller.createPage({ input: 'c.com' });
+      expect(hosts[0]!.destroyed).toBe(true);
+    });
+
+    it('keeps a call going when settings rebuild the views', () => {
+      const { controller, hosts } = setup();
+      controller.createPage({ input: 'a.com' });
+      hosts[0]!.inUse = true;
+      controller.createPage({ input: 'b.com' });
+      controller.rebuildViews();
+      expect(hosts[0]!.destroyed).toBe(false);
+      expect(hosts[1]!.destroyed).toBe(true);
+    });
+
+    describe('when memory runs low', () => {
+      const open = (count: number) => {
+        const context = setup({ maxLiveViews: 12 });
+        for (let i = 0; i < count; i++) {
+          context.controller.createPage({ input: `p${i}.com` });
+        }
+        const live = () => context.hosts.filter((h) => !h.destroyed).length;
+        return { ...context, live };
+      };
+
+      it('keeps half the pages awake, the least recently used going first', () => {
+        const { controller, hosts, live } = open(12);
+        expect(live()).toBe(12);
+        controller.setMemoryPressure('warn');
+        expect(live()).toBe(6);
+        expect(hosts.slice(0, 6).every((h) => h.destroyed)).toBe(true);
+        expect(hosts.slice(6).some((h) => h.destroyed)).toBe(false);
+      });
+
+      it('keeps two when it is critical, the current page among them', () => {
+        const { controller, hosts, live } = open(12);
+        controller.setMemoryPressure('critical');
+        expect(live()).toBe(2);
+        expect(hosts.at(-1)!.destroyed).toBe(false);
+      });
+
+      it('keeps what can’t be restored, however low memory is', () => {
+        const { controller, hosts, live } = open(6);
+        hosts[0]!.audible = true;
+        hosts[1]!.inUse = true;
+        controller.setMemoryPressure('critical');
+        expect(hosts[0]!.destroyed).toBe(false);
+        expect(hosts[1]!.destroyed).toBe(false);
+        expect(live()).toBe(3);
+      });
+
+      it('holds to the lower limit as pages open, and lets go afterwards', () => {
+        const { controller, live } = open(4);
+        controller.setMemoryPressure('warn');
+        for (let i = 0; i < 4; i++) {
+          controller.createPage({ input: `more${i}.com` });
+        }
+        expect(live()).toBe(6);
+        controller.setMemoryPressure('normal');
+        for (let i = 0; i < 4; i++) {
+          controller.createPage({ input: `later${i}.com` });
+        }
+        expect(live()).toBe(10);
+      });
+
+      it('leaves sleeping pages their addresses and wakes them when opened', () => {
+        const { controller, hosts, latest } = open(4);
+        const first = latest().rootIds[0]!;
+        controller.setMemoryPressure('critical');
+        expect(latest().pages[first]).toMatchObject({
+          isDiscarded: true,
+          url: 'https://p0.com/',
+        });
+        controller.activatePage(first);
+        expect(latest().pages[first]?.isDiscarded).toBe(false);
+        expect(hosts.at(-1)!.restored?.entries[0]?.url).toBe('https://p0.com/');
+      });
+    });
+
     it('ignores late events from a discarded view', () => {
       const { controller, hosts, latest } = setup({ maxLiveViews: 1 });
       const a = controller.createPage({ input: 'a.com' });
@@ -442,6 +839,237 @@ describe('BrowserController', () => {
       expect(latest().pages[root]?.childIds).toEqual([a, b]);
       expect(latest().pages[other]?.childIds).toEqual([otherChild]);
       expect(latest().rootIds).toEqual([pinned, root, other, stray]);
+    });
+
+    it('closes the pages below, keeping pinned ones, with one undo', () => {
+      const { controller, latest, root, a, a1, b } = trail();
+      const other = controller.createPage({ input: 'other.com' });
+      const otherChild = controller.createPage({
+        input: 'other-child.com',
+        parentId: other,
+      });
+      const pinned = controller.createPage({ input: 'pin.com' });
+      controller.setPinned(pinned, true);
+      controller.activatePage(b);
+      controller.closePagesBelow(a);
+      // Pinning lifted `pinned` to the top; a's own child is below it too.
+      expect(Object.keys(latest().pages).sort()).toEqual(
+        [pinned, root, a].sort(),
+      );
+      expect(latest().activePageId).toBe(a);
+      expect(latest().lastClosed).toMatchObject({ pageCount: 4 });
+
+      controller.reopenClosed();
+      expect(latest().pages[a]?.childIds).toEqual([a1]);
+      expect(latest().pages[root]?.childIds).toEqual([a, b]);
+      expect(latest().pages[other]?.childIds).toEqual([otherChild]);
+      expect(latest().rootIds).toEqual([pinned, root, other]);
+      // Undo also goes back to the page that was on screen.
+      expect(latest().activePageId).toBe(b);
+    });
+
+    it('shows the first page when many are reopened by picking them', () => {
+      const { controller, latest, a, a1, b } = trail();
+      controller.activatePage(b);
+      controller.closePagesBelow(a);
+      const [record] = controller.recentlyClosed();
+      expect(controller.reopenClosed(record!.serial)).toBe(a1);
+      expect(latest().activePageId).toBe(a1);
+    });
+
+    it('stays on the active page when it is above the ones closed', () => {
+      const { controller, latest, root, a, b } = trail();
+      controller.activatePage(root);
+      controller.closePagesBelow(a);
+      expect(latest().activePageId).toBe(root);
+      expect(latest().pages[b]).toBeUndefined();
+    });
+
+    it('closes nothing below the last page or below a pinned one', () => {
+      const { controller, latest, b } = trail();
+      controller.closePagesBelow(b);
+      expect(latest().lastClosed).toBeNull();
+
+      const other = controller.createPage({ input: 'other.com' });
+      controller.setPinned(other, true);
+      controller.closePagesBelow(other);
+      expect(latest().lastClosed).toBeNull();
+    });
+
+    it('leaves a split that no longer has both its pages', () => {
+      const { controller, latest, root, a, a1, b } = trail();
+      controller.activatePage(a);
+      controller.toggleSplit(a);
+      expect(latest().split).toEqual({ leftId: root, rightId: a });
+      controller.closePagesBelow(root);
+      expect(latest().pages[a1]).toBeUndefined();
+      expect(latest().pages[b]).toBeUndefined();
+      expect(latest().split).toBeNull();
+      expect(latest().activePageId).toBe(root);
+    });
+
+    it('opens the source of a web page as its child', () => {
+      const { controller, latest, a } = trail();
+      const source = controller.viewSource(a);
+      expect(latest().pages[source!]?.parentId).toBe(a);
+      expect(latest().activePageId).toBe(source);
+    });
+
+    it('has no source to open for an empty page', () => {
+      const { controller, latest } = trail();
+      const blank = controller.createPage();
+      const before = Object.keys(latest().pages).length;
+      expect(controller.viewSource(blank)).toBeNull();
+      expect(Object.keys(latest().pages)).toHaveLength(before);
+    });
+
+    it('lists what can be reopened, and reopens any of it by its serial', () => {
+      const { controller, latest, a1, b } = trail();
+      controller.closePage(a1);
+      controller.closePage(b);
+      const [newest, oldest] = controller.recentlyClosed();
+      expect(newest).toMatchObject({ url: 'https://b.com/', pageCount: 1 });
+      expect(oldest).toMatchObject({ url: 'https://a1.com/' });
+
+      expect(controller.reopenClosed(oldest!.serial)).toBe(a1);
+      expect(latest().pages[a1]).toBeDefined();
+      expect(latest().pages[b]).toBeUndefined();
+      expect(controller.recentlyClosed().map((c) => c.serial)).toEqual([
+        newest!.serial,
+      ]);
+    });
+
+    describe('undo and redo of a close', () => {
+      const serialOf = (controller: BrowserController) =>
+        controller.recentlyClosed()[0]!.serial;
+
+      it('closes a single page again, its children stepping up again', async () => {
+        const { controller, latest, root, a, a1 } = trail();
+        controller.closePage(a);
+        const closed = serialOf(controller);
+        expect(controller.undoClose(closed)).toBe(true);
+        expect(latest().pages[a]?.childIds).toEqual([a1]);
+
+        const again = await controller.closeAgain(closed);
+        expect(again).toBe(serialOf(controller));
+        expect(again).toBeGreaterThan(closed);
+        expect(latest().pages[a]).toBeUndefined();
+        expect(latest().pages[a1]?.parentId).toBe(root);
+        expect(latest().lastClosed?.redone).toBe(true);
+      });
+
+      it('closes a whole branch again', async () => {
+        const { controller, latest, a, a1, b } = trail();
+        controller.closeBranch(a);
+        const closed = serialOf(controller);
+        controller.undoClose(closed);
+        await controller.closeAgain(closed);
+        expect(latest().pages[a]).toBeUndefined();
+        expect(latest().pages[a1]).toBeUndefined();
+        expect(latest().pages[b]).toBeDefined();
+        expect(latest().lastClosed).toMatchObject({ pageCount: 2 });
+      });
+
+      it('closes the same pages again after Close Pages Below', async () => {
+        const { controller, latest, root, a, a1, b } = trail();
+        controller.closePagesBelow(a);
+        const closed = serialOf(controller);
+        controller.undoClose(closed);
+        await controller.closeAgain(closed);
+        expect(Object.keys(latest().pages).sort()).toEqual([root, a].sort());
+        expect(latest().pages[a1]).toBeUndefined();
+        expect(latest().pages[b]).toBeUndefined();
+        expect(latest().activePageId).toBe(a);
+      });
+
+      it('moves on to a nearby page when the one on screen goes', async () => {
+        const { controller, latest, a, a1, b } = trail();
+        controller.activatePage(a1);
+        controller.closePagesBelow(a);
+        const closed = serialOf(controller);
+        controller.undoClose(closed);
+        controller.activatePage(b);
+        await controller.closeAgain(closed);
+        expect(latest().activePageId).toBe(a);
+      });
+
+      it('takes along a page opened under them since', async () => {
+        const { controller, latest, a, a1 } = trail();
+        controller.closeBranch(a);
+        const closed = serialOf(controller);
+        controller.undoClose(closed);
+        const added = controller.createPage({ input: 'new.com', parentId: a1 });
+        await controller.closeAgain(closed);
+        expect(latest().pages[added]).toBeUndefined();
+        expect(latest().lastClosed).toMatchObject({ pageCount: 3 });
+      });
+
+      it('deletes a workspace again', async () => {
+        const { controller, latest } = setup();
+        controller.createPage({ input: 'a.com' });
+        const second = controller.createWorkspace('Second');
+        controller.createPage({ input: 'b.com' });
+        controller.deleteWorkspace(second);
+        const closed = serialOf(controller);
+        controller.undoClose(closed);
+        expect(latest().workspaces.map((w) => w.id)).toContain(second);
+        const again = await controller.closeAgain(closed);
+        expect(again).not.toBeNull();
+        expect(latest().workspaces.map((w) => w.id)).not.toContain(second);
+      });
+
+      it('deletes a group and its pages again', async () => {
+        const { controller, latest, root } = trail();
+        const group = controller.createGroup('Reading', root);
+        controller.deleteGroupWithPages(group);
+        const closed = serialOf(controller);
+        controller.undoClose(closed);
+        expect(latest().groups.map((g) => g.id)).toEqual([group]);
+        await controller.closeAgain(closed);
+        expect(latest().groups).toEqual([]);
+        expect(latest().pages[root]).toBeUndefined();
+      });
+
+      it('reports a close already undone another way', () => {
+        const { controller, a } = trail();
+        controller.closePage(a);
+        const closed = serialOf(controller);
+        controller.reopenClosed();
+        expect(controller.undoClose(closed)).toBe(false);
+      });
+
+      it('has nothing to close again if the pages have gone', async () => {
+        const { controller, a1 } = trail();
+        controller.closePage(a1);
+        const closed = serialOf(controller);
+        controller.undoClose(closed);
+        controller.closePage(a1);
+        expect(await controller.closeAgain(closed)).toBeNull();
+        expect(await controller.closeAgain(12345)).toBeNull();
+      });
+
+      it('does not close again when a page refuses to leave', async () => {
+        const { controller, latest, hosts, a1 } = trail();
+        controller.closePage(a1);
+        const closed = serialOf(controller);
+        controller.undoClose(closed);
+        controller.activatePage(a1);
+        const host = hosts.at(-1)! as FakeHost & {
+          requestClose(): Promise<boolean>;
+        };
+        host.requestClose = vi.fn(async () => false);
+        expect(await controller.closeAgain(closed)).toBeNull();
+        expect(latest().pages[a1]).toBeDefined();
+      });
+    });
+
+    it('tells the shell where a pinned page landed, for redo', () => {
+      const { controller, notices, a } = trail();
+      controller.setPinned(a, true);
+      expect(notices.at(-1)).toMatchObject({
+        kind: 'pinned',
+        at: { parentId: null, index: 0 },
+      });
     });
 
     it('reopening a single closed page takes its children back', () => {
@@ -582,6 +1210,7 @@ describe('BrowserController', () => {
       expect(notices).toEqual([
         {
           kind: 'moved',
+          index: 0,
           pageId: moved,
           label: 'c.com',
           pageCount: 2,
@@ -962,6 +1591,214 @@ describe('BrowserController', () => {
     });
   });
 
+  describe('groups', () => {
+    it('files pages in a group, kept together ahead of the loose ones', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const b = controller.createPage({ url: 'https://b.example/' });
+      const c = controller.createPage({ url: 'https://c.example/' });
+      const group = controller.createGroup('Trip', c);
+      controller.setPageGroup(a, group);
+
+      expect(latest().groups).toEqual([
+        { id: group, name: 'Trip', collapsed: false },
+      ]);
+      expect(latest().rootIds).toEqual([c, a, b]);
+      expect(latest().pages[a]!.groupId).toBe(group);
+      expect(latest().pages[b]!.groupId).toBeNull();
+    });
+
+    it('brings a child page up to the top level when it is filed', () => {
+      const { controller, latest } = setup();
+      const parent = controller.createPage({ url: 'https://a.example/' });
+      const child = controller.createPage({
+        url: 'https://b.example/',
+        parentId: parent,
+      });
+      const group = controller.createGroup('Reading', child);
+      expect(latest().pages[child]).toMatchObject({
+        parentId: null,
+        groupId: group,
+      });
+      expect(latest().pages[parent]!.childIds).toEqual([]);
+    });
+
+    it('keeps its pages when it is dissolved', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const group = controller.createGroup('Trip', a);
+      controller.deleteGroup(group);
+      expect(latest().groups).toEqual([]);
+      expect(latest().pages[a]!.groupId).toBeNull();
+    });
+
+    it('folds and renames without touching the pages', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const group = controller.createGroup('Trip', a);
+      controller.setGroupCollapsed(group, true);
+      controller.renameGroup(group, '  Lisbon  ');
+      expect(latest().groups[0]).toMatchObject({
+        name: 'Lisbon',
+        collapsed: true,
+      });
+      expect(latest().pages[a]!.url).toBe('https://a.example/');
+    });
+
+    it('keeps an icon until it’s put back to the folder', () => {
+      const { controller, latest } = setup();
+      const group = controller.createGroup('Trip');
+      controller.setGroupIcon(group, { kind: 'emoji', value: '✈️' });
+      expect(latest().groups[0]!.icon).toEqual({
+        kind: 'emoji',
+        value: '✈️',
+      });
+      controller.setGroupIcon(group, null);
+      expect(latest().groups[0]).not.toHaveProperty('icon');
+    });
+
+    describe('deleting with its pages', () => {
+      function filed() {
+        const context = setup();
+        const { controller } = context;
+        const before = controller.createPage({ url: 'https://a.example/' });
+        const inside = controller.createPage({ url: 'https://b.example/' });
+        const child = controller.createPage({
+          url: 'https://c.example/',
+          parentId: inside,
+        });
+        const after = controller.createPage({ url: 'https://d.example/' });
+        const first = controller.createGroup('First');
+        const group = controller.createGroup('Trip', inside);
+        controller.setGroupIcon(group, { kind: 'emoji', value: '🐎' });
+        return { ...context, before, inside, child, after, first, group };
+      }
+
+      it('closes them, branches too, and moves on from the current one', () => {
+        const { controller, latest, before, inside, child, after, group } =
+          filed();
+        controller.activatePage(child);
+        controller.deleteGroupWithPages(group);
+        const snapshot = latest();
+        expect(snapshot.groups.map((item) => item.name)).toEqual(['First']);
+        expect(snapshot.pages[inside]).toBeUndefined();
+        expect(snapshot.pages[child]).toBeUndefined();
+        expect(snapshot.rootIds).toEqual([before, after]);
+        expect(snapshot.activePageId).toBe(before);
+        expect(snapshot.lastClosed).toMatchObject({
+          kind: 'group',
+          label: 'Trip',
+          pageCount: 2,
+        });
+      });
+
+      it('leaves the current page alone when it’s outside the group', () => {
+        const { controller, latest, after, group } = filed();
+        controller.activatePage(after);
+        controller.deleteGroupWithPages(group);
+        expect(latest().activePageId).toBe(after);
+      });
+
+      it('brings back the group, icon and pages with one reopen', () => {
+        const { controller, latest, inside, child, first, group } = filed();
+        controller.deleteGroupWithPages(group);
+        controller.reopenClosed();
+        const snapshot = latest();
+        expect(snapshot.groups.map((item) => item.id)).toEqual([first, group]);
+        expect(snapshot.groups[1]!.icon).toEqual({
+          kind: 'emoji',
+          value: '🐎',
+        });
+        expect(snapshot.pages[inside]!.groupId).toBe(group);
+        expect(snapshot.pages[child]!.parentId).toBe(inside);
+        expect(snapshot.lastClosed).toBeNull();
+      });
+
+      it('takes an empty group back too, without changing the page', () => {
+        const { controller, latest, after, first } = filed();
+        controller.activatePage(after);
+        controller.deleteGroupWithPages(first);
+        expect(latest().lastClosed).toMatchObject({
+          kind: 'group',
+          label: 'First',
+          pageCount: 0,
+        });
+        controller.reopenClosed();
+        expect(latest().groups[0]!.id).toBe(first);
+        expect(latest().activePageId).toBe(after);
+      });
+
+      it('leaves a workspace empty rather than failing on its last pages', () => {
+        const { controller, latest } = setup();
+        const only = controller.createPage({ url: 'https://a.example/' });
+        const group = controller.createGroup('Trip', only);
+        controller.deleteGroupWithPages(group);
+        expect(latest().rootIds).toEqual([]);
+        expect(latest().activePageId).toBeNull();
+      });
+    });
+
+    it('joins a page dropped between two of its pages, and leaves when dropped out', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const b = controller.createPage({ url: 'https://b.example/' });
+      const c = controller.createPage({ url: 'https://c.example/' });
+      const x = controller.createPage({ url: 'https://x.example/' });
+      const group = controller.createGroup('G', a);
+      controller.setPageGroup(b, group);
+      expect(latest().rootIds).toEqual([a, b, c, x]);
+
+      controller.movePage(x, null, a);
+      expect(latest().pages[x]!.groupId).toBe(group);
+      controller.movePage(x, null, c);
+      expect(latest().pages[x]!.groupId).toBeNull();
+    });
+
+    it('lets a closed page’s children stay in its group', () => {
+      const { controller, latest } = setup();
+      const parent = controller.createPage({ url: 'https://a.example/' });
+      const child = controller.createPage({
+        url: 'https://b.example/',
+        parentId: parent,
+      });
+      const group = controller.createGroup('G', parent);
+      controller.closePage(parent);
+      expect(latest().pages[child]!.groupId).toBe(group);
+    });
+
+    it('returns a closed grouped page to its group', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const b = controller.createPage({ url: 'https://b.example/' });
+      const group = controller.createGroup('G', a);
+      controller.setPageGroup(b, group);
+      controller.closePage(a);
+      controller.reopenClosed();
+      expect(latest().pages[a]!.groupId).toBe(group);
+    });
+
+    it('survives a restart, with imported pages left unloaded', () => {
+      const { controller, hosts } = setup();
+      const group = controller.importGroup('Saved', true, [
+        { url: 'https://one.example/', title: 'One' },
+        { url: 'https://two.example/', title: 'Two' },
+      ]);
+      expect(hosts).toHaveLength(0);
+      const session = controller.exportSession();
+      expect(session.workspaces[0]!.groups).toEqual([
+        { id: group, name: 'Saved', collapsed: true },
+      ]);
+
+      const restored = setup({ idPrefix: 'r' });
+      restored.controller.restoreSession(session);
+      const snapshot = restored.latest();
+      expect(snapshot.groups).toHaveLength(1);
+      expect(snapshot.rootIds.map((id) => snapshot.pages[id]!.groupId)).toEqual(
+        [group, group],
+      );
+    });
+  });
+
   describe('pinned pages', () => {
     it('pins a branch to the top of the trail, after earlier pins', () => {
       const { controller, latest } = setup();
@@ -1270,6 +2107,55 @@ describe('BrowserController', () => {
       expect(latest().pages[id]?.blockedPermissions).toEqual([]);
     });
 
+    it('explains once when macOS refuses what the site was allowed', () => {
+      const { controller, hosts, latest, notices } = setup();
+      const id = controller.createPage({ input: 'meet.example' });
+      hosts[0]!.events.onStateChange({ url: 'https://meet.example/' });
+
+      hosts[0]!.events.onPermissionRefusedBySystem(['location']);
+      hosts[0]!.events.onPermissionRefusedBySystem(['location']);
+
+      expect(latest().pages[id]?.blockedPermissions).toEqual(['location']);
+      expect(controller.systemRefusedOn(id)).toEqual(['location']);
+      expect(
+        notices.filter((n) => n.kind === 'system-permission-refused'),
+      ).toEqual([
+        {
+          kind: 'system-permission-refused',
+          permissions: ['location'],
+          host: 'meet.example',
+        },
+      ]);
+    });
+
+    it('asks macOS afresh after a reload or on another site', () => {
+      const { controller, hosts, latest, notices } = setup();
+      const id = controller.createPage({ input: 'meet.example' });
+      hosts[0]!.events.onStateChange({ url: 'https://meet.example/' });
+
+      hosts[0]!.events.onPermissionRefusedBySystem(['camera']);
+      controller.reload(id);
+      expect(controller.systemRefusedOn(id)).toEqual([]);
+      expect(latest().pages[id]?.blockedPermissions).toEqual([]);
+
+      hosts[0]!.events.onPermissionRefusedBySystem(['camera']);
+      expect(
+        notices.filter((n) => n.kind === 'system-permission-refused'),
+      ).toHaveLength(2);
+      hosts[0]!.events.onStateChange({ url: 'https://elsewhere.example/' });
+      expect(controller.systemRefusedOn(id)).toEqual([]);
+    });
+
+    it('keeps a refusal the user made through a reload', () => {
+      const { controller, hosts, latest } = setup();
+      const id = controller.createPage({ input: 'meet.example' });
+      hosts[0]!.events.onStateChange({ url: 'https://meet.example/' });
+      hosts[0]!.events.onPermissionBlocked(['midi']);
+      hosts[0]!.events.onPermissionRefusedBySystem(['camera']);
+      controller.reload(id);
+      expect(latest().pages[id]?.blockedPermissions).toEqual(['midi']);
+    });
+
     it('refuses pending requests when the page leaves or closes', async () => {
       const { controller, hosts } = setup();
       const id = controller.createPage({ input: 'meet.example' });
@@ -1481,4 +2367,685 @@ it('opens a restored child with its destination before publishing it as active',
   expect(latest().activePageId).toBe(child);
   expect(latest().pages[child]?.url).toBe('https://www.wikipedia.org/');
   expect(hosts.at(-1)?.loaded).toEqual(['https://www.wikipedia.org/']);
+});
+
+describe('shared trails', () => {
+  /** Two windows on one set of trails. Ids and hosts are shared too. */
+  function twoWindows() {
+    const trails = new SharedTrails();
+    const hosts: FakeHost[] = [];
+    let next = 0;
+    const open = (site: string) => {
+      const snapshots: BrowserSnapshot[] = [];
+      const focus = vi.fn();
+      const controller = new BrowserController({
+        trails,
+        site,
+        focusWindow: focus,
+        createHost: (events) => {
+          const host = new FakeHost(events);
+          hosts.push(host);
+          return host;
+        },
+        onSnapshot: (snapshot) => snapshots.push(snapshot),
+        schedule: (flush) => flush(),
+        createId: () => `page-${++next}`,
+      });
+      controller.setContentBounds(BOUNDS);
+      return { controller, latest: () => snapshots.at(-1)!, focus };
+    };
+    const a = open('a');
+    const pageA = a.controller.createPage({ url: 'https://a.com/' });
+    const pageB = a.controller.createPage({ url: 'https://b.com/' });
+    const b = open('b');
+    return { trails, a, b, pageA, pageB, hosts, open };
+  }
+
+  it('shows every window the same pages', () => {
+    const { a, b } = twoWindows();
+    const page = b.controller.createPage({ url: 'https://c.com/' });
+    expect(a.latest().pages[page]?.url).toBe('https://c.com/');
+    expect(b.latest().pages[page]?.url).toBe('https://c.com/');
+    a.controller.renamePage(page, 'Mine');
+    expect(b.latest().pages[page]?.customTitle).toBe('Mine');
+    expect(a.latest().otherWindows).toEqual([
+      { id: b.controller.viewerId, title: 'Mine' },
+    ]);
+  });
+
+  it('gives each window its own open page', () => {
+    const { a, b, pageA, pageB } = twoWindows();
+    b.controller.activatePage(pageA);
+    expect(a.controller.activePageId).toBe(pageB);
+    expect(b.controller.activePageId).toBe(pageA);
+  });
+
+  it('gives each window its own expanded and collapsed pages', () => {
+    const { a, b, pageB } = twoWindows();
+    a.controller.createChildPage(pageB);
+    b.controller.setCollapsed(pageB, true);
+    expect(b.latest().pages[pageB]?.collapsed).toBe(true);
+    expect(a.latest().pages[pageB]?.collapsed).toBe(false);
+  });
+
+  it('moves a page to the window that opens it', () => {
+    const { a, b, pageB, hosts } = twoWindows();
+    const host = hosts[1]!;
+    expect(host.visible).toBe(true);
+    b.controller.activatePage(pageB);
+    expect(host.site).toBe('b');
+    expect(host.visible).toBe(true);
+    expect(a.controller.holds(pageB)).toBe(false);
+    expect(b.controller.holds(pageB)).toBe(true);
+    expect(a.controller.activePageId).toBe(pageB);
+    expect(a.latest().pages[pageB]?.shownElsewhere).toBe(true);
+    expect(b.latest().pages[pageB]?.shownElsewhere).toBe(false);
+  });
+
+  it('gets a page back once the other window moves on', () => {
+    const { a, b, pageA, pageB, hosts } = twoWindows();
+    b.controller.activatePage(pageB);
+    b.controller.activatePage(pageA);
+    expect(hosts[1]!.site).toBe('a');
+    expect(a.controller.holds(pageB)).toBe(true);
+    expect(hosts[1]!.visible).toBe(true);
+    expect(a.latest().pages[pageB]?.shownElsewhere).toBe(false);
+  });
+
+  it('leaves a page where it is when switching workspaces', () => {
+    const { a, b, pageB } = twoWindows();
+    const first = a.controller.currentWorkspaceId;
+    const other = a.controller.createWorkspace('Other');
+    a.controller.switchWorkspace(first);
+    b.controller.switchWorkspace(other);
+    b.controller.switchWorkspace(first);
+    expect(a.controller.holds(pageB)).toBe(true);
+    expect(b.latest().pages[pageB]?.shownElsewhere).toBe(true);
+  });
+
+  it('moves every window on when a page they show closes', () => {
+    const { a, b, pageA, pageB } = twoWindows();
+    b.controller.activatePage(pageB);
+    a.controller.closePage(pageB);
+    expect(a.controller.activePageId).toBe(pageA);
+    expect(b.controller.activePageId).toBe(pageA);
+  });
+
+  it('moves a window off a workspace another one deletes', () => {
+    const { a, b } = twoWindows();
+    const other = a.controller.createWorkspace('Other');
+    b.controller.switchWorkspace(other);
+    a.controller.deleteWorkspace(other);
+    expect(b.controller.currentWorkspaceId).not.toBe(other);
+  });
+
+  it('reports what a moved page does to the window it moved to', () => {
+    const { a, b, pageB, hosts } = twoWindows();
+    b.controller.activatePage(pageB);
+    hosts[1]!.events.onOpenRequest('https://c.com/', { background: false });
+    expect(b.controller.activePageId).not.toBe(pageB);
+    expect(a.controller.activePageId).toBe(pageB);
+  });
+
+  it('sends a page to another window, and goes on to the next here', () => {
+    const { a, b, pageA, pageB } = twoWindows();
+    a.controller.moveToWindow(pageB, b.controller.viewerId);
+    expect(b.controller.activePageId).toBe(pageB);
+    expect(b.controller.holds(pageB)).toBe(true);
+    expect(a.controller.activePageId).toBe(pageA);
+    expect(b.focus).toHaveBeenCalled();
+  });
+
+  it('opens a new window with its own empty page, reusing a free one', () => {
+    const { b, open, pageB } = twoWindows();
+    b.controller.startWindow();
+    const empty = b.controller.activePageId!;
+    expect(empty).not.toBe(pageB);
+    const third = open('c');
+    third.controller.startWindow();
+    expect(third.controller.activePageId).not.toBe(empty);
+  });
+
+  it('keeps the pages of a closed window, asleep, and wakes what others show', () => {
+    const { a, b, pageA, pageB, hosts } = twoWindows();
+    a.controller.dispose();
+    expect(hosts[1]!.destroyed).toBe(true);
+    expect(b.controller.hasPage(pageA)).toBe(true);
+    expect(b.latest().pages[pageA]?.url).toBe('https://a.com/');
+    // The second window was showing the page the first had open.
+    expect(b.controller.activePageId).toBe(pageB);
+    expect(b.controller.holds(pageB)).toBe(true);
+    expect(hosts.at(-1)!.visible).toBe(true);
+  });
+
+  it('comes back to where it was after every window closed', () => {
+    const { trails, a, b, pageB, open } = twoWindows();
+    a.controller.dispose();
+    b.controller.dispose();
+    expect(trails.viewers.size).toBe(0);
+    const again = open('c');
+    again.controller.startWindow();
+    expect(again.controller.activePageId).toBe(pageB);
+    expect(again.controller.holds(pageB)).toBe(true);
+  });
+
+  it('saves the window you were last in', () => {
+    const { a, b, pageA } = twoWindows();
+    b.controller.activatePage(pageA);
+    expect(b.controller.exportSession().workspaces[0]?.activePageId).toBe(
+      pageA,
+    );
+    a.controller.becomeLead();
+    expect(a.controller).toBe(
+      (a.controller as unknown as { trails: SharedTrails }).trails.lead,
+    );
+  });
+
+  it('counts live views across windows', () => {
+    const { a, b, trails } = twoWindows();
+    trails.maxLiveViews = 2;
+    b.controller.createPage({ url: 'https://c.com/' });
+    expect(
+      a.controller.taskPages().live.length +
+        b.controller.taskPages().live.length,
+    ).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('trails', () => {
+  function setup(now = () => 1000) {
+    const notices: Notice[] = [];
+    const controller = new BrowserController({
+      createHost: (events) => new FakeHost(events),
+      onSnapshot: () => {},
+      onNotice: (notice) => notices.push(notice),
+      schedule: (flush) => flush(),
+      now,
+    });
+    return { controller, notices };
+  }
+
+  /** Two trails: a › a1 › a2, and b › b1. */
+  function twoTrails(controller: BrowserController) {
+    const a = controller.createPage({ url: 'https://a.example/' });
+    const a1 = controller.createPage({
+      url: 'https://a.example/1',
+      parentId: a,
+    });
+    const a2 = controller.createPage({
+      url: 'https://a.example/2',
+      parentId: a1,
+    });
+    const b = controller.createPage({ url: 'https://b.example/' });
+    const b1 = controller.createPage({
+      url: 'https://b.example/1',
+      parentId: b,
+    });
+    return { a, a1, a2, b, b1 };
+  }
+
+  const pageOf = (controller: BrowserController, id: string) =>
+    controller.snapshot().pages[id]!;
+
+  it('opens a sibling right after a page, at its level', () => {
+    const { controller } = setup();
+    const { a, a1, b } = twoTrails(controller);
+    const child = controller.createSiblingPage(a1);
+    expect(pageOf(controller, a).childIds).toEqual([a1, child]);
+    const top = controller.createSiblingPage(a);
+    expect(controller.snapshot().rootIds).toEqual([a, top, b]);
+  });
+
+  it('files a top-level sibling in the same group', () => {
+    const { controller } = setup();
+    const { a } = twoTrails(controller);
+    const group = controller.createGroup('Work', a);
+    const sibling = controller.createSiblingPage(a);
+    expect(pageOf(controller, sibling).groupId).toBe(group);
+  });
+
+  it('gives a trail an emoji that survives a restart and a reopen', () => {
+    const { controller } = setup();
+    const { a, a1 } = twoTrails(controller);
+    controller.setEmoji(a, '🐎');
+    expect(pageOf(controller, a).emoji).toBe('🐎');
+
+    const restored = setup().controller;
+    restored.restoreSession(controller.exportSession());
+    expect(pageOf(restored, a).emoji).toBe('🐎');
+    expect(pageOf(restored, a1).emoji).toBeNull();
+
+    controller.closeBranch(a);
+    controller.reopenClosed();
+    expect(pageOf(controller, a).emoji).toBe('🐎');
+
+    controller.setEmoji(a, null);
+    expect(pageOf(controller, a).emoji).toBeNull();
+  });
+
+  it('collapses everything but the current trail, and says what changed', () => {
+    const { controller, notices } = setup();
+    const { a, a2, b, b1 } = twoTrails(controller);
+    const other = controller.createPage({ url: 'https://c.example/' });
+    const group = controller.createGroup('Work', other);
+    controller.activatePage(a2);
+    controller.collapseOtherTrails();
+    const snapshot = controller.snapshot();
+    expect(snapshot.pages[a]!.collapsed).toBe(false);
+    expect(snapshot.pages[b]!.collapsed).toBe(true);
+    expect(snapshot.groups[0]!.collapsed).toBe(true);
+    expect(snapshot.activePageId).toBe(a2);
+    expect(notices.at(-1)).toEqual({
+      kind: 'trails-collapsed',
+      pageIds: [b],
+      groupIds: [group],
+    });
+
+    controller.setTrailsCollapsed([b, 'gone'], [group], false);
+    expect(pageOf(controller, b).collapsed).toBe(false);
+    expect(controller.snapshot().groups[0]!.collapsed).toBe(false);
+    expect(pageOf(controller, b1)).toBeDefined();
+  });
+
+  it('keeps the group the current trail is in open', () => {
+    const { controller, notices } = setup();
+    const { a, b } = twoTrails(controller);
+    const group = controller.createGroup('Work', a);
+    controller.collapseOtherTrails(a);
+    expect(
+      controller.snapshot().groups.find((g) => g.id === group)?.collapsed,
+    ).toBe(false);
+    expect(notices.at(-1)).toMatchObject({ pageIds: [b], groupIds: [] });
+    controller.collapseOtherTrails(a);
+    expect(notices.at(-1)).toMatchObject({ pageIds: [], groupIds: [] });
+  });
+
+  it('steps between trails, wrapping around and skipping folded groups', () => {
+    const { controller } = setup();
+    const { a, a2, b } = twoTrails(controller);
+    const c = controller.createPage({ url: 'https://c.example/' });
+    controller.activatePage(a2);
+    controller.activateAdjacentTrail(1);
+    expect(controller.activePageId).toBe(b);
+    controller.activateAdjacentTrail(1);
+    expect(controller.activePageId).toBe(c);
+    controller.activateAdjacentTrail(1);
+    expect(controller.activePageId).toBe(a);
+    controller.activateAdjacentTrail(-1);
+    expect(controller.activePageId).toBe(c);
+
+    const group = controller.createGroup('Work', b);
+    controller.setGroupCollapsed(group, true);
+    controller.activatePage(a);
+    controller.activateAdjacentTrail(1);
+    expect(controller.activePageId).toBe(c);
+  });
+
+  it('folds one level at a time without leaving the page on screen', () => {
+    const { controller } = setup();
+    const { a, a1, a2 } = twoTrails(controller);
+    controller.createPage({ url: 'https://a.example/3', parentId: a2 });
+    controller.activatePage(a2);
+    const collapsed = () =>
+      [a, a1, a2].filter((id) => pageOf(controller, id).collapsed);
+
+    controller.stepCollapse('collapse');
+    expect(collapsed()).toEqual([a2]);
+    controller.stepCollapse('collapse');
+    expect(collapsed()).toEqual([a1, a2]);
+    controller.stepCollapse('collapse');
+    expect(collapsed()).toEqual([a, a1, a2]);
+    controller.stepCollapse('collapse');
+    expect(collapsed()).toEqual([a, a1, a2]);
+    expect(controller.activePageId).toBe(a2);
+
+    controller.stepCollapse('expand');
+    expect(collapsed()).toEqual([a1, a2]);
+    controller.stepCollapse('expand');
+    controller.stepCollapse('expand');
+    controller.stepCollapse('expand');
+    expect(collapsed()).toEqual([]);
+  });
+
+  describe('importing an outline', () => {
+    const item = (
+      label: string,
+      url: string | null,
+      children: OutlineItem[] = [],
+      extra: Partial<OutlineItem> = {},
+    ): OutlineItem => ({
+      label,
+      url,
+      note: null,
+      emoji: null,
+      children,
+      ...extra,
+    });
+    const outline = (
+      items: OutlineItem[],
+      title: string | null = null,
+    ): TrailOutline => ({
+      title,
+      items,
+      pageCount: 0,
+      skippedAddresses: 0,
+    });
+
+    it('makes one list a new trail, asleep, without leaving the page', () => {
+      const { controller } = setup();
+      const here = controller.createPage({ url: 'https://here.example/' });
+      const { pageIds, groupId, label } = controller.importOutline(
+        outline(
+          [
+            item(
+              'Top',
+              'https://top.example/',
+              [item('Note only', null, [], { note: 'kept' })],
+              { emoji: '🐎' },
+            ),
+          ],
+          'Named',
+        ),
+      );
+      const root = pageOf(controller, pageIds[0]!);
+      expect(groupId).toBeNull();
+      expect(label).toBe('Named');
+      expect(controller.activePageId).toBe(here);
+      expect(root).toMatchObject({
+        customTitle: 'Named',
+        title: 'Top',
+        url: 'https://top.example/',
+        emoji: '🐎',
+        isDiscarded: true,
+      });
+      const child = pageOf(controller, root.childIds[0]!);
+      expect(child).toMatchObject({
+        url: null,
+        customTitle: 'Note only',
+        note: 'kept',
+      });
+    });
+
+    it('makes several lists a group, named by the heading or the file', () => {
+      const { controller } = setup();
+      controller.createPage({ url: 'https://here.example/' });
+      const items = [
+        item('One', 'https://one.example/'),
+        item('Two', 'https://two.example/'),
+      ];
+      const titled = controller.importOutline(outline(items, 'Reading'));
+      expect(titled.label).toBe('Reading');
+      expect(controller.snapshot().groups.map((g) => g.name)).toEqual([
+        'Reading',
+      ]);
+      const named = controller.importOutline(outline(items), { name: 'notes' });
+      expect(named.label).toBe('notes');
+      expect(pageOf(controller, named.pageIds[0]!).groupId).toBe(named.groupId);
+    });
+
+    it('joins a branch under a page, opening it', () => {
+      const { controller } = setup();
+      const { a, a1 } = twoTrails(controller);
+      controller.setCollapsed(a, true);
+      const { pageIds } = controller.importOutline(
+        outline([item('Under', 'https://under.example/')], 'Ignored'),
+        { parentId: a },
+      );
+      expect(pageOf(controller, a).childIds).toEqual([a1, pageIds[0]]);
+      expect(pageOf(controller, a).collapsed).toBe(false);
+      expect(pageOf(controller, pageIds[0]!).customTitle).toBeNull();
+    });
+
+    it('shows the first page when the workspace had none', () => {
+      const { controller } = setup();
+      const { pageIds } = controller.importOutline(
+        outline([item('Only', 'https://only.example/')]),
+      );
+      expect(controller.activePageId).toBe(pageIds[0]);
+    });
+
+    it('loads a page when it is opened', () => {
+      const hosts: FakeHost[] = [];
+      const controller = new BrowserController({
+        createHost: (events) => {
+          const host = new FakeHost(events);
+          hosts.push(host);
+          return host;
+        },
+        onSnapshot: () => {},
+        schedule: (flush) => flush(),
+      });
+      controller.createPage({ url: 'https://here.example/' });
+      const { pageIds } = controller.importOutline(
+        outline([item('Later', 'https://later.example/')]),
+      );
+      expect(hosts).toHaveLength(1);
+      controller.activatePage(pageIds[0]!);
+      expect(hosts[1]!.loaded).toEqual(['https://later.example/']);
+    });
+
+    it('takes it back in one close that reopening restores', async () => {
+      const { controller } = setup();
+      const here = controller.createPage({ url: 'https://here.example/' });
+      const { pageIds, groupId } = controller.importOutline(
+        outline([
+          item('One', 'https://one.example/'),
+          item('Two', 'https://two.example/'),
+        ]),
+      );
+      await controller.undoImport(pageIds, groupId);
+      expect(controller.snapshot().rootIds).toEqual([here]);
+      expect(controller.snapshot().groups).toEqual([]);
+      controller.reopenClosed();
+      expect(controller.snapshot().rootIds).toHaveLength(3);
+      expect(controller.snapshot().groups).toHaveLength(1);
+
+      const { a } = twoTrails(controller);
+      const under = controller.importOutline(
+        outline([
+          item('X', 'https://x.example/'),
+          item('Y', 'https://y.example/'),
+        ]),
+        { parentId: a },
+      );
+      const before = pageOf(controller, a).childIds.length;
+      controller.activatePage(under.pageIds[1]!);
+      await controller.undoImport(under.pageIds, null);
+      expect(pageOf(controller, a).childIds).toHaveLength(before - 2);
+      expect(controller.activePageId).toBe(a);
+    });
+
+    it('does not take a named line for an empty page to reuse', () => {
+      const { controller } = setup();
+      const { pageIds } = controller.importOutline(
+        outline([item('Just a name', null)]),
+      );
+      const fresh = controller.startWithNewPage();
+      expect(fresh).not.toBe(pageIds[0]);
+    });
+  });
+
+  describe('coming back', () => {
+    const HOUR = 60 * 60 * 1000;
+
+    function restored(leftAgo: number) {
+      let time = 100 * HOUR;
+      const first = setup(() => time);
+      const { a, a1, b } = twoTrails(first.controller);
+      first.controller.activatePage(a1);
+      time += 1000;
+      first.controller.activatePage(b);
+      const session = first.controller.exportSession();
+      time += leftAgo;
+      const second = setup(() => time);
+      second.controller.restoreSession(session);
+      return { ...second, a, a1, b };
+    }
+
+    it('names the trail used before the one on screen, once', () => {
+      const { controller } = restored(2 * HOUR);
+      expect(controller.takeComeBack()).toEqual({
+        kind: 'come-back',
+        trailCount: 2,
+        trail: 'a.example',
+        page: 'a.example',
+      });
+      expect(controller.takeComeBack()).toBeNull();
+    });
+
+    it('says nothing after a quick restart', () => {
+      expect(restored(10 * 60 * 1000).controller.takeComeBack()).toBeNull();
+    });
+
+    it('says nothing with one trail to come back to', () => {
+      const first = setup();
+      first.controller.createPage({ url: 'https://a.example/' });
+      const session = first.controller.exportSession();
+      const later = setup(() => 1000 + 5 * HOUR);
+      later.controller.restoreSession(session);
+      expect(later.controller.takeComeBack()).toBeNull();
+    });
+
+    it('says nothing when nothing was restored', () => {
+      expect(setup().controller.takeComeBack()).toBeNull();
+    });
+  });
+});
+
+describe('pages that answer with a file', () => {
+  const FILE = 'https://files.example/report.mov';
+
+  /** What Chromium reports for a view whose only navigation became a download. */
+  function answerWithFile(
+    host: FakeHost,
+    { held = false, hasDocument = false } = {},
+  ) {
+    if (!hasDocument) host.history = null;
+    host.events.onDownload({
+      url: FILE,
+      filename: 'report.mov',
+      held,
+      hasDocument,
+      firstHeld: held,
+    });
+  }
+
+  it('closes a page opened only for the file, and goes back to its opener', () => {
+    const { controller, hosts, latest } = setup();
+    const opener = controller.createPage({ input: 'a.com' });
+    controller.createPage({ input: 'b.com', parentId: opener });
+    controller.activatePage(opener);
+    const file = controller.createPage({ url: FILE, parentId: opener });
+    answerWithFile(hosts.at(-1)!);
+    expect(latest().pages[file]).toBeUndefined();
+    expect(latest().activePageId).toBe(opener);
+    expect(hosts.at(-1)!.destroyed).toBe(true);
+    expect(latest().lastClosed).toMatchObject({
+      label: 'report.mov',
+      forDownload: true,
+      pageCount: 1,
+    });
+  });
+
+  it('can be undone, and says what it was without asking the site again', () => {
+    const { controller, hosts, latest } = setup();
+    controller.createPage({ input: 'a.com' });
+    const file = controller.createPage({ url: FILE });
+    answerWithFile(hosts.at(-1)!);
+    const loads = hosts.length;
+    expect(controller.undoClose(latest().lastClosed!.serial)).toBe(true);
+    expect(latest().activePageId).toBe(file);
+    expect(latest().pages[file]).toMatchObject({
+      title: 'report.mov',
+      error: { kind: 'file-download', url: FILE, description: 'report.mov' },
+    });
+    expect(hosts).toHaveLength(loads);
+  });
+
+  it('downloads from the file page when asked, and closes it again', () => {
+    const { controller, hosts, latest } = setup();
+    controller.createPage({ input: 'a.com' });
+    const file = controller.createPage({ url: FILE });
+    answerWithFile(hosts.at(-1)!);
+    controller.undoClose(latest().lastClosed!.serial);
+    controller.reload(file);
+    const host = hosts.at(-1)!;
+    expect(host.loaded).toEqual([FILE]);
+    expect(host.comingBack).toEqual([undefined]);
+    answerWithFile(host);
+    expect(latest().pages[file]).toBeUndefined();
+  });
+
+  it('keeps a page with a document where it was', () => {
+    const { controller, hosts, latest } = setup();
+    const id = controller.createPage({ input: 'a.com' });
+    hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+    controller.navigate(id, FILE);
+    expect(latest().pages[id]?.url).toBe(FILE);
+    answerWithFile(hosts[0]!, { hasDocument: true });
+    expect(latest().pages[id]).toMatchObject({
+      url: 'https://a.com/',
+      error: null,
+    });
+    expect(latest().lastClosed).toBeNull();
+  });
+
+  it('leaves an empty page empty when a typed address was a file', () => {
+    const { controller, hosts, latest } = setup();
+    const id = controller.createPage();
+    controller.navigate(id, FILE);
+    answerWithFile(hosts[0]!);
+    expect(latest().pages[id]).toMatchObject({ url: null, error: null });
+    expect(latest().lastClosed).toBeNull();
+  });
+
+  it('keeps pinned and named pages, saying the address is a file', () => {
+    const { controller, hosts, latest } = setup();
+    controller.createPage({ input: 'a.com' });
+    const id = controller.createPage({ url: FILE });
+    controller.renamePage(id, 'Weekly report');
+    answerWithFile(hosts.at(-1)!);
+    expect(latest().pages[id]?.error?.kind).toBe('file-download');
+    expect(latest().lastClosed).toBeNull();
+  });
+
+  it('wakes restored pages without letting them start a download', () => {
+    const first = setup();
+    first.controller.createPage({ input: 'a.com' });
+    const file = first.controller.createPage({ url: FILE });
+    first.hosts.at(-1)!.history = null;
+    const session = first.controller.exportSession();
+
+    const restored = setup();
+    restored.controller.restoreSession(session);
+    const host = restored.hosts[0]!;
+    expect(host.loaded).toEqual([FILE]);
+    expect(host.comingBack).toEqual([true]);
+    answerWithFile(host, { held: true });
+    expect(restored.latest().pages[file]?.error?.kind).toBe('file-download');
+    expect(restored.latest().activePageId).toBe(file);
+  });
+
+  it('says once that a page that came back by itself tried to download', () => {
+    const { controller, hosts, notices, latest } = setup();
+    const id = controller.createPage({ input: 'a.com' });
+    hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+    answerWithFile(hosts[0]!, { held: true, hasDocument: true });
+    hosts[0]!.events.onDownload({
+      url: FILE,
+      filename: 'report.mov',
+      held: true,
+      hasDocument: true,
+      firstHeld: false,
+    });
+    expect(notices).toEqual([
+      {
+        kind: 'download-held',
+        pageId: id,
+        host: 'a.com',
+        filename: 'report.mov',
+      },
+    ]);
+    expect(latest().pages[id]?.error).toBeNull();
+  });
 });

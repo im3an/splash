@@ -84,6 +84,29 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE history ADD COLUMN favicon_url TEXT;
   `,
+  // 9 — groups of pages inside a workspace: their names, and each root page's group.
+  `
+  ALTER TABLE workspaces ADD COLUMN groups TEXT;
+  ALTER TABLE pages ADD COLUMN group_id TEXT;
+  `,
+  // 10 — saved logins, addresses and cards. Everything but the site a login
+  // belongs to is sealed with the Keychain's key before it gets here.
+  `
+  CREATE TABLE vault (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    origin TEXT,
+    secret BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_used_at INTEGER
+  );
+  CREATE INDEX vault_kind_origin ON vault (kind, origin);
+  `,
+  // 11 — the emoji a top-level trail can be given.
+  `
+  ALTER TABLE pages ADD COLUMN emoji TEXT;
+  `,
 ];
 
 export class SchemaTooNewError extends Error {}

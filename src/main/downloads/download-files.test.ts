@@ -19,6 +19,10 @@ describe('download files', () => {
   it('flags files that can run code', () => {
     expect(isRunnableFile('Installer.PKG')).toBe(true);
     expect(isRunnableFile('script.command')).toBe(true);
+    expect(isRunnableFile('Setup.dmg')).toBe(true);
+    expect(isRunnableFile('profile.mobileconfig')).toBe(true);
+    expect(isRunnableFile('Run Me.shortcut')).toBe(true);
+    expect(isRunnableFile('open.fileloc')).toBe(true);
     expect(isRunnableFile('photo.jpg')).toBe(false);
     expect(isRunnableFile('Archive.zip')).toBe(false);
   });

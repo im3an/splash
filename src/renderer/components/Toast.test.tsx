@@ -25,6 +25,22 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('Toast', () => {
+  it('gives a long button its own row in the sidebar', () => {
+    render(<Toast placement="sidebar" />);
+    act(() =>
+      useToast.getState().show({
+        message: 'a.example can’t use your location.',
+        detail: null,
+        durationMs: 9000,
+        actions: [{ label: 'Open System Settings', run: vi.fn() }],
+      }),
+    );
+    const button = screen.getByRole('button', {
+      name: 'Open System Settings',
+    });
+    expect(button.parentElement?.className).toContain('justify-end');
+  });
+
   it('moves from the sidebar to the toolbar when the sidebar hides', () => {
     render(
       <>
@@ -45,12 +61,17 @@ describe('Toast', () => {
     expect(screen.getAllByRole('status')).toHaveLength(1);
   });
 
-  it('runs an action once and goes away', () => {
+  it('runs an action once and gives way to its confirmation', async () => {
     render(<Toast placement="sidebar" />);
     const run = showToast();
+    const message = screen.getByRole('status').textContent;
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    // The undo waits its turn in the history before it runs.
+    await act(() => vi.advanceTimersByTimeAsync(0));
     expect(run).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('status').textContent).toMatch(/^Undid: /);
+    expect(screen.getByRole('status').textContent).not.toBe(message);
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
   });
 
   it('stays while the pointer rests on it, then times out', () => {

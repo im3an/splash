@@ -10,6 +10,7 @@ class FakeItem extends EventEmitter implements DownloadItemLike {
   state: 'progressing' | 'completed' | 'cancelled' | 'interrupted' =
     'progressing';
   received = 0;
+  speed = 0;
   savePath = '';
   paused = false;
   resumable = false;
@@ -43,6 +44,9 @@ class FakeItem extends EventEmitter implements DownloadItemLike {
   }
   getTotalBytes() {
     return this.total;
+  }
+  getCurrentBytesPerSecond() {
+    return this.speed;
   }
   isPaused() {
     return this.paused;
@@ -114,6 +118,72 @@ describe('DownloadManager', () => {
     });
   });
 
+  it('reserves filenames for downloads that have not created their files yet', () => {
+    const { manager } = setup();
+    const first = new FakeItem();
+    const second = new FakeItem();
+    manager.track(first, null);
+    manager.track(second, null);
+    expect(first.savePath).toBe('/dl/report 2.pdf');
+    expect(second.savePath).toBe('/dl/report 3.pdf');
+  });
+
+  it('cancels a paused download before removing it', async () => {
+    const { manager } = setup();
+    const item = new FakeItem();
+    const id = manager.track(item, null);
+    await manager.act(id, 'pause');
+    await manager.act(id, 'remove');
+    expect(item.calls).toContain('cancel');
+    expect(manager.list()).toEqual([]);
+  });
+
+  it('asks before opening a download renamed to an executable', async () => {
+    const { manager, options, files } = setup({ askWhereToSave: () => true });
+    const item = new FakeItem();
+    const id = manager.track(item, null);
+    item.savePath = '/dl/script.command';
+    files.add(item.savePath);
+    item.finish();
+    await manager.act(id, 'open');
+    expect(manager.list()[0]?.runnable).toBe(true);
+    expect(options.confirmOpenRunnable).toHaveBeenCalled();
+    expect(options.openFile).not.toHaveBeenCalled();
+  });
+
+  it('releases native listeners when an entry finishes or is removed', async () => {
+    const { manager } = setup();
+    const item = new FakeItem();
+    manager.track(item, null);
+    item.finish();
+    expect(item.listenerCount('updated')).toBe(0);
+    expect(item.listenerCount('done')).toBe(0);
+    const paused = new FakeItem();
+    const id = manager.track(paused, null);
+    await manager.act(id, 'pause');
+    await manager.act(id, 'remove');
+    expect(paused.listenerCount('updated')).toBe(0);
+  });
+
+  it('disposes a private manager without writes or notifications from late events', () => {
+    const onDispose = vi.fn();
+    const { manager, stored } = setup({ onDispose });
+    const item = new FakeItem();
+    manager.track(item, null);
+    const saved = [...stored.values()];
+    const changed = vi.fn();
+    manager.onChange(changed);
+    manager.dispose();
+    manager.dispose();
+    item.progress(500);
+    expect(onDispose).toHaveBeenCalledOnce();
+    expect(item.calls).toEqual(['cancel']);
+    expect(item.listenerCount('updated')).toBe(0);
+    expect(manager.list()).toEqual([]);
+    expect([...stored.values()]).toEqual(saved);
+    expect(changed).not.toHaveBeenCalled();
+  });
+
   it('leaves the location to the user when asked to', () => {
     const { manager } = setup({ askWhereToSave: () => true });
     const item = new FakeItem();
@@ -135,6 +205,44 @@ describe('DownloadManager', () => {
     expect(manager.list()[0]?.state).toBe('completed');
     expect(stored.get(id)?.state).toBe('completed');
     expect(changed).toHaveBeenCalled();
+  });
+
+  it('reports speed only while bytes can be arriving', () => {
+    const { manager } = setup();
+    const item = new FakeItem();
+    const id = manager.track(item, null);
+    const speed = () => manager.list().find((d) => d.id === id)?.bytesPerSecond;
+    expect(speed()).toBe(0);
+    item.speed = 2000;
+    item.progress(400);
+    expect(speed()).toBe(2000);
+    item.pause();
+    item.progress(400);
+    expect(speed()).toBe(0);
+    item.resume();
+    item.progress(500);
+    expect(speed()).toBe(2000);
+    item.finish();
+    expect(speed()).toBe(0);
+  });
+
+  it('gives saved downloads from before speeds existed a speed of 0', () => {
+    const { bytesPerSecond: _omitted, ...older } = {
+      id: 'old',
+      pageId: null,
+      url: 'https://x.example/report.pdf',
+      filename: 'report.pdf',
+      savePath: '/dl/report.pdf',
+      state: 'completed' as const,
+      receivedBytes: 100,
+      totalBytes: 100,
+      bytesPerSecond: 0,
+      startedAt: 1,
+      problem: null,
+      runnable: false,
+    };
+    const { manager } = setup({}, [older as DownloadSummary]);
+    expect(manager.list()[0]?.bytesPerSecond).toBe(0);
   });
 
   it('explains interruptions and retries them', async () => {
@@ -188,6 +296,7 @@ describe('DownloadManager', () => {
         state: 'progressing',
         receivedBytes: 10,
         totalBytes: 100,
+        bytesPerSecond: 50,
         startedAt: 1,
         problem: null,
         runnable: false,
@@ -201,6 +310,7 @@ describe('DownloadManager', () => {
         state: 'completed',
         receivedBytes: 100,
         totalBytes: 100,
+        bytesPerSecond: 0,
         startedAt: 2,
         problem: null,
         runnable: false,

@@ -18,3 +18,12 @@ export function canBranchLink(
     return false;
   }
 }
+
+/** The link a `text/uri-list` drop carries: its first address, if it's one. */
+export function droppedLink(uriList: string): string | null {
+  const first = uriList
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line !== '' && !line.startsWith('#'));
+  return first ?? null;
+}

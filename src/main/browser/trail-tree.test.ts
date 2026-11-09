@@ -57,15 +57,6 @@ describe('TrailTree', () => {
     expect(tree.successorOf('only')).toBeNull();
   });
 
-  it('reveals a node by expanding its ancestors', () => {
-    const tree = build();
-    tree.setCollapsed('a', true);
-    tree.setCollapsed('b', true);
-    tree.reveal('d');
-    expect(tree.get('a')?.collapsed).toBe(false);
-    expect(tree.get('b')?.collapsed).toBe(false);
-  });
-
   it('inserts at a given position', () => {
     const tree = build();
     tree.add('x', 'a', 1);

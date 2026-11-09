@@ -4,27 +4,39 @@ import {
   TOOLBAR_ACTIONS,
   DEFAULT_PREFERENCES,
   AWAKE_PAGE_CHOICES,
-  SEARCH_ENGINES,
+  DEFAULT_ZOOM_CHOICES,
+  FONT_SIZE_CHOICES,
+  MINIMUM_FONT_SIZE_CHOICES,
+  MONOSPACE_FONTS,
+  SPELLING_LANGUAGES,
+  STANDARD_FONTS,
   type Preferences,
+  type SpellingLanguage,
 } from '../../shared/preferences';
+import { customEngines, SEARCH_ENGINES } from '../../shared/search';
 import type {
+  ThreatListStatus,
   AboutInfo,
   ClearRange,
   ContentBlockingStatus,
   DefaultBrowserStatus,
-  PermissionDecision,
-  SitePermission,
   SiteSettings,
 } from '../../shared/types';
-import { Brand } from '../components/Brand';
 import { toolbarLabels } from '../components/ToolbarActions';
-import { WorkspaceIcon } from '../components/WorkspaceIcon';
 import { api } from '../splash-api';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
-import { filterListsSummary } from '../lib/format';
-import { Button, Choice, Row, Section, Toggle } from './controls';
+import {
+  filterListsSummary,
+  siteDecisionOptions,
+  threatListSummary,
+} from '../lib/format';
+import { Button, Choice, Row, Section, Select, Toggle } from './controls';
+import { CookieSettings } from './CookieSettings';
+import { DictionarySettings } from './DictionarySettings';
+import { NewPageSettings } from './NewPageSettings';
+import { SearchShortcuts } from './SearchShortcuts';
 
-function usePreferences(): [
+export function usePreferences(): [
   Preferences | null,
   (patch: Partial<Preferences>) => void,
 ] {
@@ -49,7 +61,7 @@ export function GeneralSettings() {
       <Section title="Startup">
         <Row
           label="When Splash opens"
-          help="Your workspaces, trails and each page’s back and forward history always come back. This chooses what’s on screen. Applies the next time Splash opens."
+          help="Your workspaces and trails come back either way. Applies from the next launch."
         >
           <Choice
             label="When Splash opens"
@@ -62,31 +74,29 @@ export function GeneralSettings() {
           />
         </Row>
       </Section>
+      <NewPageSettings preferences={preferences} update={update} />
       <Section title="Search">
         <Row
           label="Search engine"
-          help="Used when what you type in the address bar isn’t a web address."
+          help="Used for anything you type that isn’t a web address."
         >
-          <select
+          <Select
             aria-label="Search engine"
             value={preferences.searchEngine}
-            onChange={(event) =>
-              update({
-                searchEngine: event.target.value as Preferences['searchEngine'],
-              })
-            }
-            className="h-7 rounded-control bg-field px-2 text-small text-fg"
+            onChange={(event) => update({ searchEngine: event.target.value })}
           >
-            {SEARCH_ENGINES.map((engine) => (
-              <option key={engine.id} value={engine.id}>
-                {engine.name}
-              </option>
-            ))}
-          </select>
+            {[...SEARCH_ENGINES, ...customEngines(preferences)].map(
+              (engine) => (
+                <option key={engine.id} value={engine.id}>
+                  {engine.name}
+                </option>
+              ),
+            )}
+          </Select>
         </Row>
         <Row
           label="Show search suggestions"
-          help="While you type in the address bar, your search engine suggests searches. What you type is sent to it as you type; full addresses and local sites never are."
+          help="Sends what you type to your search engine as you type. Full addresses and local sites are never sent."
         >
           <Toggle
             label="Show search suggestions"
@@ -95,6 +105,7 @@ export function GeneralSettings() {
           />
         </Row>
       </Section>
+      <SearchShortcuts preferences={preferences} update={update} />
       <Section title="Default browser">
         <Row
           label={
@@ -130,7 +141,7 @@ export function AppearanceSettings() {
     <>
       <Section
         title="Toolbar"
-        description="Choose which controls appear and use the arrows to arrange them."
+        description="Choose which controls appear, and in what order."
       >
         {TOOLBAR_ACTIONS.map((action) => {
           const actions =
@@ -178,7 +189,7 @@ export function AppearanceSettings() {
       <Section title="Appearance">
         <Row
           label="Theme"
-          help="Dark is Splash’s default. Websites follow this choice too. A workspace can set its own, which wins while it’s open. Applies immediately."
+          help="Websites follow it too. A workspace’s own theme wins while it’s open."
         >
           <Choice
             label="Theme"
@@ -193,7 +204,7 @@ export function AppearanceSettings() {
         </Row>
         <Row
           label="Address bar"
-          help="In the sidebar, the address and back and forward sit above your pages, and the page fills the window."
+          help="Sidebar moves the address and navigation above your pages, so the page fills the window."
         >
           <Choice
             label="Address bar"
@@ -205,10 +216,7 @@ export function AppearanceSettings() {
             ]}
           />
         </Row>
-        <Row
-          label="Accent, frame and icon"
-          help="These belong to each workspace, so every workspace can look different."
-        >
+        <Row label="Accent, frame and icon" help="Each workspace has its own.">
           <Button
             onClick={() =>
               void api().editWorkspace(
@@ -221,12 +229,24 @@ export function AppearanceSettings() {
         </Row>
         <Row
           label="Reduce motion"
-          help="Splash already follows Reduce motion in macOS Accessibility settings. This calms Splash on its own: nothing slides or springs."
+          help="Stops sliding and springing in Splash only. Splash already follows the macOS setting."
         >
           <Toggle
             label="Reduce motion"
             checked={preferences.reduceMotion}
             onChange={(reduceMotion) => update({ reduceMotion })}
+          />
+        </Row>
+      </Section>
+      <Section title="Bookmarks">
+        <Row
+          label="Show bookmarks bar"
+          help="A row of bookmarks over the page. The sidebar holds the same ones."
+        >
+          <Toggle
+            label="Show bookmarks bar"
+            checked={preferences.bookmarksBar}
+            onChange={(bookmarksBar) => update({ bookmarksBar })}
           />
         </Row>
       </Section>
@@ -242,9 +262,22 @@ export function AppearanceSettings() {
             ]}
           />
         </Row>
+        {/* PROTOTYPE: see src/renderer/prototype/. */}
+        {import.meta.env.DEV && (
+          <Row
+            label="Show Alma view button"
+            help="Keeps a button for the graph of your pages at the foot of the sidebar."
+          >
+            <Toggle
+              label="Show Alma view button"
+              checked={preferences.almaViewButton}
+              onChange={(almaViewButton) => update({ almaViewButton })}
+            />
+          </Row>
+        )}
         <Row
           label="Show site names"
-          help="The site’s name, in a quieter colour, after each page’s title."
+          help="Shows the site after each page’s title."
         >
           <Toggle
             label="Show site names"
@@ -253,15 +286,31 @@ export function AppearanceSettings() {
           />
         </Row>
         <Row
-          label="Show branch lines"
-          help="Hairlines down each branch, so pages opened from a page read as its children."
+          label="Trail style"
+          help="Minimal drops the branch lines for a chevron or dot beside each page."
         >
-          <Toggle
-            label="Show branch lines"
-            checked={preferences.showBranchLines}
-            onChange={(showBranchLines) => update({ showBranchLines })}
+          <Choice
+            label="Trail style"
+            value={preferences.trailStyle}
+            onChange={(trailStyle) => update({ trailStyle })}
+            options={[
+              { value: 'branches', label: 'Branches' },
+              { value: 'minimal', label: 'Minimal' },
+            ]}
           />
         </Row>
+        {preferences.trailStyle === 'branches' && (
+          <Row
+            label="Show branch lines"
+            help="Lines connecting each page to the pages opened from it."
+          >
+            <Toggle
+              label="Show branch lines"
+              checked={preferences.showBranchLines}
+              onChange={(showBranchLines) => update({ showBranchLines })}
+            />
+          </Row>
+        )}
       </Section>
     </>
   );
@@ -273,19 +322,13 @@ export function WorkspaceSettings() {
   return (
     <Section
       title="Workspaces"
-      description="Each workspace keeps its own trail, active page and look. Deleting one can be undone with Reopen Closed (⇧⌘T)."
+      description="Each keeps its own trail and look. Deleting one can be undone with ⇧⌘T."
     >
       {workspaces.map((workspace, index) => (
         <div
           key={workspace.id}
           className="flex min-h-12 items-center gap-3 px-4 py-2"
         >
-          <span className="grid size-7 shrink-0 place-items-center rounded-control bg-field text-small font-semibold text-accent">
-            <WorkspaceIcon
-              icon={workspace.appearance.icon}
-              name={workspace.name}
-            />
-          </span>
           <div className="min-w-0 flex-1">
             <p className="truncate">
               {workspace.name}
@@ -305,7 +348,7 @@ export function WorkspaceSettings() {
             disabled={index === 0}
             onClick={() => void api().moveWorkspace(workspace.id, index - 1)}
           >
-            <ArrowUp size={14} strokeWidth={1.75} />
+            <ArrowUp size={14} />
           </button>
           <button
             type="button"
@@ -315,7 +358,7 @@ export function WorkspaceSettings() {
             disabled={index === workspaces.length - 1}
             onClick={() => void api().moveWorkspace(workspace.id, index + 1)}
           >
-            <ArrowDown size={14} strokeWidth={1.75} />
+            <ArrowDown size={14} />
           </button>
           <Button onClick={() => void api().editWorkspace(workspace.id)}>
             Customize…
@@ -338,21 +381,12 @@ export function WorkspaceSettings() {
   );
 }
 
-const DECISIONS: { value: PermissionDecision; label: string }[] = [
-  { value: 'allow', label: 'Allow' },
-  { value: 'ask', label: 'Ask' },
-  { value: 'block', label: 'Block' },
-];
-
 const RANGES: { value: ClearRange; label: string }[] = [
   { value: 'hour', label: 'Last hour' },
   { value: 'day', label: 'Last 24 hours' },
   { value: 'week', label: 'Last 7 days' },
   { value: 'all', label: 'All time' },
 ];
-
-/** Decided by Splash itself, so a site never asks for them. */
-const NEVER_ASKED = new Set<SitePermission>(['sound', 'ads']);
 
 function ContentBlockingSettings() {
   const [preferences, update] = usePreferences();
@@ -384,9 +418,9 @@ function ContentBlockingSettings() {
   return (
     <Section
       title="Ads and trackers"
-      description="Splash blocks ads, trackers and harmful sites with uBlock Origin’s filter lists and EasyList. To allow them on one site, open its settings from the address bar."
+      description="Uses uBlock Origin’s filter lists and EasyList, and takes effect as pages load. To allow ads on one site, open its settings from the address bar."
     >
-      <Row label="Block ads and trackers" help="Applies to pages as they load.">
+      <Row label="Block ads and trackers" help="Harmful sites are blocked too.">
         <Toggle
           label="Block ads and trackers"
           checked={preferences.blockAds}
@@ -395,12 +429,34 @@ function ContentBlockingSettings() {
       </Row>
       <Row
         label="Hide cookie notices"
-        help="Rejects cookie banners for you and hides simple notices. Splash never agrees in your name, so a banner with no way to reject stays for you to answer. A site where you allow ads shows its banner. Applies to pages as they load."
+        help="Rejects cookie banners and hides simple notices. Splash never accepts for you, so a banner it can’t reject stays. Off where you allow ads."
       >
         <Toggle
           label="Hide cookie notices"
           checked={preferences.hideCookieNotices}
           onChange={(hideCookieNotices) => update({ hideCookieNotices })}
+        />
+      </Row>
+      <Row
+        label="Ask sites not to track me"
+        help="Sends Global Privacy Control and Do Not Track to every site. Some sites must honor it by law; others ignore it."
+      >
+        <Toggle
+          label="Ask sites not to track me"
+          checked={preferences.privacySignal}
+          onChange={(privacySignal) => update({ privacySignal })}
+        />
+      </Row>
+      <Row
+        label="Block third-party cookies"
+        help="Stops sites a page embeds or loads from from using their cookies there. Some sign-ins and embedded players need them; allow those per site from the address bar."
+      >
+        <Toggle
+          label="Block third-party cookies"
+          checked={preferences.blockThirdPartyCookies}
+          onChange={(blockThirdPartyCookies) =>
+            update({ blockThirdPartyCookies })
+          }
         />
       </Row>
       <Row
@@ -417,6 +473,229 @@ function ContentBlockingSettings() {
         >
           Update now
         </Button>
+      </Row>
+    </Section>
+  );
+}
+
+/** Zoom and fonts: how sites are shown, not how Splash is. */
+export function PageSettings() {
+  const [preferences, update] = usePreferences();
+  if (!preferences) return null;
+  const zoomed = Object.entries(preferences.siteZoom).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  const forget = (host: string) => {
+    const { [host]: _removed, ...siteZoom } = preferences.siteZoom;
+    update({ siteZoom });
+  };
+  return (
+    <>
+      <Section title="Zoom">
+        <Row
+          label="Default zoom"
+          help="For sites you haven’t zoomed yourself. Zooming a site with ⌘+ or ⌘− is remembered for that site."
+        >
+          <Select
+            aria-label="Default zoom"
+            value={preferences.defaultZoom}
+            onChange={(event) =>
+              update({ defaultZoom: Number(event.target.value) })
+            }
+          >
+            {DEFAULT_ZOOM_CHOICES.map((percent) => (
+              <option key={percent} value={percent}>
+                {percent}%
+              </option>
+            ))}
+          </Select>
+        </Row>
+        {zoomed.map(([host, percent]) => (
+          <Row key={host} label={host} help={`${percent}%`}>
+            <Button onClick={() => forget(host)}>Reset</Button>
+          </Row>
+        ))}
+      </Section>
+      <Section
+        title="Fonts"
+        description="For text a site doesn’t style itself. Open pages reload to apply a change."
+      >
+        <Row label="Font">
+          <Select
+            aria-label="Font"
+            value={preferences.standardFont}
+            onChange={(event) => update({ standardFont: event.target.value })}
+          >
+            <option value="">Default</option>
+            {STANDARD_FONTS.map((font) => (
+              <option key={font} value={font}>
+                {font}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row label="Font size">
+          <Select
+            aria-label="Font size"
+            value={preferences.defaultFontSize}
+            onChange={(event) =>
+              update({ defaultFontSize: Number(event.target.value) })
+            }
+          >
+            {FONT_SIZE_CHOICES.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row label="Fixed-width font">
+          <Select
+            aria-label="Fixed-width font"
+            value={preferences.monospaceFont}
+            onChange={(event) => update({ monospaceFont: event.target.value })}
+          >
+            <option value="">Default</option>
+            {MONOSPACE_FONTS.map((font) => (
+              <option key={font} value={font}>
+                {font}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row
+          label="Minimum font size"
+          help="No text is drawn smaller than this, even where a site asks for it."
+        >
+          <Select
+            aria-label="Minimum font size"
+            value={preferences.minimumFontSize}
+            onChange={(event) =>
+              update({ minimumFontSize: Number(event.target.value) })
+            }
+          >
+            {MINIMUM_FONT_SIZE_CHOICES.map((size) => (
+              <option key={size} value={size}>
+                {size === 0 ? 'None' : size}
+              </option>
+            ))}
+          </Select>
+        </Row>
+      </Section>
+      <Section title="Spelling">
+        <Row
+          label="Check spelling"
+          help="Automatic follows the language you’re typing. A new language applies the next time you open Splash."
+        >
+          <Select
+            aria-label="Check spelling"
+            value={preferences.spellingLanguage}
+            onChange={(event) =>
+              update({
+                spellingLanguage: event.target.value as SpellingLanguage,
+              })
+            }
+          >
+            <option value="automatic">Automatic</option>
+            <option value="off">Off</option>
+            {SPELLING_LANGUAGES.map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </Select>
+        </Row>
+      </Section>
+      <DictionarySettings />
+    </>
+  );
+}
+
+const CLEAR_ON_QUIT_ROWS = [
+  ['history', 'Browsing history'],
+  ['cookies', 'Cookies and site data'],
+  ['cache', 'Cached files'],
+  ['downloads', 'Download list'],
+] as const;
+
+function ClearOnQuitSettings() {
+  const [preferences, update] = usePreferences();
+  if (!preferences) return null;
+  return (
+    <Section
+      title="Clear when you quit"
+      description="Each time you quit Splash. Open pages stay in your trails; clearing cookies signs you out of them."
+    >
+      {CLEAR_ON_QUIT_ROWS.map(([key, label]) => (
+        <Row key={key} label={label}>
+          <Toggle
+            label={`Clear ${label.toLowerCase()} when you quit`}
+            checked={preferences.clearOnQuit[key]}
+            onChange={(checked) =>
+              update({
+                clearOnQuit: { ...preferences.clearOnQuit, [key]: checked },
+              })
+            }
+          />
+        </Row>
+      ))}
+    </Section>
+  );
+}
+
+function SecureConnectionSettings() {
+  const [preferences, update] = usePreferences();
+  const [threats, setThreats] = useState<ThreatListStatus | null>(null);
+  const warns = preferences?.warnDangerousSites;
+  useEffect(() => {
+    if (warns === undefined) return;
+    let cancelled = false;
+    const refresh = () =>
+      api()
+        .getThreatListStatus()
+        .then((status) => {
+          if (cancelled) return;
+          setThreats(status);
+          // A list being downloaded is ready in moments; say so when it is.
+          if (status.state === 'loading') setTimeout(refresh, 1000);
+        })
+        .catch(() => undefined);
+    void refresh();
+    return () => {
+      cancelled = true;
+    };
+  }, [warns]);
+  if (!preferences) return null;
+  return (
+    <Section title="Connections">
+      <Row
+        label="HTTPS-only mode"
+        help="Sends every site to HTTPS first. If a site doesn’t accept it, Splash asks before using HTTP. Addresses on your own network aren’t changed."
+      >
+        <Toggle
+          label="HTTPS-only mode"
+          checked={preferences.httpsOnly}
+          onChange={(httpsOnly) => update({ httpsOnly })}
+        />
+      </Row>
+      <Row
+        label="Warn about dangerous sites"
+        help={
+          <>
+            Checks each address against phishing and malware lists kept on this
+            Mac, so what you browse isn’t sent anywhere. Lists from
+            malware-filter, updated twice a day.
+            {threats && threats.state !== 'off' && (
+              <> {threatListSummary(threats, Date.now())}</>
+            )}
+          </>
+        }
+      >
+        <Toggle
+          label="Warn about dangerous sites"
+          checked={preferences.warnDangerousSites}
+          onChange={(warnDangerousSites) => update({ warnDangerousSites })}
+        />
       </Row>
     </Section>
   );
@@ -490,24 +769,24 @@ export function PrivacySettings() {
 
   return (
     <>
+      <SecureConnectionSettings />
       <ContentBlockingSettings />
       <Section
         title="Clear browsing data"
-        description="History follows the time range and can be undone for a minute. Cookies, cached files and permissions are cleared for all time and can’t be brought back."
+        description="Only history follows the time range, and only history can be undone, for a minute."
       >
         <Row label="History from">
-          <select
+          <Select
             aria-label="Time range"
             value={range}
             onChange={(event) => setRange(event.target.value as ClearRange)}
-            className="h-7 rounded-control bg-field px-2 text-small text-fg"
           >
             {RANGES.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
-          </select>
+          </Select>
         </Row>
         {(
           [
@@ -580,9 +859,12 @@ export function PrivacySettings() {
         )}
       </Section>
 
+      <ClearOnQuitSettings />
+      <CookieSettings />
+
       <Section
         title="Site permissions"
-        description="Choices you made for sites. A site you haven’t decided on asks the first time it needs something."
+        description="Sites you’ve allowed or blocked. Others ask the first time they need something."
       >
         {sitesError ? (
           <Row label="Site permissions unavailable" help={sitesError}>
@@ -628,11 +910,7 @@ export function PrivacySettings() {
                         )
                         .then(loadSites)
                     }
-                    options={DECISIONS.filter(
-                      (option) =>
-                        !NEVER_ASKED.has(entry.permission) ||
-                        option.value !== 'ask',
-                    )}
+                    options={siteDecisionOptions(entry.permission)}
                   />
                 </div>
               ))}
@@ -662,7 +940,7 @@ export function DownloadSettings() {
       </Row>
       <Row
         label="Files that can run programs"
-        help="Installers and scripts are saved, but Splash warns you and asks before opening them."
+        help="Splash asks before opening installers and scripts."
       />
       <Row label="Downloads folder">
         <Button onClick={() => void api().openDownloadsFolder()}>Open</Button>
@@ -682,7 +960,11 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ['Reopen closed', '⇧⌘T'],
       ['Pin or unpin page', '⌘D'],
       ['Open location', '⌘L'],
+      ['Open file', '⌘O'],
       ['Copy page address', '⇧⌘C'],
+      ['Copy page as Markdown', '⌥⇧⌘C'],
+      ['Paste and go', '⌥⌘V'],
+      ['Go to homepage', '⇧⌘H'],
       ['Command palette', '⌘K'],
       ['Undo a trail change', '⌘Z'],
     ],
@@ -694,6 +976,13 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ['Move page up / down', '⌥⌘↑ / ⌥⌘↓'],
       ['Nest under the page above / move out', '⌥⌘→ / ⌥⌘←'],
       ['Rename page', 'F2'],
+    ],
+  ],
+  [
+    'Bookmarks',
+    [
+      ['Show bookmarks', '⌥⌘B'],
+      ['Show or hide bookmarks bar', '⇧⌘B'],
     ],
   ],
   [
@@ -763,7 +1052,7 @@ export function AdvancedSettings() {
       <Section title="Memory">
         <Row
           label="Pages kept awake"
-          help="Beyond this, the pages you used least recently fall asleep. They keep their place, history and scroll position, and wake when you open them. Pages playing sound never sleep."
+          help="Beyond this, your least recently used pages sleep. They keep their place and wake when opened. Pages playing sound or on a call stay awake. When your Mac runs low on memory, fewer stay awake until it recovers."
         >
           <Choice
             label="Pages kept awake"
@@ -781,17 +1070,6 @@ export function AdvancedSettings() {
           <Button onClick={() => void api().openDataFolder()}>Show</Button>
         </Row>
       </Section>
-      {about && (
-        <Section title="About">
-          <div className="pb-4">
-            <Brand size={32} />
-          </div>
-          <Row
-            label={`Splash ${about.version}`}
-            help={`Electron ${about.electron} · Chromium ${about.chromium}`}
-          />
-        </Section>
-      )}
     </>
   );
 }

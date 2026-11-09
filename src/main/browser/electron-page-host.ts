@@ -10,15 +10,28 @@ import {
   type Rectangle,
   type Session,
   type WebContents,
+  type WebPreferences,
 } from 'electron';
+import { z } from 'zod';
 import {
   BRANCH_LINK,
+  FILE_DROPPED,
   FORM_EDITED,
+  FRAME_GESTURE,
+  VIDEO_UNFLOATED,
+  LINK_DROPPED,
   LINK_ACTIVATED,
   NAVIGATION_BUTTON,
 } from '../../shared/page-bridge';
-import type { ExternalApp, Notice, SitePermission } from '../../shared/types';
+import type {
+  ExternalApp,
+  Notice,
+  SitePermission,
+  SystemPermission,
+} from '../../shared/types';
 import { webContextMenu } from '../menus/web-context-menu';
+import { setDictionaryWord } from '../spelling';
+import { popupWindowOptions, wirePopupWindow } from '../windows/popup-window';
 import { isSameDocumentUrl, LinkActivations } from './link-activations';
 import type {
   LoadOptions,
@@ -29,16 +42,33 @@ import type {
 } from './page-host';
 import {
   isExternalAppUrl,
+  isLocalFileUrl,
   isNavigableUrl,
   isPageUrl,
+  mayFollowFileLink,
   mayOpenFromPage,
 } from './url';
 import { requestPageClose } from './close-page';
+import { HungRenderer } from './hung-renderer';
+import { PageDownloads } from './page-downloads';
+import {
+  isBlankPopup,
+  isGestureInput,
+  judgePopup,
+  UserGestures,
+} from './popup-policy';
 import { stepZoom } from './zoom';
+import { SECURE_ATTEMPT_LIMIT_MS, SecureAttempt } from '../security/https-only';
+import {
+  floatPlayingVideo,
+  sinkFloatingVideo,
+  togglePictureInPicture,
+} from './picture-in-picture';
 import { CONTENT_RADIUS } from '../../shared/geometry';
 
 /** Chromium's ERR_ABORTED: a load was superseded by another navigation. */
 const ERR_ABORTED = -3;
+const ERR_TIMED_OUT = -7;
 const MAX_URL_LENGTH = 8192;
 
 export interface PageHostEnvironment {
@@ -48,10 +78,32 @@ export interface PageHostEnvironment {
   preload: string;
   /** Whether the user turned sound off for a site. */
   isSoundBlocked(origin: string): boolean;
+  /** Settings that shape a page's view when it is created. */
+  webPreferences(): WebPreferences;
+  /** The zoom settings give a page at this address. */
+  zoomFor(url: string): number;
+  /** The user zoomed a page at this address. */
+  rememberZoom(url: string, percent: number): void;
+  /** The site's popup setting; `null` when the user hasn't chosen. */
+  popupsAllowed(origin: string): boolean | null;
+  /** The HTTPS-only setting. */
+  httpsOnly(): boolean;
+  /** Whether the user already chose to use this plain HTTP address's site. */
+  plainHttpAllowed(url: string): boolean;
+  /** Whether the user chose to use this site despite its certificate. */
+  certificateException(url: string): boolean;
+  /** Whether this site's certificate warning must not offer a way past it. */
+  certificateLocked(url: string): boolean;
   /** A page's contents were created; extensions can now see it. */
   onContentsCreated?(contents: WebContents): void;
+  /** A page's contents now belong to another window. */
+  onContentsMoved?(contents: WebContents, window: BaseWindow): void;
   /** A page's link wants another app (mailto:, tel:): ask, then open it. */
   openExternal?(contents: WebContents, url: string): void;
+  /** Lets an opened page go to a file beside it. */
+  allowFile(url: string): void;
+  /** Files dragged from the Finder onto the page. */
+  openDroppedFiles?(paths: string[]): void;
   /** Extension items for a page's context menu, such as "Block element". */
   extensionMenuItems?(
     contents: WebContents,
@@ -71,7 +123,19 @@ export interface PageHandle {
     opens?: ExternalApp,
   ): Promise<boolean>;
   blocked(permissions: SitePermission[]): void;
+  /** The site is now using the camera or microphone. */
+  capturing(): void;
+  /** The site was allowed these, and macOS hasn't allowed them to Splash. */
+  refusedBySystem(permissions: SystemPermission[]): void;
   notify(notice: Notice): void;
+  /** Its main-frame request for `url` was stopped: reported as dangerous. */
+  flaggedDangerous(url: string): void;
+  /** Its main-frame request for `plain` is going to `secure` instead. */
+  upgraded(plain: string, secure: string): void;
+  /** A download is starting from this page. False means it mustn't. */
+  downloadStarting(url: string, filename: string): boolean;
+  /** Where it is in its window, while it's on screen. */
+  place(): { window: BaseWindow; bounds: Rectangle } | null;
 }
 
 const pageHandles = new Map<number, PageHandle>();
@@ -110,14 +174,29 @@ class ElectronPageHost implements PageHost {
   private readonly view: WebContentsView;
   /** The view releases its getter on native close; retain the lifecycle object. */
   private readonly nativeContents: WebContents;
-  private readonly window: BaseWindow;
+  private window: BaseWindow;
   private readonly environment: PageHostEnvironment;
   private readonly links = new LinkActivations();
+  private readonly gestures = new UserGestures();
+  private readonly downloads = new PageDownloads();
+  private readonly secureAttempt = new SecureAttempt();
+  /** The HTTPS address showing the warning, and the HTTP one it stands for. */
+  private failedUpgrade: { secure: string; plain: string } | null = null;
+  /** The address this navigation was stopped at for being dangerous. */
+  private flaggedUrl: string | null = null;
   private attached = false;
   private closing = false;
   private hasFormEdits = false;
+  /** This document was given the camera or microphone. */
+  private capturing = false;
+  private videoFloats = false;
+  private wantsFloat = false;
   private origin: string | null = null;
   private sourceUrl: string | null = null;
+  private secureTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly hung = new HungRenderer({
+    forcefullyCrashRenderer: () => this.contents.forcefullyCrashRenderer(),
+  });
 
   constructor(
     environment: PageHostEnvironment,
@@ -127,6 +206,7 @@ class ElectronPageHost implements PageHost {
     this.environment = environment;
     this.view = new WebContentsView({
       webPreferences: {
+        ...environment.webPreferences(),
         session: environment.session,
         // Web content never gets Node.js. Its preload runs in an isolated
         // world and can only report link clicks.
@@ -153,7 +233,24 @@ class ElectronPageHost implements PageHost {
       request: (origin, permissions, opens) =>
         this.events.onPermissionRequest(origin, permissions, opens),
       blocked: (permissions) => this.events.onPermissionBlocked(permissions),
+      capturing: () => {
+        this.capturing = true;
+      },
+      refusedBySystem: (permissions) =>
+        this.events.onPermissionRefusedBySystem(permissions),
       notify: (notice) => this.events.onNotice(notice),
+      flaggedDangerous: (url) => {
+        this.flaggedUrl = url;
+      },
+      upgraded: (plain, secure) => {
+        this.secureAttempt.begin(plain, secure);
+        this.watchSecureAttempt(secure);
+      },
+      downloadStarting: (url, filename) => this.downloadStarting(url, filename),
+      place: () =>
+        this.attached
+          ? { window: this.window, bounds: this.view.getBounds() }
+          : null,
     });
     this.view.webContents.once('destroyed', () => pageHandles.delete(id));
     environment.onContentsCreated?.(this.view.webContents);
@@ -163,8 +260,68 @@ class ElectronPageHost implements PageHost {
     return this.nativeContents;
   }
 
+  private downloadStarting(url: string, filename: string): boolean {
+    const verdict = this.downloads.starting();
+    // The address answered, with a file. There's nothing left to fall back from.
+    this.stopWatchingSecureAttempt();
+    this.secureAttempt.committed();
+    // The answer may close this page's view, which can't happen from inside
+    // Chromium's call into `will-download`.
+    setImmediate(() => {
+      if (this.contents.isDestroyed()) return;
+      this.events.onDownload({ url, filename, ...verdict });
+    });
+    return !verdict.held;
+  }
+
+  /**
+   * A site that drops HTTPS connections without an answer can keep a page
+   * waiting for minutes. After a while, offer the plain address instead.
+   */
+  private watchSecureAttempt(secure: string): void {
+    if (this.secureTimer) clearTimeout(this.secureTimer);
+    this.secureTimer = setTimeout(() => {
+      this.secureTimer = null;
+      const { contents } = this;
+      if (contents.isDestroyed() || !this.secureAttempt.active) return;
+      const plain = this.secureAttempt.failed(ERR_TIMED_OUT);
+      if (plain) this.offerPlainHttp(secure, plain, ERR_TIMED_OUT, 'Timed out');
+    }, SECURE_ATTEMPT_LIMIT_MS);
+  }
+
+  private stopWatchingSecureAttempt(): void {
+    if (this.secureTimer) clearTimeout(this.secureTimer);
+    this.secureTimer = null;
+  }
+
+  /** The secure address didn't work: go on, or ask, about the plain one. */
+  private offerPlainHttp(
+    secure: string,
+    plain: string,
+    code: number,
+    description: string,
+  ): void {
+    this.stopWatchingSecureAttempt();
+    if (this.environment.plainHttpAllowed(plain)) {
+      this.load(plain, { comingBack: this.downloads.isHolding });
+      return;
+    }
+    this.contents.stop();
+    this.failedUpgrade = { secure, plain };
+    this.events.onStateChange({
+      isLoading: false,
+      error: { kind: 'no-secure-connection', code, description, url: plain },
+    });
+  }
+
   load(url: string, options: LoadOptions = {}): void {
+    if (options.comingBack) this.downloads.comingBack();
+    else this.downloads.userActed();
     this.sourceUrl = url.startsWith('view-source:') ? url : null;
+    if (options.plainAddress && this.environment.httpsOnly()) {
+      this.secureAttempt.begin(options.plainAddress, url);
+      this.watchSecureAttempt(url);
+    }
     const httpReferrer = options.referrer
       ? {
           url: options.referrer,
@@ -172,24 +329,31 @@ class ElectronPageHost implements PageHost {
         }
       : undefined;
     // Failures surface through `did-fail-load`; the promise only duplicates them.
-    this.contents.loadURL(url, { httpReferrer }).catch(() => undefined);
+    this.hung.leave(() => {
+      this.contents.loadURL(url, { httpReferrer }).catch(() => undefined);
+    });
   }
 
   goBack(): void {
     if (this.contents.navigationHistory.canGoBack()) {
-      this.contents.navigationHistory.goBack();
+      this.downloads.userActed();
+      this.hung.leave(() => this.contents.navigationHistory.goBack());
     }
   }
 
   goForward(): void {
     if (this.contents.navigationHistory.canGoForward()) {
-      this.contents.navigationHistory.goForward();
+      this.downloads.userActed();
+      this.hung.leave(() => this.contents.navigationHistory.goForward());
     }
   }
 
   reload({ ignoreCache = false }: { ignoreCache?: boolean } = {}): void {
-    if (ignoreCache) this.contents.reloadIgnoringCache();
-    else this.contents.reload();
+    this.downloads.userActed();
+    this.hung.leave(() => {
+      if (ignoreCache) this.contents.reloadIgnoringCache();
+      else this.contents.reload();
+    });
   }
 
   stop(): void {
@@ -217,6 +381,14 @@ class ElectronPageHost implements PageHost {
     }
   }
 
+  moveTo(site: unknown): void {
+    const window = site as BaseWindow;
+    if (window === this.window) return;
+    this.hide();
+    this.window = window;
+    this.environment.onContentsMoved?.(this.contents, window);
+  }
+
   focus(): void {
     this.contents.focus();
   }
@@ -234,25 +406,53 @@ class ElectronPageHost implements PageHost {
     const index = Math.min(history.getActiveIndex(), entries.length - 1);
     if (this.sourceUrl && entries[index])
       entries[index] = { ...entries[index]!, url: this.sourceUrl };
+    // Waking from here must try the upgrade again and warn again, not show
+    // an ordinary failure of an HTTPS address the user never asked for.
+    if (this.failedUpgrade && entries[index]?.url === this.failedUpgrade.secure)
+      entries[index] = { ...entries[index]!, url: this.failedUpgrade.plain };
     return { entries, index: Math.max(0, index) };
   }
 
   restoreHistory(history: PageHistory): void {
     const active = history.entries[history.index]?.url;
+    this.downloads.comingBack();
     if (active?.startsWith('view-source:')) {
-      this.load(active);
+      this.load(active, { comingBack: true });
       return;
     }
     this.contents.navigationHistory
       .restore({ entries: history.entries, index: history.index })
       .catch(() => {
         if (!this.contents.isDestroyed() && active && isPageUrl(active))
-          this.load(active);
+          this.load(active, { comingBack: true });
       });
   }
 
   isAudible(): boolean {
     return this.contents.isCurrentlyAudible();
+  }
+
+  isInUse(): boolean {
+    return (
+      this.capturing || this.videoFloats || this.contents.isDevToolsOpened()
+    );
+  }
+
+  floatVideo(): void {
+    this.wantsFloat = true;
+    void floatPlayingVideo(this.contents).then((floated) => {
+      if (!floated || this.contents.isDestroyed()) return;
+      this.videoFloats = true;
+      // Already back: nobody wants it out any more.
+      if (!this.wantsFloat) this.sinkVideo();
+    });
+  }
+
+  sinkVideo(): void {
+    this.wantsFloat = false;
+    if (!this.videoFloats) return;
+    this.videoFloats = false;
+    void sinkFloatingVideo(this.contents);
   }
 
   setMuted(muted: boolean): void {
@@ -261,6 +461,13 @@ class ElectronPageHost implements PageHost {
   }
 
   setZoomPercent(percent: number): void {
+    this.contents.setZoomFactor(percent / 100);
+    this.environment.rememberZoom(this.contents.getURL(), percent);
+    this.events.onZoomChange(percent);
+  }
+
+  applySiteZoom(): void {
+    const percent = this.environment.zoomFor(this.contents.getURL());
     this.contents.setZoomFactor(percent / 100);
     this.events.onStateChange({ zoomPercent: percent });
   }
@@ -338,6 +545,7 @@ class ElectronPageHost implements PageHost {
     // Forget the page now: `destroyed` comes later, and until then a sleeping
     // page would still seem to have this view.
     if (!this.contents.isDestroyed()) pageHandles.delete(this.contents.id);
+    this.stopWatchingSecureAttempt();
     this.hide();
     // A WebContentsView does not destroy its WebContents on its own.
     if (!this.contents.isDestroyed()) this.contents.close();
@@ -354,18 +562,90 @@ class ElectronPageHost implements PageHost {
   private wire(contents: WebContents): void {
     const emit = this.events.onStateChange;
 
-    contents.setWindowOpenHandler(({ url, disposition }) => {
+    contents.on('input-event', (_event, input) => {
+      if (!isGestureInput(input.type)) return;
+      this.gestures.record();
+      this.downloads.userActed();
+    });
+    contents.setWindowOpenHandler(({ url, disposition, features }) => {
       if (isExternalAppUrl(url)) {
         this.environment.openExternal?.(contents, url);
-      } else if (mayOpenFromPage(url)) {
-        this.events.onOpenRequest(url, {
-          background: disposition === 'background-tab',
-        });
+        return { action: 'deny' };
       }
+      // An opened file's link to a file beside it, with `target=_blank`.
+      if (isLocalFileUrl(url)) {
+        if (mayFollowFileLink(contents.getURL(), url)) {
+          this.environment.allowFile(url);
+          this.events.onOpenRequest(url, {
+            background: disposition === 'background-tab',
+          });
+        }
+        return { action: 'deny' };
+      }
+      const blank = isBlankPopup(url);
+      if (!blank && !mayOpenFromPage(url)) return { action: 'deny' };
+      const origin = originOf(contents.getURL());
+      const verdict = judgePopup({
+        url,
+        disposition,
+        features,
+        gesture: this.gestures.consume(),
+        linkClick: this.links.take(url),
+        allowed: origin ? this.environment.popupsAllowed(origin) : null,
+      });
+      if (verdict === 'block') {
+        this.events.onPopupBlocked(blank ? null : url);
+        return { action: 'deny' };
+      }
+      if (verdict === 'window') {
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: popupWindowOptions(
+            this.window,
+            this.environment.session,
+          ),
+        };
+      }
+      this.events.onOpenRequest(url, {
+        background: disposition === 'background-tab',
+      });
       // The trail creates its own page instead of an Electron window.
       return { action: 'deny' };
     });
+    contents.on('did-create-window', (popup) =>
+      wirePopupWindow(popup, (url) =>
+        this.events.onOpenRequest(url, { background: false }),
+      ),
+    );
 
+    // `input-event` above doesn't see clicks inside a frame from another site.
+    contents.ipc.on(FRAME_GESTURE, (event) => {
+      if (!event.senderFrame?.parent) return;
+      this.gestures.record();
+      this.downloads.userActed();
+    });
+    contents.ipc.on(VIDEO_UNFLOATED, (_event, playing: unknown) => {
+      const floated = this.videoFloats;
+      this.videoFloats = false;
+      if (floated && playing === true) this.events.onVideoReturned?.();
+    });
+    contents.ipc.on(LINK_DROPPED, (_event, href: unknown) => {
+      if (
+        typeof href === 'string' &&
+        href.length <= MAX_URL_LENGTH &&
+        isNavigableUrl(href)
+      ) {
+        this.events.onOpenRequest(href, { background: false });
+      }
+    });
+    contents.ipc.on(FILE_DROPPED, (event, paths: unknown) => {
+      if (event.senderFrame?.parent !== null) return;
+      const files = z
+        .array(z.string().min(1).max(4096))
+        .max(50)
+        .safeParse(paths);
+      if (files.success) this.environment.openDroppedFiles?.(files.data);
+    });
     contents.ipc.on(FORM_EDITED, (event, edited: unknown) => {
       if (!event.senderFrame || edited !== true) return;
       this.hasFormEdits = true;
@@ -396,6 +676,15 @@ class ElectronPageHost implements PageHost {
     });
 
     contents.on('will-navigate', (event) => {
+      // No page reaches a file, not even one opened earlier, unless the page
+      // is itself an opened file and the target sits beside it.
+      if (isLocalFileUrl(event.url)) {
+        if (!mayFollowFileLink(contents.getURL(), event.url)) {
+          event.preventDefault();
+          return;
+        }
+        this.environment.allowFile(event.url);
+      }
       if (!isPageUrl(event.url)) {
         event.preventDefault();
         // mailto:, tel: and the like: never silently dropped, never opened
@@ -428,6 +717,16 @@ class ElectronPageHost implements PageHost {
     contents.on('context-menu', (_event, params) => {
       const template = webContextMenu(contents, params, {
         ...this.events.navigationAvailability(),
+        searchUrlFor: (query) => this.events.searchUrlFor(query),
+        addToDictionary: contents.session.isPersistent()
+          ? (word) =>
+              this.events.onNotice({
+                kind: setDictionaryWord(contents.session, word, true)
+                  ? 'word-added'
+                  : 'word-not-added',
+                word,
+              })
+          : null,
         openChild: (url, options) => this.events.onOpenRequest(url, options),
         back: () => this.events.onNavigationCommand('back'),
         forward: () => this.events.onNavigationCommand('forward'),
@@ -435,6 +734,15 @@ class ElectronPageHost implements PageHost {
         copied: (what, subject) =>
           this.events.onNotice({ kind: 'copied', what, subject }),
         print: () => this.print(),
+        pictureInPicture: () =>
+          void togglePictureInPicture(contents).then((result) => {
+            if (result !== 'ok') {
+              this.events.onNotice({
+                kind: 'no-video',
+                blocked: result === 'blocked',
+              });
+            }
+          }),
       });
       const extras =
         this.environment.extensionMenuItems?.(contents, params) ?? [];
@@ -454,7 +762,8 @@ class ElectronPageHost implements PageHost {
       });
     });
     contents.on('will-redirect', (event) => {
-      if (!isPageUrl(event.url)) event.preventDefault();
+      if (!isPageUrl(event.url) || isLocalFileUrl(event.url))
+        event.preventDefault();
     });
 
     contents.on('login', (event, details, info, callback) => {
@@ -480,15 +789,32 @@ class ElectronPageHost implements PageHost {
     contents.on('focus', () => this.events.onFocus());
 
     contents.on('did-start-navigation', (details) => {
-      if (details.isMainFrame && !details.isSameDocument) emit({ error: null });
+      if (!details.isMainFrame || details.isSameDocument) return;
+      this.secureAttempt.navigationStarted(details.url);
+      this.failedUpgrade = null;
+      this.flaggedUrl = null;
+      emit({ error: null });
     });
     contents.on('did-start-loading', () => emit({ isLoading: true }));
     contents.on('did-stop-loading', () =>
       emit({ isLoading: false, ...this.navigationState() }),
     );
-    contents.on('did-navigate', (_event, committed) => {
+    contents.on('did-navigate', (_event, committed, status) => {
+      this.downloads.committed();
+      this.stopWatchingSecureAttempt();
+      // The secure address answered only to say it has nothing there: the
+      // plain one may well be the site.
+      const refused = this.secureAttempt.answeredWithError(status);
+      if (refused && committed.startsWith('https:')) {
+        this.offerPlainHttp(committed, refused, status, `HTTP ${status}`);
+      }
+      this.secureAttempt.committed();
       this.hasFormEdits = false;
-      emit({ hasFormEdits: false });
+      this.capturing = false;
+      emit({
+        hasFormEdits: false,
+        certificateException: this.environment.certificateException(committed),
+      });
       const url = this.sourceUrl ?? committed;
       const origin = originOf(url);
       const leftSite = origin !== this.origin;
@@ -496,13 +822,13 @@ class ElectronPageHost implements PageHost {
       if (leftSite && origin && this.environment.isSoundBlocked(origin)) {
         this.setMuted(true);
       }
+      this.applySiteZoom();
       emit({
         url,
         ...(this.sourceUrl
           ? { title: `Source · ${new URL(this.sourceUrl.slice(12)).host}` }
           : {}),
         ...this.navigationState(),
-        zoomPercent: Math.round(contents.getZoomFactor() * 100),
         find: null,
         // The previous site's icon must not linger on a different site.
         ...(leftSite ? { faviconUrl: null } : {}),
@@ -541,9 +867,32 @@ class ElectronPageHost implements PageHost {
       'did-fail-load',
       (_event, code, description, url, isMainFrame) => {
         if (!isMainFrame || code === ERR_ABORTED) return;
+        if (this.flaggedUrl) {
+          const flagged = this.flaggedUrl;
+          this.flaggedUrl = null;
+          emit({
+            isLoading: false,
+            error: { kind: 'dangerous-site', code, description, url: flagged },
+          });
+          return;
+        }
+        this.stopWatchingSecureAttempt();
+        const plain = this.secureAttempt.failed(code);
+        // Typed without a scheme, on a site the user already chose HTTP for.
+        if (plain && this.environment.plainHttpAllowed(plain)) {
+          this.load(plain, { comingBack: this.downloads.isHolding });
+          return;
+        }
+        this.failedUpgrade = plain ? { secure: url, plain } : null;
+        const certificateLocked = this.environment.certificateLocked(url);
         emit({
           isLoading: false,
-          error: { kind: 'load-failed', code, description, url },
+          error: {
+            ...(plain
+              ? { kind: 'no-secure-connection', code, description, url: plain }
+              : { kind: 'load-failed', code, description, url }),
+            ...(certificateLocked ? { certificateLocked } : {}),
+          },
         });
       },
     );
@@ -556,9 +905,19 @@ class ElectronPageHost implements PageHost {
       this.view.setBorderRadius(CONTENT_RADIUS);
       this.events.onFullscreenChange(false);
     });
-    contents.on('unresponsive', () => emit({ isUnresponsive: true }));
-    contents.on('responsive', () => emit({ isUnresponsive: false }));
+    contents.on('unresponsive', () => {
+      this.hung.stoppedAnswering();
+      emit({ isUnresponsive: true });
+    });
+    contents.on('responsive', () => {
+      this.hung.answeredAgain();
+      emit({ isUnresponsive: false });
+    });
     contents.on('render-process-gone', (_event, details) => {
+      if (this.hung.processGone() === 'ended') {
+        emit({ isUnresponsive: false });
+        return;
+      }
       if (details.reason === 'clean-exit') return;
       emit({
         isLoading: false,

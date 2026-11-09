@@ -7,14 +7,24 @@ import {
   webContents,
   type IpcMainInvokeEvent,
   type Session,
+  type WebContents,
 } from 'electron';
 import type { Fetch } from '@ghostery/adblocker';
 import { pageHandleFor } from '../browser/electron-page-host';
 import type { PreferencesService } from '../preferences';
+import {
+  httpsUpgradeFor,
+  popupUpgraded,
+  wantsSecurePopup,
+} from '../security/https-only';
 import { webOrigin } from '../security/permissions';
 import type { TrailStore } from '../storage/trail-store';
 import { AUTOCONSENT } from '../../shared/page-bridge';
 import { autoconsentReply } from './autoconsent';
+import type { SiteRules } from './electron-site-rules';
+import { STAND_IN_SCHEME, STAND_IN_SECRET, standInName } from './stand-ins';
+import { popupHandleFor } from '../windows/popup-window';
+import { withoutSetCookie } from './site-rules';
 import {
   bundleScriptlets,
   combinedStatus,
@@ -83,6 +93,16 @@ function createBlocker(
   );
 }
 
+/** The blocker, and the way a private window's session joins it. */
+export interface ContentBlockingHost extends ContentBlocking {
+  attachSession(
+    target: Session,
+    from: Pick<TrailStore, 'getPermission'>,
+    rules: SiteRules,
+  ): void;
+  detachSession(target: Session): void;
+}
+
 /**
  * Blocks ads and trackers and handles cookie notices in the web session:
  * network requests, hiding rules, uBlock Origin's scriptlets for ads, and
@@ -93,25 +113,35 @@ export function enableContentBlocking(
   session: Session,
   store: TrailStore,
   preferences: PreferencesService,
-): ContentBlocking {
+  rules: SiteRules,
+): ContentBlockingHost {
+  type Decisions = Pick<TrailStore, 'getPermission'>;
+  /** Each session's decisions: a private window has its own, in memory. */
+  const decisions = new Map<Session, Decisions>([[session, store]]);
+  const decisionsOf = (contents: WebContents) =>
+    decisions.get(contents.session) ?? store;
+
   /** Whether the user allowed ads on the site at `pageUrl`, if they decided. */
-  const allowedOn = (pageUrl: string | null): boolean | null => {
+  const allowedOn = (
+    pageUrl: string | null,
+    from: Decisions,
+  ): boolean | null => {
     const origin = webOrigin(pageUrl ?? undefined);
     try {
-      return origin ? store.getPermission(origin, 'ads') : null;
+      return origin ? from.getPermission(origin, 'ads') : null;
     } catch (error) {
       console.error('Storage error', error);
       return null;
     }
   };
   /** Whether cookie notices are rejected and hidden on the page. */
-  const handlesCookiesOn = (pageUrl: string | null) =>
-    preferences.get().hideCookieNotices && allowedOn(pageUrl) !== true;
+  const handlesCookiesOn = (pageUrl: string | null, from: Decisions) =>
+    preferences.get().hideCookieNotices && allowedOn(pageUrl, from) !== true;
   const blockers = [
     {
       blocker: createBlocker('filter-lists.bin'),
-      appliesOn: (pageUrl: string | null) => {
-        const allowed = allowedOn(pageUrl);
+      appliesOn: (pageUrl: string | null, from: Decisions) => {
+        const allowed = allowedOn(pageUrl, from);
         return allowed === null ? preferences.get().blockAds : !allowed;
       },
     },
@@ -125,9 +155,9 @@ export function enableContentBlocking(
     },
   ];
   /** The blockers that apply on the page at `pageUrl`. */
-  const blockersOn = (pageUrl: string | null) =>
+  const blockersOn = (pageUrl: string | null, from: Decisions) =>
     blockers
-      .filter(({ appliesOn }) => appliesOn(pageUrl))
+      .filter(({ appliesOn }) => appliesOn(pageUrl, from))
       .map(({ blocker }) => blocker);
 
   /** The trail page a request belongs to, if any. */
@@ -138,71 +168,183 @@ export function enableContentBlocking(
         : webContents.fromId(webContentsId);
     const handle = pageHandleFor(contents);
     return handle && contents
-      ? { pageId: handle.pageId, url: contents.getURL() }
+      ? { handle, pageId: handle.pageId, url: contents.getURL() }
       : null;
   };
 
-  // These two hooks must stay registered while Splash runs Electron 45.0.0.
-  // Electron's own hooks take precedence over an extension's blocking
-  // `chrome.webRequest` listeners, and on 45.0.0 those listeners never
-  // answer (electron/electron#55234, fixed in 45.0.1), so every request of
-  // a page would hang behind uBlock Origin's.
-  session.webRequest.onBeforeRequest(
-    { urls: ['<all_urls>'] },
-    (details, callback) => {
-      const page = pageOf(details.webContentsId);
-      const pageUrl = page?.url || details.referrer || null;
-      // Every blocker sees a page start loading, to restart its count.
-      const applying =
-        details.resourceType === 'mainFrame'
-          ? blockers.map(({ blocker }) => blocker)
-          : blockersOn(pageUrl);
-      for (const blocker of applying) {
-        const response = blocker.onRequest(
-          details,
-          page?.pageId ?? null,
-          pageUrl,
-        );
-        if (response.cancel || response.redirectURL) {
-          callback(response);
+  /** A popup a page opened, which the dangerous-site warning covers too. */
+  const popupOf = (webContentsId: number | undefined) =>
+    webContentsId === undefined
+      ? null
+      : popupHandleFor(webContents.fromId(webContentsId));
+
+  /** A popup a page opened, whose first address HTTPS-only mode also covers. */
+  const isPopup = (webContentsId: number | undefined) => {
+    const contents =
+      webContentsId === undefined
+        ? undefined
+        : webContents.fromId(webContentsId);
+    return !!contents?.opener && contents.getType() === 'window';
+  };
+
+  /** Where HTTPS-only mode sends a page's request instead, if anywhere. */
+  const upgradeOf = (
+    url: string,
+    details: { resourceType: string; webContentsId?: number },
+    page: ReturnType<typeof pageOf>,
+    from: Decisions,
+  ): string | null => {
+    // Only a page's own address. Chromium already refuses or upgrades the
+    // insecure parts of a secure page, and a window's shell is never upgraded.
+    if (details.resourceType !== 'mainFrame') return null;
+    const popup = !page && isPopup(details.webContentsId);
+    if (!page && !popup) return null;
+    if (popup && !wantsSecurePopup(url)) return null;
+    const secure = httpsUpgradeFor(
+      url,
+      preferences.get().httpsOnly,
+      (origin) => {
+        try {
+          return from.getPermission(origin, 'insecure');
+        } catch (error) {
+          console.error('Storage error', error);
+          return null;
+        }
+      },
+    );
+    if (secure && popup) popupUpgraded(url, secure);
+    if (secure) page?.handle.upgraded(url, secure);
+    return secure;
+  };
+
+  /** The hooks and preload one browsing session needs. */
+  const attach = (
+    target: Session,
+    from: Decisions,
+    siteRules: SiteRules,
+  ): void => {
+    // Electron runs an extension's `chrome.webRequest` listeners only in a
+    // session with no `session.webRequest` listener at all, for any event. While
+    // these hooks and SiteRules' are registered, uBlock Origin sees no network
+    // requests, so the blocker here does that work. Removing only some of them
+    // changes nothing: see docs/todo.md before retiring any.
+    target.protocol.handle(STAND_IN_SCHEME, (request) => {
+      const name = standInName(request.url, STAND_IN_SECRET);
+      const resource =
+        name === null
+          ? null
+          : blockers.map(({ blocker }) => blocker.standIn(name)).find(Boolean);
+      return resource
+        ? new Response(resource.body, {
+            headers: { 'content-type': resource.contentType },
+          })
+        : new Response(null, { status: 404 });
+    });
+    target.webRequest.onBeforeRequest(
+      { urls: ['<all_urls>'] },
+      (details, callback) => {
+        // A stand-in this hook sent the page to: never redirect it again.
+        if (details.url.startsWith(`${STAND_IN_SCHEME}:`)) {
+          callback({});
           return;
         }
-      }
-      callback({});
-    },
-  );
-
-  session.webRequest.onHeadersReceived(
-    { urls: ['<all_urls>'] },
-    (details, callback) => {
-      const pageUrl =
-        details.resourceType === 'mainFrame'
-          ? details.url
-          : pageOf(details.webContentsId)?.url || null;
-      const policies = blockersOn(pageUrl)
-        .map((blocker) => blocker.cspFor(details))
-        .filter((csp): csp is string => !!csp);
-      if (policies.length === 0) {
+        const page = pageOf(details.webContentsId);
+        // Before anything leaves for the site; the page shows the warning.
+        const flagged =
+          details.resourceType === 'mainFrame'
+            ? (page?.handle ?? popupOf(details.webContentsId))
+            : null;
+        if (flagged && siteRules.isDangerous(details.url)) {
+          flagged.flaggedDangerous(details.url);
+          callback({ cancel: true });
+          return;
+        }
+        // Electron allows one listener, so HTTPS-only mode goes first here:
+        // the request comes back through this hook on its way to HTTPS.
+        const secure = upgradeOf(details.url, details, page, from);
+        if (secure) {
+          callback({ redirectURL: secure });
+          return;
+        }
+        const pageUrl = page?.url || details.referrer || null;
+        // Every blocker sees a page start loading, to restart its count.
+        const applying =
+          details.resourceType === 'mainFrame'
+            ? blockers.map(({ blocker }) => blocker)
+            : blockersOn(pageUrl, from);
+        for (const blocker of applying) {
+          const response = blocker.onRequest(
+            details,
+            page?.pageId ?? null,
+            pageUrl,
+          );
+          if (response.cancel || response.redirectURL) {
+            callback(response);
+            return;
+          }
+        }
+        // Tracking parameters come off a page's own address too, unless
+        // blocking is off for the site it's going to.
+        if (details.resourceType === 'mainFrame') {
+          for (const blocker of blockersOn(details.url, from)) {
+            const cleaned = blocker.cleanedAddress(details);
+            if (cleaned) {
+              callback({ redirectURL: cleaned });
+              return;
+            }
+          }
+        }
         callback({});
-        return;
-      }
-      const responseHeaders = { ...details.responseHeaders };
-      for (const name of Object.keys(responseHeaders)) {
-        if (name.toLowerCase() !== 'content-security-policy') continue;
-        policies.push(...(responseHeaders[name] ?? []));
-        delete responseHeaders[name];
-      }
-      responseHeaders['Content-Security-Policy'] = [policies.join(';')];
-      callback({ responseHeaders });
-    },
-  );
+      },
+    );
 
-  // Hiding rules and scriptlets go into the page from here; the preload only
-  // reports the page's classes and ids.
-  session.registerPreloadScript({
-    type: 'frame',
-    filePath: path.join(__dirname, 'content-preload.cjs'),
-  });
+    target.webRequest.onHeadersReceived(
+      { urls: ['<all_urls>'] },
+      (details, callback) => {
+        const pageUrl =
+          details.resourceType === 'mainFrame'
+            ? details.url
+            : pageOf(details.webContentsId)?.url || null;
+        const site = siteRules.forResponse(details);
+        // The site's rules first: in one header, a directive's first copy wins.
+        const policies = [
+          ...(site.contentPolicy ? [site.contentPolicy] : []),
+          ...blockersOn(pageUrl, from)
+            .map((blocker) => blocker.cspFor(details))
+            .filter((csp): csp is string => !!csp),
+        ];
+        if (policies.length === 0 && !site.dropCookies) {
+          callback({});
+          return;
+        }
+        const responseHeaders = site.dropCookies
+          ? withoutSetCookie(details.responseHeaders ?? {})
+          : { ...details.responseHeaders };
+        if (policies.length === 0) {
+          callback({ responseHeaders });
+          return;
+        }
+        for (const name of Object.keys(responseHeaders)) {
+          if (name.toLowerCase() !== 'content-security-policy') continue;
+          policies.push(...(responseHeaders[name] ?? []));
+          delete responseHeaders[name];
+        }
+        responseHeaders['Content-Security-Policy'] = [policies.join(';')];
+        callback({ responseHeaders });
+      },
+    );
+
+    siteRules.install();
+
+    // Hiding rules and scriptlets go into the page from here; the preload only
+    // reports the page's classes and ids.
+    target.registerPreloadScript({
+      type: 'frame',
+      filePath: path.join(__dirname, 'content-preload.cjs'),
+    });
+  };
+
+  attach(session, store, rules);
   ipcMain.handle(
     INJECT_COSMETICS,
     (event: IpcMainInvokeEvent, _url: unknown, message: unknown) => {
@@ -210,7 +352,7 @@ export function enableContentBlocking(
       if (!pageHandleFor(contents) || event.senderFrame?.parent) return;
       const url = contents.getURL();
       const features = message === undefined ? undefined : domFeatures(message);
-      for (const blocker of blockersOn(url)) {
+      for (const blocker of blockersOn(url, decisionsOf(contents))) {
         const cosmetics = blocker.cosmeticsFor(url, features);
         if (!cosmetics) continue;
         if (cosmetics.styles) {
@@ -241,7 +383,10 @@ export function enableContentBlocking(
     return autoconsentReply(message, {
       frameUrl: frame.url,
       isMainFrame: !frame.parent,
-      enabled: handlesCookiesOn(event.sender.getURL()),
+      enabled: handlesCookiesOn(
+        event.sender.getURL(),
+        decisionsOf(event.sender),
+      ),
       evaluate: (code) => frame.executeJavaScript(code),
     });
   });
@@ -256,6 +401,16 @@ export function enableContentBlocking(
   }
 
   return {
+    attachSession(target, from, siteRules) {
+      decisions.set(target, from);
+      attach(target, from, siteRules);
+    },
+    detachSession(target) {
+      decisions.delete(target);
+      target.webRequest.onBeforeRequest(null);
+      target.webRequest.onHeadersReceived(null);
+      target.protocol.unhandle(STAND_IN_SCHEME);
+    },
     blockedOn: (pageId) =>
       blockers.reduce((sum, { blocker }) => sum + blocker.blockedOn(pageId), 0),
     getStatus: () =>

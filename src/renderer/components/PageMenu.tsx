@@ -1,45 +1,53 @@
 import {
+  AppWindow,
   Star,
   Share,
   ArrowLeft,
   ArrowRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  ClipboardPaste,
   Columns2,
   Copy,
   CornerDownRight,
+  FolderHeart,
   FolderInput,
+  Hash,
   Layers,
   Link,
+  ListEnd,
   ListMinus,
+  ListPlus,
   ListX,
   Moon,
   Pencil,
   Pin,
   PinOff,
+  Plus,
   RotateCw,
+  Smile,
   StickyNote,
   Type,
+  Ungroup,
   X,
 } from 'lucide-react';
+import { pagesBelow } from '../../shared/pages-below';
 import type { BrowserSnapshot, PageId } from '../../shared/types';
-import {
-  bookmarkPage,
-  collectionNotice,
-  saveTrailAsGroup,
-} from '../lib/collections';
+import { bookmarkBranch, branchLinks } from '../lib/bookmarks';
+import { bookmarkPage, collectionNotice } from '../lib/collections';
+import { showBookmarks } from '../stores/bookmarks-view-store';
+import { GroupMark } from './GroupIconPicker';
 import { useGroupRename } from './SavedGroups';
 import { pageLabel } from '../lib/format';
 import { noticeToast } from '../lib/notices';
 import { api } from '../splash-api';
-import { openLocation } from '../stores/overlay-store';
-import { usePageMenu } from '../stores/page-menu-store';
+import { openLocation } from '../stores/shell-store';
+import { usePageMenu, useTrailIcon } from '../stores/page-menu-store';
 import { useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
-import { WorkspaceIcon } from './WorkspaceIcon';
 
-const ICON = { size: 14, strokeWidth: 1.75 } as const;
+const ICON = { size: 14 } as const;
 
 function branchSize(snapshot: BrowserSnapshot, id: PageId): number {
   const page = snapshot.pages[id];
@@ -64,6 +72,9 @@ export function pageMenuEntries(
   const shell = useShell.getState();
   const url = page.url;
   const hasChildren = page.childIds.length > 0;
+  const trailhead = page.parentId === null;
+  const below = pagesBelow(snapshot, pageId).length;
+  const branchWebPages = hasChildren ? branchLinks(snapshot, pageId).length : 0;
   const activeId = snapshot.activePageId;
   const current = pageId === activeId;
   const key = (shortcut: string) => (current ? shortcut : undefined);
@@ -119,6 +130,16 @@ export function pageMenuEntries(
     },
     {
       kind: 'action',
+      label: 'New Sibling Page',
+      icon: <ListPlus {...ICON} />,
+      shortcut: key('⌃⌘T'),
+      run: async () => {
+        await splash.createSiblingPage(pageId);
+        void openLocation();
+      },
+    },
+    {
+      kind: 'action',
       label: 'Duplicate',
       icon: <Copy {...ICON} />,
       disabled: url === null,
@@ -133,25 +154,59 @@ export function pageMenuEntries(
     },
     {
       kind: 'action',
-      label: 'Add to Favorites',
+      label: 'Add to Bookmarks',
       icon: <Star {...ICON} />,
       disabled: !url || !/^https?:/.test(url),
       run: () => {
         void bookmarkPage(page).then(() =>
-          collectionNotice(`Added ${pageLabel(page)} to Favorites.`),
+          collectionNotice(`Added ${pageLabel(page)} to Bookmarks.`),
         );
       },
     },
-    {
+    hasChildren && {
       kind: 'action',
-      label: hasChildren ? 'Save Trail as Group' : 'Save as Group',
+      label: `Bookmark Branch (${branchWebPages} ${branchWebPages === 1 ? 'Page' : 'Pages'})`,
+      icon: <FolderHeart {...ICON} />,
+      disabled: branchWebPages === 0,
+      run: () =>
+        void bookmarkBranch(snapshot, pageId, pageLabel(page), showBookmarks),
+    },
+    {
+      kind: 'submenu',
+      label: 'Add to Group',
       icon: <Layers {...ICON} />,
-      disabled: !url || !/^https?:/.test(url),
-      run: () => {
-        void saveTrailAsGroup(snapshot, pageId).then((id) => {
-          if (id) useGroupRename.setState({ id });
-        });
-      },
+      entries: [
+        ...snapshot.groups.map(
+          (group): MenuEntry => ({
+            kind: 'action',
+            label: group.name,
+            icon: <GroupMark group={group} size={ICON.size} />,
+            disabled: page.groupId === group.id,
+            run: () => void splash.setPageGroup(pageId, group.id),
+          }),
+        ),
+        ...(snapshot.groups.length ? [{ kind: 'separator' } as MenuEntry] : []),
+        {
+          kind: 'action',
+          label: 'New Group…',
+          icon: <Plus {...ICON} />,
+          run: async () => {
+            const id = await splash.createGroup(undefined, pageId);
+            useGroupRename.setState({ id });
+          },
+        },
+        ...(page.groupId
+          ? [
+              { kind: 'separator' } as MenuEntry,
+              {
+                kind: 'action',
+                label: 'Remove from Group',
+                icon: <Ungroup {...ICON} />,
+                run: () => void splash.setPageGroup(pageId, null),
+              } as MenuEntry,
+            ]
+          : []),
+      ],
     },
     {
       kind: 'action',
@@ -169,9 +224,15 @@ export function pageMenuEntries(
     { kind: 'separator' },
     {
       kind: 'action',
-      label: 'Rename…',
+      label: trailhead ? 'Name Trail…' : 'Rename…',
       icon: <Pencil {...ICON} />,
       run: () => shell.startRename(pageId),
+    },
+    trailhead && {
+      kind: 'action',
+      label: page.emoji ? 'Change Emoji…' : 'Add Emoji…',
+      icon: <Smile {...ICON} />,
+      run: () => useTrailIcon.setState({ pageId }),
     },
     !!page.customTitle && {
       kind: 'action',
@@ -203,6 +264,32 @@ export function pageMenuEntries(
         );
       },
     },
+    url !== null && {
+      kind: 'submenu',
+      label: 'Copy As',
+      icon: <Copy {...ICON} />,
+      entries: [
+        {
+          kind: 'action',
+          label: 'Markdown',
+          icon: <Hash {...ICON} />,
+          shortcut: key('⌥⇧⌘C'),
+          run: () => void splash.copyPageAs(pageId, 'markdown'),
+        },
+        {
+          kind: 'action',
+          label: 'Plain Text',
+          icon: <Type {...ICON} />,
+          run: () => void splash.copyPageAs(pageId, 'text'),
+        },
+      ],
+    },
+    {
+      kind: 'action',
+      label: 'Paste Outline Here',
+      icon: <ClipboardPaste {...ICON} />,
+      run: () => void splash.pasteOutline(pageId),
+    },
     otherWorkspaces.length > 0 && {
       kind: 'submenu',
       label: 'Move to Workspace',
@@ -210,14 +297,25 @@ export function pageMenuEntries(
       entries: otherWorkspaces.map((workspace) => ({
         kind: 'action',
         label: workspace.name,
-        icon: (
-          <WorkspaceIcon
-            icon={workspace.appearance.icon}
-            name={workspace.name}
-            size={13}
-          />
-        ),
+        icon: <Layers {...ICON} />,
         run: () => void splash.movePageToWorkspace(pageId, workspace.id),
+      })),
+    },
+    {
+      kind: 'action',
+      label: 'Move to New Window',
+      icon: <AppWindow {...ICON} />,
+      run: () => void splash.movePageToWindow(pageId, null),
+    },
+    snapshot.otherWindows.length > 0 && {
+      kind: 'submenu',
+      label: 'Move to Window',
+      icon: <AppWindow {...ICON} />,
+      entries: snapshot.otherWindows.map((other) => ({
+        kind: 'action',
+        label: other.title,
+        icon: <AppWindow {...ICON} />,
+        run: () => void splash.movePageToWindow(pageId, other.id),
       })),
     },
     { kind: 'separator' },
@@ -256,6 +354,13 @@ export function pageMenuEntries(
       ),
       run: () => void splash.setCollapsed(pageId, !page.collapsed),
     },
+    snapshot.rootIds.length > 1 && {
+      kind: 'action',
+      label: 'Collapse Other Trails',
+      icon: <ChevronsDownUp {...ICON} />,
+      shortcut: key('⌥⌘C'),
+      run: () => void splash.collapseOtherTrails(pageId),
+    },
     { kind: 'separator' },
     ...(page.isPinned
       ? ([
@@ -290,6 +395,12 @@ export function pageMenuEntries(
         shortcut: key('⌥⌘W'),
         run: () => void splash.closeBranch(pageId),
       },
+    below > 0 && {
+      kind: 'action',
+      label: below === 1 ? 'Close Page Below' : `Close ${below} Pages Below`,
+      icon: <ListEnd {...ICON} />,
+      run: () => void splash.closePagesBelow(pageId),
+    },
     Object.keys(snapshot.pages).length > 1 && {
       kind: 'action',
       label: 'Close Other Pages',

@@ -1,4 +1,5 @@
-import type { DetailedHTMLProps, HTMLAttributes } from 'react';
+import { useIsPrivate } from '../hooks/use-is-private';
+import type { DetailedHTMLProps } from 'react';
 
 declare module 'react' {
   namespace JSX {
@@ -20,6 +21,10 @@ const WEB_PARTITION = 'persist:web';
  * extension's popup for the page in front; the badge is its count there.
  */
 export function ExtensionActions() {
+  // A private window's session has no extensions; the toolbar must not offer
+  // the regular window's, which would act on pages elsewhere.
+  const isPrivate = useIsPrivate();
+  if (isPrivate) return null;
   return (
     <browser-action-list
       partition={WEB_PARTITION}

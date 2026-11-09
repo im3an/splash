@@ -12,6 +12,7 @@ export function AnchoredPanel({
   children,
   label,
   anchor = 'address',
+  alignEndTo,
   modal = false,
 }: {
   /** `null` matches the address field's width. */
@@ -20,6 +21,12 @@ export function AnchoredPanel({
   label: string;
   /** Under the address field, or at the page area's leading edge. */
   anchor?: 'address' | 'start';
+  /**
+   * The id of a control to line the panel's right edge up with, instead of
+   * `anchor`, kept inside the page area. A control off to the left of the page
+   * area, like one in the sidebar, puts the panel at the page's leading edge.
+   */
+  alignEndTo?: string;
   modal?: boolean;
 }) {
   const ref = useDialogFocus<HTMLDivElement>(modal);
@@ -27,6 +34,27 @@ export function AnchoredPanel({
 
   useLayoutEffect(() => {
     const measure = () => {
+      if (alignEndTo) {
+        const container = ref.current?.offsetParent;
+        if (!(container instanceof HTMLElement)) return;
+        const frame = container.getBoundingClientRect();
+        const panelWidth = Math.min(
+          width ?? 360,
+          Math.max(0, frame.width - 16),
+        );
+        const control = document.getElementById(alignEndTo);
+        const end = control
+          ? control.getBoundingClientRect().right - frame.left
+          : frame.width - 8;
+        setPosition({
+          left: Math.max(
+            8,
+            Math.min(end - panelWidth, frame.width - panelWidth - 8),
+          ),
+          width: panelWidth,
+        });
+        return;
+      }
       if (anchor === 'start') {
         setPosition({ left: 8, width: width ?? 360 });
         return;
@@ -60,7 +88,7 @@ export function AnchoredPanel({
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, [width, anchor]);
+  }, [width, anchor, alignEndTo]);
 
   return (
     <div
