@@ -15,6 +15,8 @@ interface NotesState {
   create(body?: string, sites?: string[]): Note;
   edit(id: string, patch: Partial<Pick<Note, 'body' | 'sites'>>): void;
   remove(id: string): void;
+  /** Puts a deleted note back, same id and text. */
+  restore(note: Note): void;
   /** Writes any edit still waiting. */
   flush(): Promise<void>;
 }
@@ -92,6 +94,14 @@ export const useNotes = create<NotesState>()((set, get) => ({
     void api()
       .deleteNote(id)
       .catch(() => undefined);
+  },
+  restore: (note) => {
+    const restored = { ...note, updatedAt: Date.now() };
+    set((state) => ({
+      notes: [restored, ...state.notes.filter((item) => item.id !== note.id)],
+      activeId: note.id,
+    }));
+    void persist(restored);
   },
   flush: async () => {
     const waiting = [...pending.keys()];

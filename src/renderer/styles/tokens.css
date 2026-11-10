@@ -81,6 +81,18 @@
   /* Status colours. Never the only cue: pair with an icon or words. */
   /* Error text sits on any frame and field: 4.5:1 on all of them. */
   --danger: #911a12;
+
+  /* Notes: sketch inks and named highlights, warm like the rest. */
+  --note-ink-red: #c2412d;
+  --note-ink-blue: #2f6db3;
+  --note-ink-green: #3d8a4f;
+  --note-mark-default: rgb(240 196 70 / 0.42);
+  --note-mark-yellow: rgb(240 196 70 / 0.42);
+  --note-mark-green: rgb(106 176 106 / 0.3);
+  --note-mark-blue: rgb(84 140 214 / 0.26);
+  --note-mark-purple: rgb(150 110 200 / 0.26);
+  --note-mark-pink: rgb(224 110 150 / 0.26);
+  --note-mark-gray: rgb(var(--ink) / 0.1);
   --success: #3f7a3a;
   --warning: #9a6a0a;
   --info: #2d6cb0;
@@ -144,6 +156,12 @@
   --note-leading-title: 1.04;
   --note-leading-section: 1.2;
   --note-radius-block: 14px;
+  --note-type-text-small: 16px;
+  --note-type-h3: 20px;
+  --note-type-icon: 60px;
+  --note-leading-text: 1.6;
+  --note-column: 720px;
+  --note-column-wide: 1120px;
   /* Line heights: one-line chrome, multi-line copy, roomy explanations. */
   --leading-chrome: 1.35;
   --leading-copy: 1.45;
@@ -262,6 +280,17 @@
     --accent-hover: color-mix(in oklab, var(--accent), white 8%);
     --on-accent: var(--chrome);
     --danger: #ff998b;
+
+    --note-ink-red: #ff8a73;
+    --note-ink-blue: #8ab8f0;
+    --note-ink-green: #8fd09b;
+    --note-mark-default: rgb(240 196 70 / 0.3);
+    --note-mark-yellow: rgb(240 196 70 / 0.3);
+    --note-mark-green: rgb(106 176 106 / 0.3);
+    --note-mark-blue: rgb(84 140 214 / 0.34);
+    --note-mark-purple: rgb(150 110 200 / 0.34);
+    --note-mark-pink: rgb(224 110 150 / 0.3);
+    --note-mark-gray: rgb(var(--ink) / 0.14);
     --success: #8fc27a;
     --warning: #e6b04f;
     --info: #7eafea;
