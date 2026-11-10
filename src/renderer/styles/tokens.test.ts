@@ -28,6 +28,7 @@ const ALLOWED: Record<string, RegExp> = {
   'components/WorkspaceEditor.tsx': /#[0-9a-f]{3}\b/i,
   // The mark's master ink, swapped for currentColor.
   'components/Brand.tsx': /#221d17/,
+  'components/notes/NotesMark.tsx': /#221d17/,
 };
 
 const LITERALS = [

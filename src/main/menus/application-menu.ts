@@ -608,6 +608,12 @@ export function installApplicationMenu(actions: MenuActions): void {
           click: () =>
             actions.currentWindow()?.sendUiCommand({ type: 'show-tasks' }),
         },
+        {
+          label: 'Notes',
+          accelerator: 'Alt+CmdOrCtrl+N',
+          click: () =>
+            actions.currentWindow()?.sendUiCommand({ type: 'show-notes' }),
+        },
         // PROTOTYPE: see src/renderer/prototype/.
         ...(app.isPackaged
           ? []

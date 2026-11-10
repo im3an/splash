@@ -12,6 +12,7 @@ export type Overlay =
   | { kind: 'suggestions' }
   | { kind: 'site-info' }
   | { kind: 'downloads' }
+  | { kind: 'notes' }
   /** PROTOTYPE: see src/renderer/prototype/. */
   | { kind: 'alma-view' };
 

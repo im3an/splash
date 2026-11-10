@@ -87,6 +87,7 @@ import {
 } from '../security/permissions';
 import { dangerousSiteKey } from '../security/threat-list';
 import { AiPanel } from '../ai/ai-panel';
+import { NotesStore } from '../notes/notes-store';
 import type { HistoryMatch, TrailStore } from '../storage/trail-store';
 import type { PreferencesService } from '../preferences';
 import type { DownloadManager } from '../downloads/download-manager';
@@ -112,6 +113,15 @@ const engineSuggestions = new SearchSuggestions((url, init) =>
 const siteIcons = new SiteIcons((url, init) =>
   net.fetch(url, { ...init, credentials: 'omit' }),
 );
+
+let sharedNotes: NotesStore | null = null;
+/** One notes file for every window, private ones included: notes are yours. */
+function notesStore(): NotesStore {
+  sharedNotes ??= new NotesStore(
+    path.join(app.getPath('userData'), 'notes.json'),
+  );
+  return sharedNotes;
+}
 
 export interface SessionSaves {
   schedule(): void;
@@ -594,6 +604,9 @@ export class TrailWindow {
         },
         'page:set-note': ({ pageId, note }) =>
           this.controller.setNote(pageId, note),
+        'notes:list': () => notesStore().list(),
+        'notes:save': (input) => notesStore().save(input),
+        'notes:delete': ({ id }) => notesStore().delete(id),
         'page:open-split': ({ pageId, otherId, side }) =>
           this.controller.openSplit(pageId, otherId, side),
         'page:toggle-split': ({ pageId }) =>

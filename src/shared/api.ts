@@ -49,6 +49,7 @@ import type { AiPanelAction, AiPanelPlacement, AiPanelState } from './ai';
 import type { CopyFormat } from './page-link';
 import type { PaletteScope } from './palette';
 import type { Preferences } from './preferences';
+import type { Note } from './notes';
 
 export interface InvokeOutputs {
   'vault:list': VaultListing;
@@ -156,6 +157,9 @@ export interface InvokeOutputs {
   'page:toggle-split': void;
   'split:close': void;
   'page:set-note': void;
+  'notes:list': Note[];
+  'notes:save': Note;
+  'notes:delete': void;
   'workspace:switch': void;
   'workspace:rename': void;
   'workspace:show-menu': void;
@@ -389,6 +393,13 @@ export interface SplashApi {
   /** Shows a page in another window, or in a new one when `windowId` is `null`. */
   movePageToWindow(pageId: PageId, windowId: string | null): Promise<void>;
   setNote(pageId: PageId, note: string | null): Promise<void>;
+  listNotes(): Promise<Note[]>;
+  saveNote(input: {
+    id?: string;
+    body: string;
+    sites: string[];
+  }): Promise<Note>;
+  deleteNote(id: string): Promise<void>;
   /**
    * Shows `pageId` beside `otherId` and makes it active: on `side` when
    * given (a page dropped there), else in trail order.

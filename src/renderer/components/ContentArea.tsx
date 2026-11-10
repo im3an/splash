@@ -30,6 +30,7 @@ import { DownloadsPopover } from './DownloadsPopover';
 import { SiteInfoPopover } from './SiteInfoPopover';
 import { StartPage } from './StartPage';
 import { AlmaViewPrototype } from '../prototype/AlmaViewPrototype';
+import { NotesView } from './notes/NotesView';
 
 const PANE =
   'relative overflow-hidden rounded-content bg-surface shadow-content';
@@ -226,6 +227,8 @@ function OverlayContent({
       return <SiteInfoPopover />;
     case 'downloads':
       return <DownloadsPopover />;
+    case 'notes':
+      return <NotesView />;
     case 'alma-view':
       return import.meta.env.DEV ? <AlmaViewPrototype /> : null;
     default:

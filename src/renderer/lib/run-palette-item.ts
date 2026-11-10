@@ -7,6 +7,7 @@ import { api } from '../splash-api';
 import { useAiPanel } from '../stores/ai-store';
 import { showBookmarks } from '../stores/bookmarks-view-store';
 import { useOverlay } from '../stores/overlay-store';
+import { openNotes } from '../stores/notes-store';
 import {
   openLocation,
   selectActivePage,
@@ -59,6 +60,7 @@ async function performPaletteItem(
       overlay.close();
       return shell.setSidebarPanel('tasks');
     }
+    if (item.command === 'show-notes') return openNotes();
     if (item.command === 'show-alma-view') {
       // Swaps with the palette, so the page stays frozen in between.
       return overlay.open({ kind: 'alma-view' });

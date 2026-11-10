@@ -5,6 +5,7 @@ import type { Preferences } from '../../shared/preferences';
 import { closedToast, noticeToast } from '../lib/notices';
 import { shareUnchanged } from '../lib/share-unchanged';
 import { useOverlay } from './overlay-store';
+import { openNotes } from './notes-store';
 import { confirmUndo, offersUndoHistory, useToast } from './toast-store';
 import type {
   BrowserSnapshot,
@@ -312,6 +313,11 @@ export function connectShell(splash: SplashApi): () => void {
         return shell.toggleSidebarPanel('tasks');
       case 'show-trail-summary':
         return shell.toggleSidebarPanel('trails');
+      // ⌥⌘N again closes it.
+      case 'show-notes':
+        return overlay.overlay?.kind === 'notes'
+          ? overlay.close()
+          : void openNotes();
       // PROTOTYPE: see src/renderer/prototype/. ⌥⌘G again closes it.
       case 'show-alma-view':
         return overlay.overlay?.kind === 'alma-view'

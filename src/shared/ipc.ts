@@ -8,6 +8,7 @@ import {
   TOOLBAR_ACTIONS,
   type SpellingLanguage,
 } from './preferences';
+import { MAX_NOTE_LENGTH, MAX_NOTE_SITES } from './notes';
 import {
   isSearchKeyword,
   isSearchTemplate,
@@ -441,6 +442,21 @@ export const invokeContract = {
     pageId,
     note: z.string().max(4000).nullable(),
   }),
+  'notes:list': z.undefined(),
+  'notes:save': z.strictObject({
+    id: z.uuid().optional(),
+    body: z.string().max(MAX_NOTE_LENGTH),
+    sites: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(253)
+          .regex(/^[\p{L}\p{N}.-]+$/u),
+      )
+      .max(MAX_NOTE_SITES),
+  }),
+  'notes:delete': z.strictObject({ id: z.uuid() }),
   'workspace:switch': z.strictObject({ workspaceId }),
   'workspace:rename': z.strictObject({
     workspaceId,

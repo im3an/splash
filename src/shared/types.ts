@@ -244,6 +244,7 @@ export type PaletteCommand =
   | 'show-history'
   | 'show-bookmarks'
   | 'show-tasks'
+  | 'show-notes'
   /** PROTOTYPE: see src/renderer/prototype/. */
   | 'show-alma-view'
   | 'toggle-bookmarks-bar'
@@ -688,6 +689,7 @@ export type UiCommand =
   | { type: 'show-history' }
   | { type: 'show-bookmarks' }
   | { type: 'show-tasks' }
+  | { type: 'show-notes' }
   /** PROTOTYPE: see src/renderer/prototype/. */
   | { type: 'show-alma-view' }
   | { type: 'show-trail-summary' }

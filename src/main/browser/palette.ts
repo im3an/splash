@@ -366,6 +366,12 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     keywords: 'memory cpu processes slow end unresponsive',
     shortcut: null,
   },
+  {
+    command: 'show-notes',
+    title: 'Show notes',
+    keywords: 'notes notepad write markdown sketch mermaid latex',
+    shortcut: '⌥⌘N',
+  },
   // PROTOTYPE: dev builds only, as is what it opens. See src/renderer/prototype/.
   ...(import.meta.env.DEV
     ? [

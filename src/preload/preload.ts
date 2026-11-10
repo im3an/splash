@@ -161,6 +161,9 @@ const api: SplashApi = {
   movePageToWindow: (pageId, windowId) =>
     invoke('page:move-to-window', { pageId, windowId }),
   setNote: (pageId, note) => invoke('page:set-note', { pageId, note }),
+  listNotes: () => invoke('notes:list'),
+  saveNote: (input) => invoke('notes:save', input),
+  deleteNote: (id) => invoke('notes:delete', { id }),
   openSplit: (pageId, otherId, side) =>
     invoke('page:open-split', { pageId, otherId, side }),
   toggleSplit: (pageId) => invoke('page:toggle-split', { pageId }),
