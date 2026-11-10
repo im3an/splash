@@ -584,7 +584,17 @@ Brave / privacy style
 - [ ] Block fingerprinting
 - [ ] Bounce-tracking protection and storage partitioning
 - [ ] Tor / VPN private window (optional, later)
-- [ ] Built-in DNS over HTTPS with a provider choice
+- [x] Built-in DNS over HTTPS with a provider choice (11 November). Settings ›
+      Privacy › Connections › Secure DNS: Automatic (Chromium's default, the
+      network's DNS encrypted when its provider supports it), Cloudflare, Quad9,
+      Mullvad, Google Public DNS or Off. A chosen provider falls back to the
+      network's DNS unless "Only secure DNS" is on. It applies at launch before
+      any page loads, and at once on a change (`app.configureHostResolver`,
+      `src/main/privacy/secure-dns.ts`). Checked in the app: 1.1.1.1/help says
+      "Using DNS over HTTPS: Yes" with Cloudflare strict, also after a restart,
+      and "No" with Off. Quad9, Mullvad and Google each loaded a page in strict
+      mode.
+  - [ ] By hand: a captive portal (hotel Wi-Fi) with a provider, strict and not.
 - [ ] Block scripts, social widgets and trackers by category
 
 Safari / Orion style polish

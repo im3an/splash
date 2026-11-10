@@ -46,6 +46,7 @@ import {
 import { BrowsingDataCleaner } from './privacy/browsing-data';
 import { CookieViewer, type CookieJar } from './privacy/cookies';
 import { QuitClear } from './privacy/quit-clear';
+import { secureDnsFollower } from './privacy/secure-dns';
 import {
   enableContentBlocking,
   type ContentBlockingHost,
@@ -807,6 +808,12 @@ if (!app.requestSingleInstanceLock()) {
     serveShell(session.defaultSession);
     configureWebSession(session.fromPartition(WEB_PARTITION), store);
     preferences = new PreferencesService(store);
+    // Before any page loads, so no lookup goes out the way it was not asked to.
+    const followSecureDns = secureDnsFollower((options) =>
+      app.configureHostResolver(options),
+    );
+    followSecureDns(preferences.get());
+    preferences.onChange(followSecureDns);
     keepSpelling(
       preferences,
       session.fromPartition(WEB_PARTITION),

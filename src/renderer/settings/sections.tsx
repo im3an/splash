@@ -14,6 +14,11 @@ import {
   type SpellingLanguage,
 } from '../../shared/preferences';
 import { customEngines, SEARCH_ENGINES } from '../../shared/search';
+import {
+  SECURE_DNS_PROVIDERS,
+  secureDnsProvider,
+  type SecureDns,
+} from '../../shared/secure-dns';
 import type {
   ThreatListStatus,
   AboutInfo,
@@ -643,6 +648,20 @@ function ClearOnQuitSettings() {
   );
 }
 
+function secureDnsHelp({
+  secureDns,
+  secureDnsStrict,
+}: Pick<Preferences, 'secureDns' | 'secureDnsStrict'>): string {
+  if (secureDns === 'automatic')
+    return 'Encrypts the lookups that turn addresses into servers when your network’s DNS provider supports it.';
+  if (secureDns === 'off')
+    return 'Uses your network’s DNS without encryption, so the network can see which sites you look up.';
+  const name = secureDnsProvider(secureDns)?.name ?? secureDns;
+  return secureDnsStrict
+    ? `Looks up every site with ${name}, encrypted, so your network can’t see or change the answers.`
+    : `Looks up sites with ${name}, encrypted, so your network can’t see or change the answers. If ${name} can’t be reached, Splash uses your network’s DNS.`;
+}
+
 function SecureConnectionSettings() {
   const [preferences, update] = usePreferences();
   const [threats, setThreats] = useState<ThreatListStatus | null>(null);
@@ -678,6 +697,35 @@ function SecureConnectionSettings() {
           onChange={(httpsOnly) => update({ httpsOnly })}
         />
       </Row>
+      <Row label="Secure DNS" help={secureDnsHelp(preferences)}>
+        <Select
+          aria-label="Secure DNS"
+          value={preferences.secureDns}
+          onChange={(event) =>
+            update({ secureDns: event.target.value as SecureDns })
+          }
+        >
+          <option value="automatic">Automatic</option>
+          {SECURE_DNS_PROVIDERS.map((provider) => (
+            <option key={provider.id} value={provider.id}>
+              {provider.name}
+            </option>
+          ))}
+          <option value="off">Off</option>
+        </Select>
+      </Row>
+      {secureDnsProvider(preferences.secureDns) && (
+        <Row
+          label="Only secure DNS"
+          help={`Pages don’t load while ${secureDnsProvider(preferences.secureDns)?.name} can’t be reached. A sign-in page on hotel or airport Wi-Fi may need this off.`}
+        >
+          <Toggle
+            label="Only secure DNS"
+            checked={preferences.secureDnsStrict}
+            onChange={(secureDnsStrict) => update({ secureDnsStrict })}
+          />
+        </Row>
+      )}
       <Row
         label="Warn about dangerous sites"
         help={

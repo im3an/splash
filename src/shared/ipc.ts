@@ -9,6 +9,7 @@ import {
   type SpellingLanguage,
 } from './preferences';
 import { MAX_NOTE_LENGTH, MAX_NOTE_SITES } from './notes';
+import { SECURE_DNS_CHOICES } from './secure-dns';
 import {
   isSearchKeyword,
   isSearchTemplate,
@@ -132,6 +133,8 @@ export const preferencesSchema = z.strictObject({
   warnDangerousSites: z.boolean(),
   privacySignal: z.boolean(),
   blockThirdPartyCookies: z.boolean(),
+  secureDns: z.enum(SECURE_DNS_CHOICES),
+  secureDnsStrict: z.boolean(),
   clearOnQuit: z.strictObject({
     history: z.boolean(),
     cookies: z.boolean(),
