@@ -1,10 +1,9 @@
 /*
- * PROTOTYPE, throw away. Dev builds only (see WorkspaceBar and ContentArea).
- * Alma view: a graph of the workspace's pages, in seven modes, drawn in the page
- * card as an overlay so the sidebar stays live beside it. Finds things the
+ * Alma view: a graph of the workspace's pages, in seven modes, drawn in the
+ * page card as an overlay so the sidebar stays live beside it. Finds things the
  * sidebar can't (lenses, folders, types, a query language) and acts on them in
- * bulk, with real closes and moves that undo. Decide what to keep, then rewrite it properly and
- * delete this folder.
+ * bulk, with real closes and moves that undo. Still dev builds only (see
+ * WorkspaceBar and ContentArea); docs/todo.md lists what's left before release.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -37,6 +36,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  SearchX,
   ShoppingBag,
   SlidersHorizontal,
   Sprout,
@@ -49,6 +49,7 @@ import {
 } from 'lucide-react';
 import type { MoveOrigin, PageId, PageSnapshot } from '../../shared/types';
 import { GroupMark } from '../components/GroupIconPicker';
+import { PanelState } from '../components/PanelState';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { useSidebarMenu } from '../hooks/use-sidebar-menu';
 import { pageParts } from '../lib/format';
@@ -160,6 +161,16 @@ const TYPE_ICONS: Record<PageType, LucideIcon> = {
 
 const TERM = /-?(?:[a-z]+:)?"[^"]*"|\S+/g;
 
+/** Keys a focused list or segment answers itself, so the graph leaves them. */
+const ARROW_KEYS = new Set([
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+]);
+
 /** Terms that replace each other: one lens, one folder, one type at a time. */
 function familyOf(term: string): (other: string) => boolean {
   if (term.startsWith('folder:')) return (t) => t.startsWith('folder:');
@@ -266,9 +277,9 @@ export function AlmaViewButton() {
             },
           ])
         }
-        aria-label="Alma view (prototype)"
+        aria-label="Alma view"
         aria-pressed={open}
-        title="Alma view, prototype (⌥⌘G)"
+        title="Alma view (⌥⌘G)"
         className="icon-button shrink-0 justify-self-end"
       >
         <Network size={16} />
@@ -311,6 +322,8 @@ export function AlmaViewPrototype() {
   const [narrow, setNarrow] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  /** What the keyboard cursor landed on, read out by screen readers. */
+  const [announced, setAnnounced] = useState('');
   const [moveOpen, setMoveOpen] = useState(false);
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [memory, setMemory] = useState<Map<PageId, number>>(new Map());
@@ -321,6 +334,7 @@ export function AlmaViewPrototype() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
+  const railRef = useRef<HTMLElement>(null);
   const viewRef = useRef<AlmaCanvas | null>(null);
   const cursorRef = useRef<string | null>(null);
 
@@ -442,6 +456,11 @@ export function AlmaViewPrototype() {
       }),
     };
   }, [data, filter]);
+  // Lenses and types that never apply here stay out, so the list keeps one
+  // shape for the workspace; one that applies but not with the rest of the
+  // filter shows a 0 and can't be pressed into an empty graph.
+  const lensRows = facets.lenses.filter((row) => row.total > 0);
+  const typeRows = facets.types.filter((row) => row.total > 0);
   const totalMemory = useMemo(
     () => [...data.memory.values()].reduce((sum, bytes) => sum + bytes, 0),
     [data.memory],
@@ -478,16 +497,30 @@ export function AlmaViewPrototype() {
     };
     // Deepest first, so a branch doesn't reshuffle while it's being closed.
     const order = [...ids].sort((a, b) => depthOf(b) - depthOf(a));
-    for (const id of order) await api().closePage(id);
+    const closed: string[] = [];
+    try {
+      for (const id of order) {
+        await api().closePage(id);
+        closed.push(id);
+      }
+    } catch {
+      // The ones that did close can still come back.
+    }
     setSelection(new Set());
     setFilter('');
     cursorRef.current = null;
+    if (!closed.length) {
+      toast('Couldn’t close those pages', undefined, 'Nothing was closed.');
+      return;
+    }
     // After the toast each single close raises, which this one sums up.
     setTimeout(() => {
       toast(
-        `Closed ${plural(order.length)}`,
+        closed.length === order.length
+          ? `Closed ${plural(closed.length)}`
+          : `Closed ${closed.length} of ${plural(order.length)}`,
         async () => {
-          for (let i = 0; i < order.length; i++) await api().reopenClosed();
+          for (let i = 0; i < closed.length; i++) await api().reopenClosed();
         },
         '⇧⌘T reopens them one at a time.',
       );
@@ -513,15 +546,26 @@ export function AlmaViewPrototype() {
       const page = data.pages[id];
       return page ? [{ id, origin: originOf(page) }] : [];
     });
-    for (const { id } of moves)
-      await api().movePageToWorkspace(id, workspaceId);
+    const moved: typeof moves = [];
+    try {
+      for (const move of moves) {
+        await api().movePageToWorkspace(move.id, workspaceId);
+        moved.push(move);
+      }
+    } catch {
+      // Undo still returns the ones that went.
+    }
     setSelection(new Set());
+    if (!moved.length) {
+      toast('Couldn’t move those pages', undefined, 'Nothing was moved.');
+      return;
+    }
     const name =
       snapshot?.workspaces.find((w) => w.id === workspaceId)?.name ??
       'that workspace';
     setTimeout(() => {
-      toast(`Moved ${plural(moves.length)} to ${name}`, async () => {
-        for (const { id, origin } of [...moves].reverse()) {
+      toast(`Moved ${plural(moved.length)} to ${name}`, async () => {
+        for (const { id, origin } of [...moved].reverse()) {
           await api().returnPage(id, origin);
         }
       });
@@ -618,7 +662,10 @@ export function AlmaViewPrototype() {
           `Moved “${pageParts(moved).title}” under “${pageParts(under).title}”`,
           () => api().movePage(page, parent, before),
         );
-      });
+      })
+      .catch(() =>
+        toast('Couldn’t move that page', undefined, 'It stayed where it was.'),
+      );
   };
 
   useEffect(() => {
@@ -700,6 +747,12 @@ export function AlmaViewPrototype() {
     const node = list[(next + list.length) % list.length]!;
     cursorRef.current = node.id;
     viewRef.current?.showNode(node.id);
+    const index = list.indexOf(node) + 1;
+    setAnnounced(
+      [node.label, node.detail, `${index} of ${list.length}`]
+        .filter(Boolean)
+        .join(', '),
+    );
   };
 
   useEffect(() => {
@@ -718,6 +771,21 @@ export function AlmaViewPrototype() {
         return;
       }
       if (typing || event.defaultPrevented) return;
+      // A focused row, switch or segment keeps its own keys: Space and Enter
+      // press it, and arrows move between its neighbours.
+      const target = event.target as HTMLElement;
+      if (
+        (event.key === ' ' || event.key === 'Enter') &&
+        target.closest?.('button, [role="radio"], [role="switch"], input')
+      ) {
+        return;
+      }
+      if (
+        ARROW_KEYS.has(event.key) &&
+        target.closest?.('[role="radio"], input, [data-rail-item]')
+      ) {
+        return;
+      }
       if (event.metaKey) {
         if (event.key === 'a') {
           event.preventDefault();
@@ -795,6 +863,37 @@ export function AlmaViewPrototype() {
     snapshot?.workspaces.filter((w) => w.id !== snapshot.activeWorkspaceId) ??
     [];
   const barVisible = targets.length > 0 && (selection.size > 0 || !!filter);
+  const loading = realPages && !snapshot;
+
+  /** ↑ ↓ Home End walk the field, its hints and the rows, like a list. */
+  const moveInRail = (event: React.KeyboardEvent) => {
+    const target = event.target as HTMLElement;
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    // Segments and sliders use the arrows themselves; a field keeps Home/End.
+    if (target.closest('[role="radio"], input[type="range"]')) return;
+    if (target.tagName === 'INPUT' && !event.key.startsWith('Arrow')) return;
+    const items = [
+      ...(railRef.current?.querySelectorAll<HTMLElement>(
+        '[data-rail-item]:not(:disabled)',
+      ) ?? []),
+    ];
+    if (!items.length) return;
+    const at = items.indexOf(target);
+    const last = items.length - 1;
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? last
+          : at < 0
+            ? 0
+            : Math.min(
+                last,
+                Math.max(0, at + (event.key === 'ArrowDown' ? 1 : -1)),
+              );
+    event.preventDefault();
+    items[next]!.focus();
+  };
 
   const railBody =
     rail === 'settings' ? (
@@ -809,15 +908,27 @@ export function AlmaViewPrototype() {
       />
     ) : (
       <>
-        <div className="relative z-20 shrink-0 px-2 pt-2 pb-1">
-          <label className="flex h-7 items-center gap-1.5 rounded-control bg-field px-2 text-small text-fg-subtle">
-            <Search size={13} aria-hidden className="shrink-0" />
+        <div
+          className="relative z-20 shrink-0 px-2 pt-2 pb-1"
+          // The field and its hints count as one place, so tabbing from the
+          // field into a hint keeps them open.
+          onFocus={() => setFilterFocused(true)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+              setFilterFocused(false);
+            }
+          }}
+        >
+          {/* The History and Bookmarks panels' field, at the rail's width. */}
+          <div className="flex h-8 items-center gap-2 rounded-control bg-field pr-1 pl-2.5 transition-[background-color,box-shadow] duration-base ease-out focus-within:bg-field-focus focus-within:shadow-focus">
+            <span className="grid size-4 shrink-0 place-items-center text-fg-subtle">
+              <Search size={14} aria-hidden />
+            </span>
             <input
               ref={filterRef}
+              data-rail-item
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
-              onFocus={() => setFilterFocused(true)}
-              onBlur={() => setFilterFocused(false)}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' || !matches?.size) return;
                 if (event.shiftKey) {
@@ -830,25 +941,46 @@ export function AlmaViewPrototype() {
               }}
               placeholder="Filter, or try is:duplicate"
               aria-label="Filter pages"
+              aria-describedby={filter ? 'alma-filter-result' : undefined}
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
               spellCheck={false}
-              className="min-w-0 flex-1 bg-transparent text-fg outline-none placeholder:text-fg-subtle"
+              className="h-full min-w-0 flex-1 bg-transparent text-small text-fg outline-none placeholder:text-fg-subtle select-text"
             />
-            {matches && (
-              <span className="shrink-0 text-caption tabular-nums">
-                {matches.size}
-              </span>
+            {filter && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilter('');
+                  filterRef.current?.focus();
+                }}
+                aria-label="Clear filter"
+                title="Clear filter (esc)"
+                className="icon-button size-6 shrink-0"
+              >
+                <X size={12} />
+              </button>
             )}
-          </label>
+          </div>
           {filterFocused && !filter && (
-            <div className="overlay-in absolute top-10 right-2 z-20 w-80 rounded-panel bg-elevated p-1 shadow-panel">
+            <div
+              role="group"
+              aria-label="Filter terms"
+              className="overlay-in absolute top-11 right-2 left-2 z-20 rounded-panel bg-elevated p-1 shadow-panel"
+            >
               {QUERY_HELP.map(({ term, means }) => (
                 <button
                   key={term}
                   type="button"
+                  data-rail-item
                   // Keeps the field focused so typing can carry on from here.
                   onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => setFilter(`${term} `)}
-                  className="flex h-7 w-full items-center gap-2 rounded-row px-2 text-left hover:bg-row-hover"
+                  onClick={() => {
+                    setFilter(`${term} `);
+                    filterRef.current?.focus();
+                  }}
+                  className="flex h-7 w-full items-center gap-2 rounded-row px-2 text-left outline-offset-[-2px] hover:bg-row-hover focus-visible:bg-row-hover"
                 >
                   <code className="shrink-0 font-mono text-caption text-fg">
                     {term}
@@ -861,96 +993,139 @@ export function AlmaViewPrototype() {
             </div>
           )}
         </div>
+        {filter && (
+          <p
+            id="alma-filter-result"
+            role="status"
+            className="flex h-6 shrink-0 items-center gap-1 px-4 text-caption text-fg-subtle tabular-nums"
+          >
+            <span className="min-w-0 flex-1 truncate">
+              {matches?.size
+                ? `${matches.size} of ${plural(pages)}`
+                : 'No pages match'}
+            </span>
+            {selection.size === 0 && !!matches?.size && (
+              <button
+                type="button"
+                onClick={() => setSelection(new Set(matches))}
+                title="Select every match (⇧↵)"
+                className="shrink-0 rounded-inner px-1 text-caption text-fg-muted hover:text-fg"
+              >
+                Select all
+              </button>
+            )}
+          </p>
+        )}
         <div
           onPointerLeave={() => setPreview(null)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+              setPreview(null);
+            }
+          }}
           className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 pt-1 pb-3"
         >
           {mode === 'web' && (
-            <div className="px-2">
-              <SwitchRow
-                label="Same-site lines"
-                detail="Also link pages on one site across trails."
-                checked={sameSiteLinks}
-                disabled={false}
-                onChange={setSameSiteLinks}
-              />
-            </div>
+            <RailGroup label="Layout">
+              <div className="px-2">
+                <SwitchRow
+                  label="Same-site lines"
+                  detail="Also link pages on one site across trails."
+                  checked={sameSiteLinks}
+                  disabled={false}
+                  onChange={setSameSiteLinks}
+                />
+              </div>
+            </RailGroup>
           )}
           {mode === 'focus' && (
-            <div className="flex flex-col gap-1.5 px-2">
-              <p className={GROUP_LABEL}>Steps from this page</p>
-              <SegmentedControl<number>
-                label="Steps from this page"
-                compact
-                stretch
-                options={[1, 2, 3].map((value) => ({
-                  value,
-                  label: String(value),
-                }))}
-                value={hops}
-                onChange={setHops}
-              />
-            </div>
+            <RailGroup label="Steps from this page">
+              <div className="px-2">
+                <SegmentedControl<number>
+                  label="Steps from this page"
+                  compact
+                  stretch
+                  options={[1, 2, 3].map((value) => ({
+                    value,
+                    label: String(value),
+                  }))}
+                  value={hops}
+                  onChange={setHops}
+                />
+              </div>
+            </RailGroup>
           )}
-          <RailGroup label="Find">
-            {facets.lenses.map(({ lens, count, total }) =>
-              total ? (
-                <RailRow
-                  key={lens.query}
-                  icon={<lens.icon size={14} aria-hidden />}
-                  label={lens.label}
-                  count={count}
-                  title={`${lens.title} (${lens.query})`}
-                  pressed={hasTerm(filter, lens.query)}
-                  onClick={() => applyTerm(lens.query)}
-                  onPreview={() => previewTerm(lens.query)}
-                />
-              ) : null,
-            )}
-          </RailGroup>
-          <RailGroup label="Folders">
-            {facets.folders.length ? (
-              facets.folders.map(({ group, term, count }) => (
-                <RailRow
-                  key={term}
-                  icon={
-                    group ? (
-                      <GroupMark group={group} size={14} />
-                    ) : (
-                      <FolderMinus size={14} aria-hidden />
-                    )
-                  }
-                  label={group?.name ?? 'In no folder'}
-                  count={count}
-                  title={term}
-                  pressed={hasTerm(filter, term)}
-                  onClick={() => applyTerm(term)}
-                  onPreview={() => previewTerm(term)}
-                />
-              ))
-            ) : (
-              <p className="px-2 text-caption text-fg-subtle">
-                No folders in this workspace yet.
-              </p>
-            )}
-          </RailGroup>
-          <RailGroup label="Types">
-            {facets.types.map(({ type, term, count, total }) => {
-              const Icon = TYPE_ICONS[type.value];
-              return total ? (
-                <RailRow
-                  key={term}
-                  icon={<Icon size={14} aria-hidden />}
-                  label={type.label}
-                  count={count}
-                  title={`${term}, going by the address`}
-                  pressed={hasTerm(filter, term)}
-                  onClick={() => applyTerm(term)}
-                  onPreview={() => previewTerm(term)}
-                />
-              ) : null;
-            })}
-          </RailGroup>
+          {pages === 0 ? (
+            <p className="px-2 text-caption text-fg-subtle">
+              {loading
+                ? 'Loading pages…'
+                : 'Filters show up here once this workspace has pages.'}
+            </p>
+          ) : (
+            <>
+              {lensRows.length > 0 && (
+                <RailGroup label="Find">
+                  {lensRows.map(({ lens, count }) => (
+                    <RailRow
+                      key={lens.query}
+                      icon={<lens.icon size={16} aria-hidden />}
+                      label={lens.label}
+                      count={count}
+                      title={`${lens.title} (${lens.query})`}
+                      pressed={hasTerm(filter, lens.query)}
+                      onClick={() => applyTerm(lens.query)}
+                      onPreview={() => previewTerm(lens.query)}
+                    />
+                  ))}
+                </RailGroup>
+              )}
+              {facets.folders.length > 0 && (
+                <RailGroup label="Folders">
+                  {facets.folders.map(({ group, term, count }) => (
+                    <RailRow
+                      key={term}
+                      icon={
+                        group ? (
+                          <GroupMark group={group} size={16} />
+                        ) : (
+                          <FolderMinus size={16} aria-hidden />
+                        )
+                      }
+                      label={group?.name ?? 'In no folder'}
+                      count={count}
+                      title={term}
+                      pressed={hasTerm(filter, term)}
+                      onClick={() => applyTerm(term)}
+                      onPreview={() => previewTerm(term)}
+                    />
+                  ))}
+                </RailGroup>
+              )}
+              {typeRows.length > 0 && (
+                <RailGroup
+                  label="Types"
+                  aside="By address"
+                  asideTitle="Guessed from each page’s address, so some will be wrong"
+                >
+                  {typeRows.map(({ type, term, count }) => {
+                    const Icon = TYPE_ICONS[type.value];
+                    return (
+                      <RailRow
+                        key={term}
+                        icon={<Icon size={16} aria-hidden />}
+                        label={type.label}
+                        count={count}
+                        title={`${term}, guessed from the address`}
+                        pressed={hasTerm(filter, term)}
+                        onClick={() => applyTerm(term)}
+                        onPreview={() => previewTerm(term)}
+                      />
+                    );
+                  })}
+                </RailGroup>
+              )}
+            </>
+          )}
         </div>
       </>
     );
@@ -1029,6 +1204,8 @@ export function AlmaViewPrototype() {
         <div className="relative min-w-0 flex-1">
           <canvas
             ref={canvasRef}
+            role="img"
+            aria-label={`Graph of ${plural(pages)} in ${trails} ${trails === 1 ? 'trail' : 'trails'}. J and K walk the pages, Enter opens one, ? lists every key.`}
             onPointerDown={() => rootRef.current?.focus()}
             className="absolute inset-0 size-full cursor-grab touch-none"
           />
@@ -1162,11 +1339,37 @@ export function AlmaViewPrototype() {
             </p>
           )}
 
-          {isEmpty && (
-            <p className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-body text-fg-muted">
-              No pages in this workspace yet.
-            </p>
+          {(isEmpty || matches?.size === 0) && (
+            <div className="pointer-events-none absolute inset-0 grid place-items-center">
+              <div className="pointer-events-auto">
+                {loading ? (
+                  <PanelState
+                    icon={Network}
+                    title="Loading pages…"
+                    detail="The graph draws as soon as this workspace’s pages arrive."
+                  />
+                ) : isEmpty ? (
+                  <PanelState
+                    icon={Network}
+                    title="No pages yet"
+                    detail="Pages you open in this workspace show up here, joined to the page they came from."
+                  />
+                ) : (
+                  <PanelState
+                    icon={SearchX}
+                    title="No pages match"
+                    detail={`Nothing in this workspace fits “${filter.trim()}”.`}
+                    action="Clear filter"
+                    onAction={() => setFilter('')}
+                  />
+                )}
+              </div>
+            </div>
           )}
+
+          <p aria-live="polite" className="sr-only">
+            {announced}
+          </p>
 
           {hover && hover.kind !== 'workspace' && (
             <div
@@ -1186,6 +1389,8 @@ export function AlmaViewPrototype() {
 
         {rail && (
           <section
+            ref={railRef}
+            onKeyDown={moveInRail}
             aria-label={rail === 'settings' ? 'Alma settings' : 'Filters'}
             className={`flex w-65 shrink-0 flex-col border-l border-divider bg-surface ${narrow ? 'absolute inset-y-0 right-0 z-20 shadow-panel' : ''}`}
           >
@@ -1206,17 +1411,21 @@ export function AlmaViewPrototype() {
           {totalMemory > 0 && ` · ${formatMemory(totalMemory)}`}
         </p>
         <div className="flex-1" />
-        {/* The prototype's own control: not part of the design being judged. */}
-        <span className="whitespace-nowrap">Prototype</span>
-        <div className="shrink-0 whitespace-nowrap">
-          <SegmentedControl
-            label="Pages to show"
-            compact
-            options={SOURCES}
-            value={source}
-            onChange={setSource}
-          />
-        </div>
+        {/* Made-up workspaces for trying the layouts: development only. */}
+        {import.meta.env.DEV && (
+          <>
+            <span className="whitespace-nowrap">Dev data</span>
+            <div className="shrink-0 whitespace-nowrap">
+              <SegmentedControl
+                label="Pages to show"
+                compact
+                options={SOURCES}
+                value={source}
+                onChange={setSource}
+              />
+            </div>
+          </>
+        )}
         <div className="flex items-center">
           <button
             type="button"
@@ -1253,20 +1462,38 @@ export function AlmaViewPrototype() {
 
 function RailGroup({
   label,
+  aside,
+  asideTitle,
   children,
 }: {
   label: string;
+  /** A quiet note at the end of the heading. */
+  aside?: string;
+  asideTitle?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col">
-      <p className={`${GROUP_LABEL} mb-1 px-2`}>{label}</p>
+    <div role="group" aria-label={label} className="flex flex-col">
+      <div className="mb-1 flex items-baseline gap-2 px-2">
+        <p className={`${GROUP_LABEL} min-w-0 flex-1 truncate`}>{label}</p>
+        {aside && (
+          <p
+            title={asideTitle}
+            className="shrink-0 text-caption text-fg-subtle"
+          >
+            {aside}
+          </p>
+        )}
+      </div>
       {children}
     </div>
   );
 }
 
-/** A row in the sidebar's language: the chosen one takes the hover surface. */
+/**
+ * A row in the sidebar's language. A pressed one is raised like the chosen
+ * segment, so it reads apart from the one under the pointer.
+ */
 function RailRow({
   icon,
   label,
@@ -1284,21 +1511,24 @@ function RailRow({
   onClick(): void;
   onPreview(): void;
 }) {
+  // Nothing to show with the rest of the filter: no use pressing it.
+  const empty = count === 0 && !pressed;
   return (
     <button
       type="button"
+      data-rail-item
       aria-pressed={pressed}
+      disabled={empty}
+      aria-label={`${label}, ${count} ${count === 1 ? 'page' : 'pages'}`}
       title={title}
       onClick={onClick}
-      onPointerEnter={onPreview}
+      onPointerEnter={empty ? undefined : onPreview}
       onFocus={onPreview}
-      className="flex h-7 w-full shrink-0 items-center gap-2 rounded-row px-2 text-left text-small text-fg-muted transition-colors duration-fast hover:bg-row-hover aria-pressed:bg-row-hover aria-pressed:text-fg"
+      className="flex h-7 w-full shrink-0 items-center gap-2 rounded-row px-2 text-left text-small text-fg-muted outline-offset-[-2px] transition-[background-color,color,box-shadow] duration-fast hover:bg-row-hover hover:text-fg disabled:text-fg-disabled disabled:hover:bg-transparent aria-pressed:bg-elevated aria-pressed:text-fg aria-pressed:shadow-row"
     >
       <span className="grid size-4 shrink-0 place-items-center">{icon}</span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      <span className="shrink-0 text-caption text-fg-subtle tabular-nums">
-        {count}
-      </span>
+      <span className="shrink-0 text-caption tabular-nums">{count}</span>
     </button>
   );
 }
@@ -1517,6 +1747,7 @@ function SwitchRow({
       <button
         type="button"
         role="switch"
+        data-rail-item
         aria-label={label}
         aria-checked={checked && !disabled}
         disabled={disabled}

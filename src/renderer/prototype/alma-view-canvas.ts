@@ -1,5 +1,5 @@
 /*
- * PROTOTYPE, throw away. Draws a Scene on a canvas and animates between
+ * Alma view's drawing: a Scene on a canvas, animated between
  * scenes. Bodies outlive the scene they came from, so a page keeps its place
  * and moves when the mode changes. AlmaSettings tune it live.
  */
@@ -61,7 +61,6 @@ interface Body {
 interface Colors {
   surface: string;
   elevated: string;
-  rowHover: string;
   halo: string;
   stroke: number;
   chip: string;
@@ -69,7 +68,8 @@ interface Colors {
   guide: string;
   path: string;
   current: string;
-  hairline: string;
+  /** Every node's edge: chips, hubs and cards. */
+  outline: string;
   fg: string;
   muted: string;
   subtle: string;
@@ -116,6 +116,14 @@ const GLOBE = new Path2D(
   'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20',
 );
 const SAFE_ICON = /^(https?:\/\/|data:image\/)/i;
+
+/**
+ * The edge every chip, hub and card is drawn with: the control edge, which is
+ * strong enough to show on the ground and on a trail's hull in both themes.
+ * `--hairline` is too faint for it, and in dark it is light on a light chip,
+ * which is how the outlines went missing (see alma-view-canvas.test.ts).
+ */
+export const NODE_OUTLINE_TOKEN = '--border-hover';
 
 export function prefersReducedMotion() {
   return document.documentElement.dataset.motion === 'reduced';
@@ -457,7 +465,6 @@ export class AlmaCanvas {
     const next: Colors = {
       surface: read('--surface'),
       elevated: read('--elevated'),
-      rowHover: read('--row-hover'),
       halo: read('--favicon-halo'),
       stroke: Number.parseFloat(read('--icon-stroke-md')) || 2,
       chip: read('--icon-chip'),
@@ -465,7 +472,7 @@ export class AlmaCanvas {
       guide: read('--guide'),
       path: read('--guide-path'),
       current: read('--guide-current'),
-      hairline: read('--hairline'),
+      outline: read(NODE_OUTLINE_TOKEN),
       fg: read('--fg'),
       muted: read('--fg-muted'),
       subtle: read('--fg-subtle'),
@@ -1411,9 +1418,15 @@ export class AlmaCanvas {
       ctx.roundRect(x - w / 2, y - h / 2, w, h, corner);
       ctx.fillStyle = isHub ? colors.elevated : colors.chip;
       ctx.fill();
-      ctx.strokeStyle = tint ?? colors.hairline;
-      ctx.lineWidth = (tint ? 2 : 1) / cam.k;
-      ctx.stroke();
+      this.drawOutline(
+        x,
+        y,
+        w,
+        h,
+        corner,
+        tint ?? colors.outline,
+        tint ? 2 : 1,
+      );
 
       if (node.glyph) {
         this.drawGlyph(
@@ -1489,7 +1502,7 @@ export class AlmaCanvas {
 
     const isActive = this.pageIdOf(node) === this.activeId;
     const isHover = node.id === this.hoverId;
-    if (!isCard && (isActive || isHover)) {
+    if (isActive || isHover) {
       // Selection is neutral, as in the sidebar. The accent is on its line.
       ctx.globalAlpha = body.opacity * body.grown * (isActive ? 1 : 0.7);
       ctx.strokeStyle = isActive ? colors.fg : colors.muted;
@@ -1527,13 +1540,15 @@ export class AlmaCanvas {
       this.pageIdOf(node) === this.activeId;
     ctx.beginPath();
     ctx.roundRect(x - w / 2, y - h / 2, w, h, corner);
-    // The surface first, so lines stop at the row's edge rather than run under.
-    ctx.fillStyle = colors.surface;
+    // Raised off the ground like the current trail row, so lines stop at a
+    // visible edge rather than in mid-air.
+    ctx.fillStyle = colors.elevated;
     ctx.fill();
     if (lit) {
-      ctx.fillStyle = colors.rowHover;
+      ctx.fillStyle = colors.hover;
       ctx.fill();
     }
+    this.drawOutline(x, y, w, h, corner, colors.outline, 1);
     const tint = this.tintOf(node);
     if (tint) {
       // A mark at the row's edge: rows in the trail have no borders to colour.
@@ -1562,6 +1577,35 @@ export class AlmaCanvas {
       ctx.fillText(this.ellipsize(node.detail!, room), textX, y + 8);
     }
     ctx.globalAlpha = alpha;
+  }
+
+  /**
+   * A node's edge, just outside its fill so it never sinks into a light chip.
+   * `pixels` is the width on screen, whatever the zoom.
+   */
+  private drawOutline(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    corner: number,
+    color: string,
+    pixels: number,
+  ) {
+    const { ctx, cam } = this;
+    const lw = pixels / cam.k;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.roundRect(
+      x - w / 2 - lw / 2,
+      y - h / 2 - lw / 2,
+      w + lw,
+      h + lw,
+      corner + lw / 2,
+    );
+    ctx.stroke();
   }
 
   /** A hub's own mark, in the app's icon set and stroke. */
@@ -1670,7 +1714,7 @@ export class AlmaCanvas {
     const bx = body.x + body.w / 2 - size * 0.15;
     const by = body.y - body.h / 2 + size * 0.15;
     ctx.fillStyle = colors.elevated;
-    ctx.strokeStyle = colors.hairline;
+    ctx.strokeStyle = colors.outline;
     ctx.lineWidth = 1 / cam.k;
     ctx.beginPath();
     ctx.arc(bx, by, size / 2, 0, Math.PI * 2);

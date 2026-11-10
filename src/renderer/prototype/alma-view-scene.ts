@@ -1,8 +1,6 @@
 /*
- * PROTOTYPE, throw away. Question: what should a graph of the open pages look
- * like, and which ways of laying it out are worth having? Seven modes of one
- * scene: pure data here (what's connected, where it sits), drawn by
- * alma-view-canvas.ts. Nothing here touches the trail.
+ * Alma view's seven modes of one scene: pure data here (what's connected,
+ * where it sits), drawn by alma-view-canvas.ts. Nothing here touches the trail.
  */
 import type { PageGroup, PageId, PageSnapshot } from '../../shared/types';
 import { pageParts, shortHost } from '../lib/format';
@@ -260,7 +258,15 @@ interface Walk {
   roots: PageId[];
 }
 
+/**
+ * One walk per GraphData: the filter rail counts a dozen queries on every
+ * keystroke, and each used to walk every trail again.
+ */
+const walks = new WeakMap<GraphData, Walk>();
+
 function walkTrails(data: GraphData): Walk {
+  const known = walks.get(data);
+  if (known) return known;
   const walk: Walk = {
     order: [],
     depth: new Map(),
@@ -288,6 +294,7 @@ function walkTrails(data: GraphData): Walk {
     walk.ancestors.add(up);
     up = data.pages[up]!.parentId;
   }
+  walks.set(data, walk);
   return walk;
 }
 
@@ -1002,6 +1009,29 @@ function duplicatesIn(data: GraphData, order: PageId[]) {
   return extra;
 }
 
+const derived = new WeakMap<
+  GraphData,
+  { duplicates: Set<PageId>; heavy: Set<PageId> }
+>();
+
+/** What some `is:` terms need from every page, worked out once per data. */
+function derivedOf(data: GraphData, walk: Walk) {
+  let known = derived.get(data);
+  if (!known) {
+    known = {
+      duplicates: duplicatesIn(data, walk.order),
+      heavy: new Set(
+        [...data.memory.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([id]) => id),
+      ),
+    };
+    derived.set(data, known);
+  }
+  return known;
+}
+
 export const QUERY_HELP: { term: string; means: string }[] = [
   { term: 'is:duplicate', means: 'extra copies of a page' },
   { term: 'is:heavy', means: 'the five using most memory' },
@@ -1025,13 +1055,7 @@ export function matchPages(data: GraphData, text: string): Set<string> | null {
   const terms = text.toLowerCase().match(/-?(?:[a-z]+:)?"[^"]*"|\S+/g);
   if (!terms?.length) return null;
   const walk = walkTrails(data);
-  const duplicates = duplicatesIn(data, walk.order);
-  const heavy = new Set(
-    [...data.memory.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([id]) => id),
-  );
+  const { duplicates, heavy } = derivedOf(data, walk);
   const compare = (value: number, spec: string) => {
     const [, op, digits] = /^([<>]?=?)(\d+(?:\.\d+)?)$/.exec(spec) ?? [];
     if (digits === undefined) return false;

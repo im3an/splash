@@ -463,6 +463,35 @@ When to go to testers and to the public, and how updates reach installed copies:
       page, a branch ("and 2 more"), a group or a workspace. Click or Enter reopens
       that entry, wherever it is in the list; hidden while searching. Tried in the
       real app. Older records have no address, so those rows show no site icon.
+- [ ] Alma view (the page graph, ⌥⌘G) ready for release builds. Still dev builds only.
+  - [x] Node outlines in the zoomed-in view, light and dark. Chips were drawn with
+        `--hairline`, which in dark is light on a light chip and faint on the ground,
+        and Focus cards had no edge, so lines ended in the air. Every chip, hub and card
+        now takes `--border-hover` just outside its fill. `alma-view-canvas.test.ts`
+        checks the drawing and the token's contrast in both themes. Checked in the
+        real app by pixels.
+  - [x] Filter rail: the History panel's field with a clear button and "8 of 53
+        pages" plus Select all; a pressed row is raised like a chosen segment; a row
+        that would give an empty graph shows 0 and can't be pressed; groups with
+        nothing in them stay out; "By address" marks types as guesses; mode options
+        sit under their own heading. ↑ ↓ Home End walk the field, its hints and the
+        rows, and Space and Enter press a row instead of acting on the graph.
+  - [x] States: loading, no pages yet, and no match (with Clear filter) in the graph.
+        Failed closes and moves say so, and Undo returns only what went.
+  - [x] The graph reads as an image with a summary, and J/K announce the page they
+        land on. Sample and Stress data are dev-only, and "prototype" is gone from
+        the button.
+  - [x] Large trails: the rail's dozen counts share one walk of the trails per
+        snapshot. At 1,060 pages the forces take 1.6 ms a frame and drawing 2.2 ms.
+  - [ ] Decide whether it ships. It is gated in five places: `WorkspaceBar`,
+        `ContentArea`, the palette entry (`palette.ts`), the View menu item
+        (`app.isPackaged` in `application-menu.ts`) and the Settings switch. Then
+        check all five in a packaged build.
+  - [ ] Page types are still guessed from the address (`PAGE_TYPES`).
+  - [ ] Screen readers get a summary and the keyboard cursor, not the graph. A
+        list view of the same pages would be the real answer.
+  - [ ] Rename `src/renderer/prototype/` and `AlmaViewPrototype` once it ships.
+  - [ ] Test the rail and keys with a real keyboard and VoiceOver.
 - [ ] Resizable split view, then more than two panes
 - [x] Contrast check for custom workspace accents: clamped, and all pass (see
       [accessibility-audit.md](accessibility-audit.md))

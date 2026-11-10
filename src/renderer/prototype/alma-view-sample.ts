@@ -1,5 +1,5 @@
 /*
- * PROTOTYPE, throw away. Made-up trails for judging the graph at a known
+ * Development only. Made-up trails for judging the graph at a known
  * density, whatever happens to be open. Nothing here can be opened.
  */
 import type { PageId, PageSnapshot } from '../../shared/types';
