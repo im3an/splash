@@ -1,4 +1,5 @@
 import { useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useDndContext, useDroppable } from '@dnd-kit/core';
 import {
   ChevronRight,
   Copy,
@@ -52,11 +53,25 @@ export function TrailGroup({
     );
   // Branches shows no mark until the group has been given one.
   const marked = minimal || group.icon !== undefined;
+  // A page dragged onto the heading goes in, folded or empty.
+  const { active } = useDndContext();
+  const { setNodeRef, isOver } = useDroppable({
+    id: `group:${group.id}`,
+    data: { groupId: group.id },
+  });
 
   return (
-    <div className="group-card" data-open={open} data-group-id={group.id}>
+    <div
+      className="group-card"
+      data-open={open}
+      data-group-id={group.id}
+      data-drop-over={isOver && active !== null}
+    >
       <div
-        ref={rowRef}
+        ref={(node) => {
+          rowRef.current = node;
+          setNodeRef(node);
+        }}
         className="sidebar-row group"
         data-menu-open={picking || menu.openOn?.dataset.group === group.id}
         // Dragged out of the window, it arrives as a Markdown file.
@@ -146,7 +161,7 @@ export function TrailGroup({
       <Reveal show={open}>
         <div className="group-card-pages" role="group" aria-label={group.name}>
           {count === 0 ? (
-            <p className="group-card-empty">Add pages from a page’s menu.</p>
+            <p className="group-card-empty">Drag pages here.</p>
           ) : (
             children
           )}

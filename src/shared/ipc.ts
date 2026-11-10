@@ -357,6 +357,8 @@ export const invokeContract = {
   'page:close-branch': z.strictObject({ pageId }),
   'page:close-others': z.strictObject({ pageId }),
   'page:close-below': z.strictObject({ pageId }),
+  'trail:clear-loose': z.undefined(),
+  'window:toggle-full-screen': z.undefined(),
   'spelling:words': z.undefined(),
   'spelling:set-word': z.strictObject({
     word: z.string().min(1).max(200),
@@ -382,6 +384,7 @@ export const invokeContract = {
     pageId,
     parentId: pageId.nullable(),
     afterId: pageId.nullable(),
+    groupId: z.uuid().nullable().optional(),
   }),
   'page:return': z.strictObject({
     pageId,

@@ -220,7 +220,9 @@ function OverlayContent({
 }) {
   switch (overlay?.kind) {
     case 'palette':
-      return <CommandPalette scope={overlay.scope} />;
+      return (
+        <CommandPalette scope={overlay.scope} initialQuery={overlay.query} />
+      );
     case 'suggestions':
       return <AddressSuggestions />;
     case 'site-info':

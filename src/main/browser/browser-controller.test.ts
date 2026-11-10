@@ -841,6 +841,24 @@ describe('BrowserController', () => {
       expect(latest().rootIds).toEqual([pinned, root, other, stray]);
     });
 
+    it('clears loose pages, keeping pinned and grouped ones, with one undo', () => {
+      const { controller, latest, root, a, a1, b } = trail();
+      const pinned = controller.createPage({ input: 'pin.com' });
+      controller.setPinned(pinned, true);
+      const filed = controller.createPage({ input: 'filed.com' });
+      const group = controller.createGroup('G', filed);
+      controller.activatePage(a1);
+      controller.clearLoosePages();
+      expect(Object.keys(latest().pages).sort()).toEqual(
+        [pinned, filed].sort(),
+      );
+      expect(latest().activePageId).toBe(pinned);
+      controller.reopenClosed();
+      expect(latest().pages[root]?.childIds).toEqual([a, b]);
+      expect(latest().pages[filed]!.groupId).toBe(group);
+      expect(latest().activePageId).toBe(a1);
+    });
+
     it('closes the pages below, keeping pinned ones, with one undo', () => {
       const { controller, latest, root, a, a1, b } = trail();
       const other = controller.createPage({ input: 'other.com' });
@@ -1752,6 +1770,33 @@ describe('BrowserController', () => {
       expect(latest().pages[x]!.groupId).toBe(group);
       controller.movePage(x, null, c);
       expect(latest().pages[x]!.groupId).toBeNull();
+    });
+
+    it('files a dropped page in the group it was dropped on, empty or folded', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const x = controller.createPage({ url: 'https://x.example/' });
+      const full = controller.createGroup('Full', a);
+      const empty = controller.createGroup('Empty');
+      controller.setGroupCollapsed(empty, true);
+
+      controller.movePage(x, null, null, empty);
+      expect(latest().pages[x]!.groupId).toBe(empty);
+      expect(latest().groups.find((g) => g.id === empty)!.collapsed).toBe(
+        false,
+      );
+      // Groups keep their order: the empty one comes after Full.
+      expect(latest().rootIds).toEqual([a, x]);
+
+      // First in a group, though no group page sits above it.
+      controller.movePage(x, null, null, full);
+      expect(latest().rootIds).toEqual([x, a]);
+      expect(latest().pages[x]!.groupId).toBe(full);
+
+      // Out again, right after the group's last page.
+      controller.movePage(x, null, a, null);
+      expect(latest().pages[x]!.groupId).toBeNull();
+      expect(() => controller.movePage(x, null, null, 'missing')).toThrow();
     });
 
     it('lets a closed page’s children stay in its group', () => {

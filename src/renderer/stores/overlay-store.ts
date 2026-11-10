@@ -6,7 +6,7 @@ import { api } from '../splash-api';
 
 /** Shell surfaces drawn over the page area. */
 export type Overlay =
-  | { kind: 'palette'; scope: PaletteScope }
+  | { kind: 'palette'; scope: PaletteScope; query?: string }
   | { kind: 'toolbar-menu' }
   | { kind: 'bookmarks-menu' }
   | { kind: 'suggestions' }

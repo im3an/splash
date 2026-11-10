@@ -547,6 +547,9 @@ export class TrailWindow {
           this.controller.closeOtherPages(pageId),
         'page:close-below': ({ pageId }) =>
           this.controller.closePagesBelow(pageId),
+        'trail:clear-loose': () => this.controller.clearLoosePages(),
+        'window:toggle-full-screen': () =>
+          this.window.setFullScreen(!this.window.isFullScreen()),
         'spelling:set-word': ({ word, known }) =>
           setDictionaryWord(options.webSession, word, known),
         'page:view-source': ({ pageId }) => this.controller.viewSource(pageId),
@@ -570,8 +573,8 @@ export class TrailWindow {
         'page:recently-closed': () => this.controller.recentlyClosed(),
         'page:undo-close': ({ serial }) => this.controller.undoClose(serial),
         'page:close-again': ({ serial }) => this.controller.closeAgain(serial),
-        'page:move': ({ pageId, parentId, afterId }) =>
-          this.controller.movePage(pageId, parentId, afterId),
+        'page:move': ({ pageId, parentId, afterId, groupId }) =>
+          this.controller.movePage(pageId, parentId, afterId, groupId),
         'page:return': ({ pageId, origin }) =>
           this.controller.returnPage(pageId, origin),
         'page:rename': ({ pageId, title }) =>

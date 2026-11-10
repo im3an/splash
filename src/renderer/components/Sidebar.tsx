@@ -113,7 +113,7 @@ export function Sidebar() {
             type="button"
             onClick={newPage}
             aria-label="New page"
-            title="New page (⌘T)"
+            title="New blank page"
             className="icon-button shrink-0"
           >
             <Plus size={16} />

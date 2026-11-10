@@ -299,7 +299,11 @@ export function connectShell(splash: SplashApi): () => void {
       case 'open-palette':
         // ⌘K again closes it, like the menu item toggling.
         if (overlay.overlay?.kind === 'palette') return overlay.close();
-        return void overlay.open({ kind: 'palette', scope: 'palette' });
+        return void overlay.open({
+          kind: 'palette',
+          scope: 'palette',
+          query: command.query,
+        });
       case 'site-info':
         return void overlay.open({ kind: 'site-info' });
       // ⌥⌘L and ⌘Y again go back to the trail.

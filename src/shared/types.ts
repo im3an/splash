@@ -264,7 +264,14 @@ export type PaletteCommand =
   | 'toggle-ai-panel'
   | 'close-split'
   | 'rename-workspace'
-  | 'delete-workspace';
+  | 'delete-workspace'
+  | 'clear-pages'
+  | 'reveal-page'
+  | 'next-workspace'
+  | 'previous-workspace'
+  | 'toggle-full-screen'
+  | 'toggle-dark-mode'
+  | 'show-shortcuts';
 
 export type DownloadState =
   | 'progressing'
@@ -680,7 +687,8 @@ export type UiCommand =
   /** Opens the workspace editor: for a new workspace, or the active one. */
   | { type: 'create-workspace' }
   | { type: 'customize-workspace' }
-  | { type: 'open-palette' }
+  /** `query` opens it already typed: `?` for the shortcut sheet. */
+  | { type: 'open-palette'; query?: string }
   /** Something done from a native menu made the open overlay pointless. */
   | { type: 'close-overlay' }
   | { type: 'site-info' }

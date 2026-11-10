@@ -209,8 +209,18 @@ export function installApplicationMenu(actions: MenuActions): void {
       label: 'File',
       submenu: [
         {
-          label: 'New Page',
+          // As in Arc: one field to open an address, find a page or run a
+          // command. An address typed there opens in a new page.
+          label: 'New Page…',
           accelerator: 'CmdOrCtrl+T',
+          click: () => {
+            const window = actions.currentWindow();
+            if (window) window.sendUiCommand({ type: 'open-palette' });
+            else actions.openWindow();
+          },
+        },
+        {
+          label: 'New Blank Page',
           click: () => {
             const window = actions.currentWindow() ?? actions.openWindow();
             window.controller.createPage();
@@ -350,6 +360,12 @@ export function installApplicationMenu(actions: MenuActions): void {
           click: withActivePage((w, id) => w.controller.closeOtherPages(id)),
         },
         {
+          label: 'Clear Unpinned Pages',
+          accelerator: 'Shift+CmdOrCtrl+K',
+          click: () =>
+            void actions.currentWindow()?.controller.clearLoosePages(),
+        },
+        {
           label: 'Close Pages Below',
           enabled:
             activeSnapshot !== undefined &&
@@ -453,6 +469,14 @@ export function installApplicationMenu(actions: MenuActions): void {
           accelerator: 'CmdOrCtrl+K',
           click: () =>
             actions.currentWindow()?.sendUiCommand({ type: 'open-palette' }),
+        },
+        {
+          label: 'Keyboard Shortcuts',
+          accelerator: 'CmdOrCtrl+/',
+          click: () =>
+            actions
+              .currentWindow()
+              ?.sendUiCommand({ type: 'open-palette', query: '?' }),
         },
         {
           label: 'Filter Pages',

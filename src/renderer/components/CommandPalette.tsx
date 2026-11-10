@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { useDialogFocus } from '../hooks/use-dialog-focus';
-import { COMMAND_PREFIX, type PaletteScope } from '../../shared/palette';
+import {
+  COMMAND_PREFIX,
+  SHORTCUTS_PREFIX,
+  type PaletteScope,
+} from '../../shared/palette';
+import { matchShortcuts } from '../../shared/shortcuts';
 import type { PaletteItem } from '../../shared/types';
 import {
   useInlineCompletion,
@@ -43,14 +48,33 @@ function actionOf(
  * On a blank page it stands in for the hidden address bar (`location`):
  * Enter then goes to the address or search in that page.
  */
-export function CommandPalette({ scope }: { scope: PaletteScope }) {
+type PaletteView = 'all' | 'commands' | 'shortcuts';
+const VIEW_PREFIX: Record<PaletteView, string> = {
+  all: '',
+  commands: COMMAND_PREFIX,
+  shortcuts: SHORTCUTS_PREFIX,
+};
+const VIEWS: readonly [PaletteView, string][] = [
+  ['all', 'All'],
+  ['commands', 'Commands'],
+  ['shortcuts', 'Shortcuts'],
+];
+
+export function CommandPalette({
+  scope,
+  initialQuery,
+}: {
+  scope: PaletteScope;
+  /** Already typed when it opens: `?` opens on the shortcut sheet. */
+  initialQuery?: string;
+}) {
   const close = useOverlay((state) => state.close);
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useDialogFocus<HTMLDivElement>();
   const [query, setQuery] = useState(() =>
     scope === 'location'
       ? (selectActivePage(useShell.getState())?.url ?? '')
-      : '',
+      : (initialQuery ?? ''),
   );
   const latestTyped = useRef(query);
   const resolvedQuery = useRef<string | null>(null);
@@ -71,10 +95,22 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
   const { offer } = inline;
   const complete = isLocation && inline.forward;
   const commandsOnly = !site && query.trimStart().startsWith(COMMAND_PREFIX);
+  const shortcutsOnly =
+    !site && !isLocation && query.trimStart().startsWith(SHORTCUTS_PREFIX);
+  const view: PaletteView = shortcutsOnly
+    ? 'shortcuts'
+    : commandsOnly
+      ? 'commands'
+      : 'all';
 
   const items = useMemo(
-    () => (isLocation ? withSearchSuggestions(local, search, 0) : local),
-    [isLocation, local, search],
+    () =>
+      shortcutsOnly
+        ? []
+        : isLocation
+          ? withSearchSuggestions(local, search, 0)
+          : local,
+    [isLocation, local, search, shortcutsOnly],
   );
   const pickedId = useRef<string | undefined>(undefined);
   pickedId.current = items[selected]?.id;
@@ -84,6 +120,12 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
   useEffect(() => {
     let current = true;
     setQueryError(false);
+    // The shortcut sheet is drawn here; nothing to ask for.
+    if (shortcutsOnly) {
+      setLocal([]);
+      setLoaded(true);
+      return;
+    }
     setLoaded(false);
     void api()
       .queryPalette(lineFor(query), scope, complete && !site)
@@ -104,7 +146,17 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
     return () => {
       current = false;
     };
-  }, [query, scope, complete, isLocation, offer, retry, lineFor, site]);
+  }, [
+    query,
+    scope,
+    complete,
+    isLocation,
+    offer,
+    retry,
+    lineFor,
+    site,
+    shortcutsOnly,
+  ]);
 
   useEffect(() => {
     // A site's search isn't the default engine's to suggest for.
@@ -136,13 +188,20 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
     };
   }, [query, isLocation, commandsOnly, site]);
 
-  // An address it opens with is selected, so typing replaces it.
-  useEffect(() => inputRef.current?.select(), []);
+  // An address it opens with is selected, so typing replaces it. A view's
+  // prefix stays, with the caret after it.
+  useEffect(() => {
+    if (initialQuery) inputRef.current?.setSelectionRange(9999, 9999);
+    else inputRef.current?.select();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const words = commandsOnly
-    ? query.trimStart().slice(COMMAND_PREFIX.length)
-    : query;
+  const words =
+    commandsOnly || shortcutsOnly ? query.trimStart().slice(1) : query;
   const run = (item: PaletteItem, typedNavigation = false) => {
+    if (item.kind === 'command' && item.command === 'show-shortcuts') {
+      return showView('shortcuts');
+    }
     if (runningRef.current || ((!loaded || queryError) && !typedNavigation))
       return;
     runningRef.current = true;
@@ -155,18 +214,25 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
         setRunning(false);
       });
   };
-  // Tab or the footer switches between everything and commands only,
-  // keeping the words typed.
-  const showCommands = (on: boolean) => {
-    if (on === commandsOnly) return;
-    const next = on
-      ? `${COMMAND_PREFIX}${query.trimStart()}`
-      : query.trimStart().slice(COMMAND_PREFIX.length).trimStart();
+  // Tab or the footer switches between everything, commands and the
+  // shortcut sheet, keeping the words typed.
+  function showView(next: PaletteView) {
+    if (next === view) return;
+    const typed = (
+      view === 'all' ? query : query.trimStart().slice(1)
+    ).trimStart();
+    const line = `${VIEW_PREFIX[next]}${typed}`;
     inline.clear();
-    latestTyped.current = next;
-    setQuery(next);
+    latestTyped.current = line;
+    setQuery(line);
     inputRef.current?.focus();
-  };
+  }
+  const nextView = (): PaletteView =>
+    isLocation
+      ? view === 'commands'
+        ? 'all'
+        : 'commands'
+      : VIEWS[(VIEWS.findIndex(([v]) => v === view) + 1) % VIEWS.length]![0];
   const label =
     scope === 'location'
       ? 'Search or enter address'
@@ -235,7 +301,7 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
                 setQuery('');
               } else if (event.key === 'Tab' && !event.shiftKey) {
                 event.preventDefault();
-                if (!site) showCommands(!commandsOnly);
+                if (!site) showView(nextView());
               } else if (
                 event.key === 'Backspace' &&
                 site &&
@@ -263,6 +329,7 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
                 );
               } else if (event.key === 'Enter') {
                 event.preventDefault();
+                if (shortcutsOnly) return;
                 const typed = latestTyped.current.trim();
                 const item = items[selected];
                 // Enter must never navigate a result from the preceding
@@ -299,9 +366,11 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
             placeholder={
               site
                 ? `Search ${site.name}`
-                : commandsOnly
-                  ? 'Run a command'
-                  : label
+                : shortcutsOnly
+                  ? 'Find a shortcut'
+                  : commandsOnly
+                    ? 'Run a command'
+                    : label
             }
             role="combobox"
             aria-expanded={items.length > 0}
@@ -357,6 +426,7 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
               That action failed. Choose it again to retry.
             </p>
           )}
+          {shortcutsOnly && <ShortcutSheet query={words} />}
           <PaletteList
             items={queryError ? [] : items}
             selected={selected}
@@ -366,7 +436,7 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
             actionOf={(item) => actionOf(item, scope)}
             sectioned
             emptyLabel={
-              loaded && !queryError && query.trim()
+              loaded && !queryError && !shortcutsOnly && query.trim()
                 ? commandsOnly
                   ? words.trim()
                     ? `No command matches “${words.trim()}”`
@@ -382,7 +452,7 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
           />
         </div>
         <div className="flex h-9 items-center gap-3 border-t border-divider pr-1.5 pl-3.5 text-caption text-fg-subtle">
-          {items.length > 1 && (
+          {items.length > 1 && !shortcutsOnly && (
             <span className="flex items-center gap-1.5">
               <kbd className="keycap" aria-label="Up and down arrows">
                 ↑↓
@@ -402,31 +472,65 @@ export function CommandPalette({ scope }: { scope: PaletteScope }) {
             >
               ⇥
             </kbd>
-            {(
-              [
-                [false, 'All'],
-                [true, 'Commands'],
-              ] as const
-            ).map(([commands, name]) => (
-              <button
-                key={name}
-                type="button"
-                aria-pressed={commandsOnly === commands}
-                title={
-                  commands
-                    ? `Commands only (type ${COMMAND_PREFIX})`
-                    : 'Everything'
-                }
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => showCommands(commands)}
-                className="h-6 rounded-inner px-1.5 text-caption font-medium text-fg-subtle transition-colors duration-fast hover:text-fg aria-pressed:bg-row-hover aria-pressed:text-fg"
-              >
-                {name}
-              </button>
-            ))}
+            {VIEWS.filter(([v]) => !isLocation || v !== 'shortcuts').map(
+              ([v, name]) => (
+                <button
+                  key={name}
+                  type="button"
+                  aria-pressed={view === v}
+                  title={
+                    v === 'all'
+                      ? 'Everything'
+                      : `${name} (type ${VIEW_PREFIX[v]})`
+                  }
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => showView(v)}
+                  className="h-6 rounded-inner px-1.5 text-caption font-medium text-fg-subtle transition-colors duration-fast hover:text-fg aria-pressed:bg-row-hover aria-pressed:text-fg"
+                >
+                  {name}
+                </button>
+              ),
+            )}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Every shortcut, grouped, narrowed by the words typed after `?`. */
+function ShortcutSheet({ query }: { query: string }) {
+  const groups = matchShortcuts(query);
+  if (groups.length === 0)
+    return (
+      <p className="px-3.5 py-6 text-center text-small text-fg-muted">
+        No shortcut matches “{query.trim()}”
+      </p>
+    );
+  return (
+    <div
+      className="palette-shortcuts max-h-[min(60vh,440px)] overflow-y-auto px-1.5 pb-1.5"
+      aria-label="Keyboard shortcuts"
+      role="region"
+    >
+      {groups.map((group) => (
+        <section key={group.title}>
+          <h3 className="px-2 pt-2.5 pb-1 text-caption font-medium text-fg-subtle">
+            {group.title}
+          </h3>
+          <ul>
+            {group.entries.map((entry) => (
+              <li
+                key={entry.label}
+                className="palette-shortcut flex h-8 items-center justify-between gap-3 rounded-row px-2 text-body text-fg"
+              >
+                <span className="truncate">{entry.label}</span>
+                <kbd className="keycap shrink-0">{entry.keys}</kbd>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 }

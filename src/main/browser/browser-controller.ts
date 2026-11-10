@@ -589,6 +589,30 @@ export class BrowserController {
   }
 
   /**
+   * Closes the loose pages of the workspace on screen, like Arc's Clear:
+   * pinned pages and pages in groups stay, with everything under them. One
+   * reopen brings them all back.
+   */
+  clearLoosePages(): void | Promise<void> {
+    const workspace = this.workspace;
+    const { tree } = workspace;
+    const loose = (pageId: PageId) => {
+      const page = this.require(pageId);
+      return !page.pinned && page.groupId === null;
+    };
+    const tops = tree.rootIds.filter(loose);
+    const closing = tops.flatMap((pageId) => tree.branch(pageId));
+    if (closing.length === 0) return;
+    return this.guardRemoval(closing, () => {
+      const active = this.viewOf(workspace).activePageId;
+      const kept = tree.rootIds.find((pageId) => !loose(pageId)) ?? null;
+      const successor =
+        active !== null && closing.includes(active) ? kept : active;
+      this.closeBranchesNow(workspace, closing, successor, null);
+    });
+  }
+
+  /**
    * Closes every page after this one in the sidebar, except pinned pages. One
    * reopen brings them all back. If the page on screen goes, this one shows.
    */
@@ -859,8 +883,15 @@ export class BrowserController {
   /**
    * Moves a page and its branch under `parentId`, right after the sibling
    * `afterId` (or first, when `afterId` is null), within its workspace.
+   * At the top level, `groupId` says which group it lands in (`null` for
+   * none); left out, its neighbours decide.
    */
-  movePage(id: PageId, parentId: PageId | null, afterId: PageId | null): void {
+  movePage(
+    id: PageId,
+    parentId: PageId | null,
+    afterId: PageId | null,
+    groupId?: string | null,
+  ): void {
     const { tree } = this.workspaceOf(id);
     if (parentId !== null && !tree.has(parentId)) {
       throw new Error(`${parentId} is not in the same workspace`);
@@ -881,7 +912,16 @@ export class BrowserController {
     if (parentId !== null) this.collapsedIds.delete(parentId);
     const page = this.require(id);
     if (parentId !== null) page.groupId = null;
-    else if (!page.pinned) {
+    else if (!page.pinned && groupId !== undefined) {
+      const { groups } = this.workspaceOf(id);
+      const group =
+        groupId === null ? undefined : groups.find((g) => g.id === groupId);
+      if (groupId !== null && !group) {
+        throw new Error(`Group ${groupId} is not in this workspace`);
+      }
+      page.groupId = groupId;
+      if (group) group.collapsed = false;
+    } else if (!page.pinned) {
       // Dropped between two pages of a group, or after its last one, it joins.
       const roots = tree.rootIds;
       const at = roots.indexOf(id);

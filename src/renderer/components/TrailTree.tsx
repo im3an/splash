@@ -15,6 +15,7 @@ import {
 import { flushSync } from 'react-dom';
 import {
   closestCenter,
+  type CollisionDetection,
   DndContext,
   MeasuringStrategy,
   PointerSensor,
@@ -29,7 +30,7 @@ import {
 import {
   SortableContext,
   useSortable,
-  verticalListSortingStrategy,
+  type SortingStrategy,
 } from '@dnd-kit/sortable';
 import { useShallow } from 'zustand/react/shallow';
 import {
@@ -151,8 +152,106 @@ function groupBranchCounts(snapshot: BrowserSnapshot): Record<string, number> {
 
 interface DragState {
   activeId: PageId;
+  /** The last row the dragged page was over. */
   overId: PageId;
   offsetX: number;
+  /** A group whose heading it's over: it goes in, at the end. */
+  intoGroupId: string | null;
+}
+
+/** Where a drop in the trail lands, with the group it files the page in. */
+interface TrailDrop extends DropProjection {
+  /** Only for a top-level landing; `undefined` lets the main side decide. */
+  groupId?: string | null;
+  /** The row the line is drawn against, and on which side. */
+  lineAt: { id: PageId; after: boolean } | null;
+}
+
+/** A dropped row on its way into place; see the settle effect. */
+interface Settle {
+  id: PageId;
+  /** Where it was let go, on screen. */
+  top: number;
+  /** The trail before the move: while it's still this, the row waits. */
+  waitFor: BrowserSnapshot | null;
+  since: number;
+  hold?: Animation;
+}
+/** How long a dropped row waits for its move before settling anyway. */
+const SETTLE_WAIT_MS = 400;
+
+/** Droppable ids for group headings, kept apart from page ids. */
+export const GROUP_DROP = 'group:';
+
+/**
+ * Rows hold still while a page is dragged; a line shows where it lands.
+ * Sliding them can't work across groups: a group's heading sits between
+ * rows, and its card wouldn't grow or shrink with them.
+ */
+const STILL: SortingStrategy = () => null;
+
+/** The section of the top-level page a row sits under. */
+function sectionAt(
+  rows: Row[],
+  snapshot: BrowserSnapshot,
+  id: PageId,
+): string | null {
+  let index = rows.findIndex((row) => row.id === id);
+  while (index > 0 && rows[index]!.depth > 0) index--;
+  const root = rows[index];
+  return root ? sectionOf(snapshot.pages[root.id]) : null;
+}
+
+/** Where dropping the dragged page now would put it. */
+function trailDrop(
+  rows: Row[],
+  snapshot: BrowserSnapshot,
+  drag: DragState,
+  indent: number,
+): TrailDrop | null {
+  if (drag.intoGroupId !== null) {
+    const members = snapshot.rootIds.filter(
+      (id) =>
+        id !== drag.activeId &&
+        snapshot.pages[id]?.groupId === drag.intoGroupId,
+    );
+    return {
+      depth: 0,
+      parentId: null,
+      afterId: members.at(-1) ?? null,
+      groupId: drag.intoGroupId,
+      lineAt: null,
+    };
+  }
+  const projection = projectDrop(
+    rows,
+    drag.activeId,
+    drag.overId,
+    drag.offsetX,
+    indent,
+  );
+  if (!projection) return null;
+  const moving = rowsWhileDragging(rows, drag.activeId);
+  const from = moving.findIndex((row) => row.id === drag.activeId);
+  const to = moving.findIndex((row) => row.id === drag.overId);
+  const section =
+    drag.overId === drag.activeId
+      ? sectionOf(snapshot.pages[drag.activeId])
+      : sectionAt(rows, snapshot, drag.overId);
+  const groupId =
+    projection.depth > 0 || section === null || section === 'pinned'
+      ? undefined
+      : section === 'pages'
+        ? null
+        : section;
+  return {
+    ...projection,
+    groupId,
+    lineAt:
+      drag.overId === drag.activeId
+        ? null
+        : { id: drag.overId, after: to > from },
+  };
 }
 
 export function TrailTree({ newPage }: { newPage?: ReactNode }) {
@@ -275,6 +374,68 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
   // arrows move it, that's the current page.
   const [focusedId, setFocusedId] = useState<PageId | null>(null);
   const treeRef = useRef<HTMLDivElement>(null);
+  // A dropped page glides from where it was let go into its new place,
+  // rather than snapping back to its old one until the move comes back.
+  const settle = useRef<Settle | null>(null);
+  // The trail can move while a page is dragged in it: the Bookmarks zone
+  // opens above. dnd-kit keeps the dragged row where the drag began, so the
+  // shift is taken off it, for the eye and for what it's over.
+  const dragOrigin = useRef(0);
+  const collide = useCallback<CollisionDetection>((args) => {
+    const tree = treeRef.current;
+    const shift = tree ? tree.offsetTop - dragOrigin.current : 0;
+    tree?.style.setProperty('--drag-shift', `${shift}px`);
+    if (!shift) return closestCenter(args);
+    const rect = args.collisionRect;
+    return closestCenter({
+      ...args,
+      collisionRect: {
+        ...rect,
+        top: rect.top + shift,
+        bottom: rect.bottom + shift,
+      },
+    });
+  }, []);
+  const [, settleTick] = useState(0);
+  useLayoutEffect(() => {
+    const landing = settle.current;
+    if (!landing) return;
+    const row = treeRef.current?.querySelector<HTMLElement>(
+      `.trail-row[data-page-id="${CSS.escape(landing.id)}"]`,
+    );
+    landing.hold?.cancel();
+    landing.hold = undefined;
+    if (!row) {
+      settle.current = null;
+      return;
+    }
+    const offset = landing.top - row.getBoundingClientRect().top;
+    const waiting =
+      landing.waitFor !== null &&
+      snapshot === landing.waitFor &&
+      performance.now() - landing.since < SETTLE_WAIT_MS;
+    if (waiting) {
+      // Held where it was dropped until the trail has the move.
+      landing.hold = row.animate(
+        [{ transform: `translate3d(0, ${offset}px, 0)` }],
+        { fill: 'forwards' },
+      );
+      const timer = window.setTimeout(
+        () => settleTick((n) => n + 1),
+        SETTLE_WAIT_MS,
+      );
+      return () => window.clearTimeout(timer);
+    }
+    settle.current = null;
+    if (Math.abs(offset) < 1) return;
+    row.animate(
+      [{ transform: `translate3d(0, ${offset}px, 0)` }, { transform: 'none' }],
+      {
+        duration: durationMs('--duration-base'),
+        easing: easing('--ease-emphasized'),
+      },
+    );
+  });
   const rowsRef = useRef(allRows);
   rowsRef.current = allRows;
   const navigate = useCallback((id: PageId, key: TreeKey) => {
@@ -295,10 +456,21 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
   }, []);
   const rows = drag ? rowsWhileDragging(allRows, drag.activeId) : allRows;
   // A new list here would draw every row: each one listens to this context.
-  const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
-  const projection: DropProjection | null = drag
-    ? projectDrop(allRows, drag.activeId, drag.overId, drag.offsetX, indent)
-    : null;
+  // Group headings are listed too: over anything not listed, dnd-kit stops
+  // moving the dragged row, and it would jump back to its place.
+  const groupKey = snapshot?.groups.map((group) => group.id).join() ?? '';
+  const rowIds = useMemo(
+    () => [
+      ...rows.map((row) => row.id),
+      ...(groupKey ? groupKey.split(',') : []).map((id) => GROUP_DROP + id),
+    ],
+    [rows, groupKey],
+  );
+  const projection: TrailDrop | null =
+    drag && snapshot ? trailDrop(allRows, snapshot, drag, indent) : null;
+  // The section the dragged page would land in, for its indent there.
+  const landingGroup =
+    projection?.depth === 0 ? (projection.groupId ?? null) : null;
 
   if (snapshot === null) return <TrailSkeleton />;
   if (filtering && allRows.length === 0) return <FilterEmpty query={filter} />;
@@ -357,20 +529,63 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
         y: activatorEvent.clientY,
       };
     }
-    setDrag({ activeId: id, overId: id, offsetX: 0 });
+    setDrag({ activeId: id, overId: id, offsetX: 0, intoGroupId: null });
     usePageDrag.getState().start(id);
+    dragOrigin.current = treeRef.current?.offsetTop ?? 0;
+    treeRef.current?.style.setProperty('--drag-shift', '0px');
   };
   const onDragMove = ({ active, over, delta }: DragMoveEvent) => {
-    setDrag({
-      activeId: String(active.id),
-      overId: over ? String(over.id) : String(active.id),
-      offsetX: delta.x,
+    const overId = over ? String(over.id) : null;
+    const intoGroupId = overId?.startsWith(GROUP_DROP)
+      ? overId.slice(GROUP_DROP.length)
+      : null;
+    setDrag((was) => {
+      const next: DragState = {
+        activeId: String(active.id),
+        // Over a heading, the last row stays, for when it moves off again.
+        overId:
+          overId === null
+            ? String(active.id)
+            : intoGroupId !== null
+              ? (was?.overId ?? String(active.id))
+              : overId,
+        offsetX: delta.x,
+        intoGroupId,
+      };
+      // Most moves change nothing; then nothing draws again.
+      return was &&
+        was.activeId === next.activeId &&
+        was.overId === next.overId &&
+        was.intoGroupId === next.intoGroupId &&
+        Math.round(was.offsetX / indent) === Math.round(next.offsetX / indent)
+        ? was
+        : next;
     });
     setWorkspaceDrop(
       workspaceAt(pointerAt.current, snapshot.activeWorkspaceId),
     );
   };
-  const onDragEnd = ({ active, over, delta }: DragEndEvent) => {
+  const onDragEnd = ({ active }: DragEndEvent) => {
+    const landing = projection;
+    const dropped = treeRef.current?.querySelector<HTMLElement>(
+      `.trail-row[data-page-id="${CSS.escape(String(active.id))}"]`,
+    );
+    if (dropped && !workspaceDrop && !usePageDrag.getState().target) {
+      settle.current = {
+        id: String(active.id),
+        top: dropped.getBoundingClientRect().top,
+        waitFor: null,
+        since: performance.now(),
+        // dnd-kit lets go of the row before this tree draws again; held
+        // here, it doesn't flash back to its old place for a frame.
+        hold: dropped.animate(
+          [{ transform: getComputedStyle(dropped).transform }],
+          {
+            fill: 'forwards',
+          },
+        ),
+      };
+    }
     setDrag(null);
     setWorkspaceDrop(null);
     const outside = usePageDrag.getState().target;
@@ -383,25 +598,20 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
       dropOutside(String(active.id), outside);
       return;
     }
-    if (!over) return;
-    const target = projectDrop(
-      allRows,
-      String(active.id),
-      String(over.id),
-      delta.x,
-      indent,
-    );
-    if (!target) return;
+    if (!landing) return;
     const current = allRows.find((row) => row.id === active.id);
+    const groupBefore = snapshot.pages[String(active.id)]?.groupId ?? null;
     const unchanged =
-      current?.parentId === target.parentId &&
-      target.afterId === previousSiblingId(allRows, String(active.id));
+      current?.parentId === landing.parentId &&
+      landing.afterId === previousSiblingId(allRows, String(active.id)) &&
+      (landing.groupId === undefined || landing.groupId === groupBefore);
     if (!unchanged && current) {
+      if (settle.current) settle.current.waitFor = snapshot;
       void moveWithUndo(
         current,
         previousSiblingId(allRows, current.id),
-        target.parentId,
-        target.afterId,
+        groupBefore,
+        landing,
       );
     }
   };
@@ -409,7 +619,7 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={collide}
       measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       accessibility={{
         announcements,
@@ -427,11 +637,12 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
         usePageDrag.getState().end();
       }}
     >
-      <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
+      <SortableContext items={rowIds} strategy={STILL}>
         <div
           ref={treeRef}
           role="tree"
           aria-label="Pages"
+          data-dragging={dragging}
           className="relative isolate flex flex-col gap-px"
           onBlur={(event) => {
             // Leaving the trail hands the tab stop back to the current page.
@@ -486,13 +697,13 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
                         <TrailRow
                           row={row}
                           depth={
-                            nest +
-                            (row.id === drag?.activeId &&
+                            row.id === drag?.activeId &&
                             projection &&
                             !dropTarget &&
                             !workspaceDrop
-                              ? projection.depth
-                              : row.depth)
+                              ? projection.depth +
+                                (minimal && landingGroup !== null ? 1 : 0)
+                              : nest + row.depth
                           }
                           active={row.id === snapshot.activePageId}
                           tabStop={row.id === tabStop}
@@ -558,6 +769,17 @@ export function TrailTree({ newPage }: { newPage?: ReactNode }) {
               </details>
             );
           })}
+          {projection?.lineAt && !dropTarget && !workspaceDrop && (
+            <DropLine
+              treeRef={treeRef}
+              at={projection.lineAt}
+              depth={
+                projection.depth + (minimal && landingGroup !== null ? 1 : 0)
+              }
+              indent={indent}
+              lead={flat ? FLAT_LEAD : LEAD}
+            />
+          )}
           <CurrentMarker
             treeRef={treeRef}
             activeId={snapshot.activePageId}
@@ -716,11 +938,16 @@ function workspaceAt(
 async function moveWithUndo(
   row: Row,
   previousAfterId: PageId | null,
-  parentId: PageId | null,
-  afterId: PageId | null,
+  /** `undefined` (a keyboard move): neighbours decide, both ways. */
+  previousGroupId: string | null | undefined,
+  {
+    parentId,
+    afterId,
+    groupId,
+  }: Pick<TrailDrop, 'parentId' | 'afterId' | 'groupId'>,
 ): Promise<void> {
   const splash = api();
-  await splash.movePage(row.id, parentId, afterId);
+  await splash.movePage(row.id, parentId, afterId, groupId);
   const pages = useShell.getState().snapshot?.pages;
   const page = pages?.[row.id];
   if (!page) return;
@@ -732,8 +959,14 @@ async function moveWithUndo(
       sameParent: row.parentId === parentId,
       // Either spot may be gone by then (a neighbour closed); then it stays,
       // and the toast says so.
-      undo: () => splash.movePage(row.id, row.parentId, previousAfterId),
-      redo: () => splash.movePage(row.id, parentId, afterId),
+      undo: () =>
+        splash.movePage(
+          row.id,
+          row.parentId,
+          previousAfterId,
+          row.parentId === null ? previousGroupId : undefined,
+        ),
+      redo: () => splash.movePage(row.id, parentId, afterId, groupId),
     }),
   );
 }
@@ -896,8 +1129,8 @@ const TrailRow = memo(function TrailRow({
         void moveWithUndo(
           row,
           previousSiblingIdIn(snapshot!, row.id),
-          target.parentId,
-          target.afterId,
+          undefined,
+          target,
         );
       }
       return;
@@ -990,8 +1223,13 @@ const TrailRow = memo(function TrailRow({
         // The content keeps its place; only the box moves in.
         ...rowBox(depth, flat, minimal),
         // Rows only ever slide vertically; depth comes from the projection.
+        // While dragged, less however far the trail itself has moved since
+        // (the Bookmarks drop zone opening above it), so it stays under the
+        // pointer.
         transform: transform
-          ? `translate3d(0, ${transform.y}px, 0)`
+          ? dragging
+            ? `translate3d(0, calc(${transform.y}px - var(--drag-shift, 0px)), 0)`
+            : `translate3d(0, ${transform.y}px, 0)`
           : undefined,
         transition,
       }}
@@ -1189,6 +1427,44 @@ const SURFACE_INSET = 18;
  * The light is out where there's no line to light: a top-level page,
  * branch lines turned off, or a drag.
  */
+/**
+ * Where a dragged page will land: a line between rows, indented to the
+ * depth it takes there. Rows hold still, so their places can be read.
+ */
+function DropLine({
+  treeRef,
+  at,
+  depth,
+  indent,
+  lead,
+}: {
+  treeRef: RefObject<HTMLDivElement | null>;
+  at: { id: PageId; after: boolean };
+  depth: number;
+  indent: number;
+  lead: number;
+}) {
+  const [top, setTop] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const tree = treeRef.current;
+    const row = tree?.querySelector<HTMLElement>(
+      `.trail-row[data-page-id="${CSS.escape(at.id)}"]`,
+    );
+    if (!tree || !row) return setTop(null);
+    const box = row.getBoundingClientRect();
+    const origin = tree.getBoundingClientRect().top;
+    setTop((at.after ? box.bottom : box.top) - origin);
+  }, [treeRef, at.id, at.after]);
+  if (top === null) return null;
+  return (
+    <div
+      aria-hidden
+      className="trail-drop-line"
+      style={{ top, left: lead + depth * indent - 4 }}
+    />
+  );
+}
+
 function CurrentMarker({
   treeRef,
   activeId,

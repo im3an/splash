@@ -124,6 +124,8 @@ const api: SplashApi = {
   closeBranch: (pageId) => invoke('page:close-branch', { pageId }),
   closeOtherPages: (pageId) => invoke('page:close-others', { pageId }),
   closePagesBelow: (pageId) => invoke('page:close-below', { pageId }),
+  clearLoosePages: () => invoke('trail:clear-loose'),
+  toggleFullScreen: () => invoke('window:toggle-full-screen'),
   listDictionaryWords: () => invoke('spelling:words'),
   setDictionaryWord: (word, known) =>
     invoke('spelling:set-word', { word, known }),
@@ -138,8 +140,8 @@ const api: SplashApi = {
   recentlyClosed: () => invoke('page:recently-closed'),
   undoClose: (serial) => invoke('page:undo-close', { serial }),
   closeAgain: (serial) => invoke('page:close-again', { serial }),
-  movePage: (pageId, parentId, afterId) =>
-    invoke('page:move', { pageId, parentId, afterId }),
+  movePage: (pageId, parentId, afterId, groupId) =>
+    invoke('page:move', { pageId, parentId, afterId, groupId }),
   returnPage: (pageId, origin) => invoke('page:return', { pageId, origin }),
   setPinned: (pageId, pinned, origin) =>
     invoke('page:set-pinned', { pageId, pinned, origin }),

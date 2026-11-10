@@ -241,6 +241,35 @@ async function performPaletteItem(
           return;
         case 'open-settings':
           return splash.openSettings();
+        case 'clear-pages':
+          await splash.clearLoosePages();
+          return;
+        case 'reveal-page':
+          if (active) revealInSidebar(active.id);
+          return;
+        case 'next-workspace':
+        case 'previous-workspace': {
+          const snapshot = shell.snapshot;
+          if (!snapshot || snapshot.workspaces.length < 2) return;
+          const list = snapshot.workspaces;
+          const at = list.findIndex((w) => w.id === snapshot.activeWorkspaceId);
+          const step = item.command === 'next-workspace' ? 1 : -1;
+          const next = list[(at + step + list.length) % list.length]!;
+          await splash.switchWorkspace(next.id);
+          return;
+        }
+        case 'toggle-full-screen':
+          await splash.toggleFullScreen();
+          return;
+        case 'toggle-dark-mode': {
+          const theme = shell.preferences?.theme ?? 'system';
+          const dark =
+            theme === 'dark' ||
+            (theme === 'system' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          await splash.updatePreferences({ theme: dark ? 'light' : 'dark' });
+          return;
+        }
         case 'zoom-in':
         case 'zoom-out':
           if (active) {
@@ -254,6 +283,27 @@ async function performPaletteItem(
           return;
       }
   }
+}
+
+/** Shows the sidebar if hidden, and brings the page's row into view. */
+function revealInSidebar(pageId: string): void {
+  const shell = useShell.getState();
+  if (!shell.sidebarOpen) shell.toggleSidebar();
+  // After the sidebar draws, and the overlay hands focus back.
+  window.setTimeout(() => {
+    const row = document.querySelector<HTMLElement>(
+      `.trail-row[data-page-id="${CSS.escape(pageId)}"]`,
+    );
+    row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    row?.focus({ preventScroll: true });
+    row?.animate(
+      [
+        { boxShadow: 'inset 0 0 0 1.5px var(--accent)' },
+        { boxShadow: 'inset 0 0 0 1.5px transparent' },
+      ],
+      { duration: 900, easing: 'ease-out' },
+    );
+  }, 120);
 }
 
 /** Keep the query and overlay until an action actually succeeds. */

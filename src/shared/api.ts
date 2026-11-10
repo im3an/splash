@@ -126,6 +126,8 @@ export interface InvokeOutputs {
   'page:close-branch': void;
   'page:close-others': void;
   'page:close-below': void;
+  'trail:clear-loose': void;
+  'window:toggle-full-screen': void;
   'spelling:words': string[];
   'spelling:set-word': boolean;
   'page:view-source': PageId | null;
@@ -339,6 +341,10 @@ export interface SplashApi {
   closeOtherPages(pageId: PageId): Promise<void>;
   /** Closes what's below it in the sidebar; see the controller. */
   closePagesBelow(pageId: PageId): Promise<void>;
+  /** Closes the loose pages on screen: not pinned, not in a group. */
+  clearLoosePages(): Promise<void>;
+  /** Enters or leaves full screen for this window. */
+  toggleFullScreen(): Promise<void>;
   /** Adds a word to the dictionary or takes it out. False if nothing changed. */
   setDictionaryWord(word: string, known: boolean): Promise<boolean>;
   /** Words added from a page's right-click menu, in Settings. */
@@ -359,11 +365,16 @@ export interface SplashApi {
   undoClose(serial: number): Promise<boolean>;
   /** Redoes an undone close; the new close's serial, or null if nothing closed. */
   closeAgain(serial: number): Promise<number | null>;
-  /** Moves a page under `parentId`, right after `afterId` (first if null). */
+  /**
+   * Moves a page under `parentId`, right after `afterId` (first if null).
+   * At the top level, `groupId` names the group it lands in (`null`: none);
+   * left out, its new neighbours decide.
+   */
   movePage(
     pageId: PageId,
     parentId: PageId | null,
     afterId: PageId | null,
+    groupId?: string | null,
   ): Promise<void>;
   /** Puts a page moved to another workspace back where it was. */
   returnPage(pageId: PageId, origin: MoveOrigin): Promise<void>;

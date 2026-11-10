@@ -1,5 +1,7 @@
 /** Typing this first narrows the command palette to commands. */
 export const COMMAND_PREFIX = '>';
+/** Typing this first shows the keyboard shortcuts instead. */
+export const SHORTCUTS_PREFIX = '?';
 
 /**
  * `palette` is ⌘K. `location` is the palette standing in for the address bar

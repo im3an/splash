@@ -1558,6 +1558,56 @@ button.sidebar-row,
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px var(--accent);
 }
+@keyframes drop-line-in {
+  from {
+    opacity: 0;
+    scale: 0.6 1;
+  }
+}
+.group-card > .sidebar-row {
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+[role='tree'][data-dragging='true'] {
+  cursor: grabbing;
+}
+/* A page dragged onto a group's heading goes in. */
+.group-card[data-drop-over='true'] > .sidebar-row {
+  border-radius: var(--radius-row);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* Where a dragged page lands; rows hold still around it. */
+.trail-drop-line {
+  position: absolute;
+  transition:
+    top var(--duration-fast) var(--ease-out),
+    left var(--duration-fast) var(--ease-out);
+  animation: drop-line-in var(--duration-fast) var(--ease-out);
+  right: 4px;
+  z-index: 20;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  pointer-events: none;
+}
+.trail-drop-line::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  background: var(--chrome);
+}
+/* A row dragged out of a group isn't clipped by the group's reveal. */
+[role='tree'][data-dragging='true'] .reveal > * {
+  overflow: visible;
+}
 .link-drop-trail[data-over='true'] {
   box-shadow: inset 0 0 0 1px var(--accent);
 }

@@ -57,6 +57,13 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  BrushCleaning,
+  LocateFixed,
+  ChevronsRight,
+  ChevronsLeft,
+  Maximize2,
+  Moon,
+  Keyboard,
   type LucideIcon,
 } from 'lucide-react';
 import { accentColors } from '../../shared/appearance';
@@ -128,6 +135,13 @@ const COMMAND_ICONS: Record<PaletteCommand, LucideIcon> = {
   'close-split': Square,
   'rename-workspace': Pencil,
   'delete-workspace': Trash2,
+  'clear-pages': BrushCleaning,
+  'reveal-page': LocateFixed,
+  'next-workspace': ChevronsRight,
+  'previous-workspace': ChevronsLeft,
+  'toggle-full-screen': Maximize2,
+  'toggle-dark-mode': Moon,
+  'show-shortcuts': Keyboard,
 };
 
 const SECTION_LABELS: Record<PaletteSection, string | null> = {

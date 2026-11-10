@@ -70,9 +70,9 @@ interface CommandDefinition {
 export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
   {
     command: 'new-page',
-    title: 'New page',
-    keywords: 'open blank',
-    shortcut: '⌘T',
+    title: 'New blank page',
+    keywords: 'open blank empty tab',
+    shortcut: null,
     suggested: true,
   },
   {
@@ -266,9 +266,9 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
   },
   {
     command: 'copy-link',
-    title: 'Copy link',
+    title: 'Copy URL',
     keywords: 'url address share clipboard',
-    shortcut: null,
+    shortcut: '⇧⌘C',
     needs: 'address',
   },
   {
@@ -458,6 +458,52 @@ export const PALETTE_COMMANDS: readonly CommandDefinition[] = [
     keywords: 'inspect inspector console debug web',
     shortcut: '⌥⌘I',
     needs: 'address',
+  },
+  {
+    command: 'clear-pages',
+    title: 'Clear unpinned pages',
+    keywords: 'today tidy clean close loose archive reset',
+    shortcut: '⇧⌘K',
+  },
+  {
+    command: 'reveal-page',
+    title: 'Reveal page in sidebar',
+    keywords: 'locate show scroll where current',
+    shortcut: null,
+    needs: 'page',
+  },
+  {
+    command: 'next-workspace',
+    title: 'Next workspace',
+    keywords: 'space switch select right',
+    shortcut: null,
+    needs: 'workspaces',
+  },
+  {
+    command: 'previous-workspace',
+    title: 'Previous workspace',
+    keywords: 'space switch select left',
+    shortcut: null,
+    needs: 'workspaces',
+  },
+  {
+    command: 'toggle-full-screen',
+    title: 'Toggle full screen',
+    keywords: 'enter exit fullscreen maximise maximize',
+    shortcut: '⌃⌘F',
+  },
+  {
+    command: 'toggle-dark-mode',
+    title: 'Toggle dark mode',
+    keywords: 'theme light appearance night',
+    shortcut: null,
+  },
+  {
+    command: 'show-shortcuts',
+    title: 'Keyboard shortcuts',
+    keywords: 'keys hotkeys cheat sheet common help',
+    shortcut: '⌘/',
+    suggested: true,
   },
   {
     command: 'open-settings',
