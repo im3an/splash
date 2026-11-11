@@ -61,6 +61,7 @@ import {
   pageHandleFor,
 } from '../browser/electron-page-host';
 import { togglePictureInPicture } from '../browser/picture-in-picture';
+import { toggleReaderIn } from '../browser/reader';
 import {
   chooseTrailFile,
   exportBookmarks,
@@ -942,6 +943,23 @@ export class TrailWindow {
     if (result !== 'ok') {
       this.notify({ kind: 'no-video', blocked: result === 'blocked' });
     }
+  }
+
+  /** Shows the page's article on its own, or takes Reader away again. */
+  async toggleReader(pageId: PageId): Promise<void> {
+    const contents = contentsForPage(pageId);
+    if (!contents) return;
+    let siteName = '';
+    try {
+      siteName = new URL(contents.getURL()).host.replace(/^www\./, '');
+    } catch {
+      // A page without an address shows no site line.
+    }
+    const result = await toggleReaderIn(contents, {
+      dark: nativeTheme.shouldUseDarkColors,
+      siteName,
+    });
+    if (result === 'none') this.notify({ kind: 'no-article' });
   }
 
   /** A failure to write a file is said out loud, not just logged. */

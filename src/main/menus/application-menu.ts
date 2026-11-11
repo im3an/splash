@@ -521,6 +521,12 @@ export function installApplicationMenu(actions: MenuActions): void {
         },
         { type: 'separator' },
         {
+          label: 'Toggle Reader',
+          accelerator: 'Alt+CmdOrCtrl+R',
+          enabled: Boolean(activePage),
+          click: withActivePage((w, id) => void w.toggleReader(id)),
+        },
+        {
           label: 'Picture in Picture',
           accelerator: 'Alt+CmdOrCtrl+P',
           enabled: Boolean(activePage),

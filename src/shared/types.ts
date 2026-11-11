@@ -601,6 +601,7 @@ export type Notice =
     }
   /** A page had no video to float, or its site doesn't allow it. */
   | { kind: 'no-video'; blocked: boolean }
+  | { kind: 'no-article' }
   /** A file can't be shown as a page. */
   | { kind: 'cannot-open-file'; filename: string }
   /** A native helper an extension needs ended as soon as it started. */

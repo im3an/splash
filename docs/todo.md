@@ -504,7 +504,19 @@ When to go to testers and to the public, and how updates reach installed copies:
 - [ ] Shortcut customisation
 - [ ] Page-aware AI: summarise this page, ask about the selection
 - [ ] Per-workspace isolated logins
-- [ ] Reader mode, page screenshots, reading list, translation
+- [x] Reader mode (11 November): View › Toggle Reader, ⌥⌘R. Mozilla's
+      Readability (Firefox's Reader View) finds the article in a copy of the
+      page; DOMPurify cleans it; it shows over the page in Splash's light or dark
+      colours, serif text, A−/A+, Close or Escape. A page without one says
+      "Reader can’t find an article on this page." Both libraries are only sent
+      to a page when Reader is asked for, in their own isolated world
+      (`src/main/browser/reader.ts`, `reader-page.ts`). Checked in the app on
+      Wikipedia (dark), GitHub with its strict CSP (light), Escape, the menu
+      toggle and a form-only page.
+  - [ ] Offer Reader from the address bar when a page has an article, as Safari
+        does (`isProbablyReaderable`).
+  - [ ] Remember the text size; follow a theme change while Reader is open.
+- [ ] Page screenshots, reading list, translation
 - [ ] Profiles, then cross-device sync, then localisation
 
 ## Phase F. Premium-browser features
@@ -601,7 +613,7 @@ Safari / Orion style polish
 
 - [ ] Hide My Email / Sign in with Apple helpers, iCloud Keychain handoff
 - [ ] Share to Reminders, Notes, Messages (native share exists)
-- [ ] Reader mode with themes, and text-to-speech
+- [ ] Reader text-to-speech (Reader itself is done, see above)
 - [ ] Translation of the page, offered on the right languages only
 - [ ] Per-site settings sheet for zoom, camera, auto-play, content blockers
 - [ ] Web inspector / developer tools tuned for the trail

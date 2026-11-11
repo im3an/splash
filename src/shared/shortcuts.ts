@@ -126,6 +126,11 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         accelerator: 'Shift+CmdOrCtrl+S',
       },
       {
+        label: 'Reader',
+        keys: '⌥⌘R',
+        accelerator: 'Alt+CmdOrCtrl+R',
+      },
+      {
         label: 'Picture in picture',
         keys: '⌥⌘P',
         accelerator: 'Alt+CmdOrCtrl+P',

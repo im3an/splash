@@ -49,6 +49,7 @@
     "@duckduckgo/autoconsent": "^16.61.0",
     "@ghostery/adblocker": "^2.20.1",
     "@ghostery/adblocker-electron-preload": "^2.20.1",
+    "@mozilla/readability": "^0.6.0",
     "@tiptap/extension-code-block-lowlight": "^3.33.1",
     "@tiptap/extension-collaboration": "^3.33.1",
     "@tiptap/extension-drag-handle": "^3.33.1",
