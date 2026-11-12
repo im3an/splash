@@ -11,6 +11,7 @@ import {
   app,
   BrowserWindow,
   dialog,
+  ipcMain,
   nativeImage,
   session as sessions,
   webContents,
@@ -26,7 +27,9 @@ import {
 } from 'electron-chrome-web-store';
 import type { ExtensionInfo, ExtensionSource } from '../../shared/types';
 import { allowExtensionPages, isPageUrl } from '../browser/url';
+import { isFromShell } from '../ipc/register-ipc';
 import { onCrxRejected } from './crx-verify';
+import { withGuardedExtensionIpc } from './extension-ipc-guard';
 import {
   describeExtension,
   iconFile,
@@ -132,25 +135,35 @@ export class ExtensionHost {
       this.changed();
     });
     session.extensions.on('extension-unloaded', () => this.changed());
-    this.extensions = new ElectronChromeExtensions({
-      license: 'GPL-3.0',
-      session,
-      createTab: async (details) => {
-        const url = details.url;
-        if (!url || !isPageUrl(url)) {
-          throw new Error('Splash opens pages only for web or extension pages');
-        }
-        const opened = windows.openPage(url, details.active ?? true);
-        if (!opened) throw new Error('No window to open the page in');
-        return [opened.contents, opened.window];
-      },
-      selectTab: (contents) => windows.showPage(contents),
-      removeTab: (contents) => windows.closePage(contents),
-      createWindow: async (details) => {
-        const url = Array.isArray(details.url) ? details.url[0] : details.url;
-        return windows.openWindow(url && isPageUrl(url) ? url : undefined);
-      },
-    });
+    // Each chrome.* call must come from the extension it names (see
+    // extension-ipc-guard.ts).
+    const build = () =>
+      new ElectronChromeExtensions({
+        license: 'GPL-3.0',
+        session,
+        createTab: async (details) => {
+          const url = details.url;
+          if (!url || !isPageUrl(url)) {
+            throw new Error(
+              'Splash opens pages only for web or extension pages',
+            );
+          }
+          const opened = windows.openPage(url, details.active ?? true);
+          if (!opened) throw new Error('No window to open the page in');
+          return [opened.contents, opened.window];
+        },
+        selectTab: (contents) => windows.showPage(contents),
+        removeTab: (contents) => windows.closePage(contents),
+        createWindow: async (details) => {
+          const url = Array.isArray(details.url) ? details.url[0] : details.url;
+          return windows.openWindow(url && isPageUrl(url) ? url : undefined);
+        },
+      });
+    this.extensions = withGuardedExtensionIpc(
+      ipcMain,
+      { fromShell: isFromShell },
+      build,
+    );
     // The library registers its preload from node_modules; Splash ships its
     // own build of it with a fix for Electron 45 (see extension-preload.ts).
     for (const id of ['crx-mv2-preload', 'crx-mv3-preload']) {
