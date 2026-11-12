@@ -46,8 +46,8 @@ a { color: inherit; text-decoration: none; }
 .display em { font: italic 400 1.12em/0 var(--serif); letter-spacing: -0.02em; }
 .lede { font-size: clamp(18px, 1.6vw, 21px); line-height: 1.45; color: var(--ink-60); letter-spacing: -0.01em; text-wrap: pretty; }
 kbd {
-  font: 500 12px/1 var(--sans); letter-spacing: .02em; padding: 5px 7px; border-radius: 6px;
-  background: rgb(34 29 23 / .05); color: var(--ink-60); white-space: nowrap;
+  display: inline-block; min-width: 22px; padding: 4px 7px; border-radius: 6px; text-align: center; white-space: nowrap;
+  font: 500 12px/1.2 "Geist Mono", -apple-system, system-ui, monospace; background: rgb(34 29 23 / .06); color: var(--ink-72);
 }
 
 /* Floating nav, as on the home page */
@@ -89,22 +89,31 @@ kbd {
 .filter input::placeholder { color: var(--ink-45); }
 .filter input::-webkit-search-cancel-button { display: none; }
 
+/* Behind the nav and the stuck category bar: a frosted band, so the list scrolls under them instead of through them */
+.top-veil {
+  position: fixed; inset: 0 0 auto; height: 184px; z-index: 39; pointer-events: none; opacity: 0;
+  background: linear-gradient(rgb(250 248 245 / .86), rgb(250 248 245 / .7));
+  backdrop-filter: blur(16px) saturate(1.1); -webkit-backdrop-filter: blur(16px) saturate(1.1);
+  -webkit-mask-image: linear-gradient(#000 76%, transparent); mask-image: linear-gradient(#000 76%, transparent);
+  transition: opacity 200ms var(--ease);
+}
+.cats-stuck .top-veil { opacity: 1; }
 /* Category bar: sticks under the nav while you scroll */
 .cats-bar { position: sticky; top: 92px; z-index: 40; margin-top: 28px; display: flex; justify-content: center; pointer-events: none; }
 .cats {
-  pointer-events: auto; display: flex; gap: 2px; max-width: calc(100% - 2 * var(--gutter)); padding: 5px; overflow-x: auto; scrollbar-width: none;
-  background: rgb(250 248 245 / .9); border: 1px solid var(--hair); border-radius: 999px;
-  box-shadow: 0 2px 8px rgb(34 29 23 / .06); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  pointer-events: auto; display: flex; gap: 2px; max-width: calc(100% - 2 * var(--gutter)); padding: 4px; overflow-x: auto; scrollbar-width: none;
+  border-radius: 14px; background: rgb(242 237 230 / .97); box-shadow: 0 2px 8px rgb(34 29 23 / .06);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
 }
 .cats::-webkit-scrollbar { display: none; }
 .cats a {
-  flex: none; display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 14px; border-radius: 999px;
-  font-size: 14px; color: var(--ink-72); white-space: nowrap;
+  flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 10px;
+  font: 500 15px/1.2 var(--sans); letter-spacing: -0.01em; color: var(--ink-60); white-space: nowrap;
   transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease);
 }
-.cats a:hover { background: var(--paper-2); color: var(--ink); }
-.cats a.is-current { background: var(--ink); color: #fbf7f2; }
-.cats a span { font: 500 11px/1 var(--mono); opacity: .6; }
+.cats a:hover { color: var(--ink); }
+.cats a.is-current { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgb(34 29 23 / .08), 0 0 0 1px rgb(34 29 23 / .04); }
+.cats a span { font: 500 11px/1.2 var(--mono); padding: 3px 5px; border-radius: 6px; background: rgb(34 29 23 / .06); color: var(--ink-45); }
 .cats a.is-empty { display: none; }
 
 /* Categories */
@@ -128,6 +137,11 @@ kbd {
 .item-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .item h3 { margin: 0; font: 600 16px/1.35 var(--sans); letter-spacing: -0.012em; color: var(--ink); }
 .item-head kbd { flex: none; translate: 0 -1px; }
+.item.is-new h3::after {
+  content: "New"; display: inline-block; margin-left: 8px; padding: 3px 6px 2px; border-radius: 6px; vertical-align: 2px;
+  font: 500 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); background: rgb(180 84 45 / .1);
+}
+.cat.is-coming .item h3 { color: var(--ink-72); }
 .item p { margin: 6px 0 0; color: var(--ink-60); font-size: 15px; line-height: 1.55; text-wrap: pretty; }
 mark { background: rgb(180 84 45 / .16); color: inherit; border-radius: 3px; padding: 0 1px; }
 
@@ -176,6 +190,7 @@ footer { padding: 30px 0 40px; font: 400 13px/1.6 var(--mono); letter-spacing: .
   .nav .mini-cta { display: inline-flex; }
   html { scroll-padding-top: 140px; }
   .cats-bar { top: 76px; }
+  .top-veil { height: 164px; }
   .filter kbd { display: none; }
   .items { grid-template-columns: 1fr; }
   .foot-bottom { flex-direction: column; }
@@ -225,6 +240,8 @@ footer { padding: 30px 0 40px; font: 400 13px/1.6 var(--mono); letter-spacing: .
   <a class="brand" href="index.html" aria-label="Splash home"><img src="assets/brand/mark.svg" alt="">Splash</a>
   <a class="link" href="index.html#thread">Trails</a>
   <a class="link" href="index.html#made">Workspaces</a>
+  <a class="link" href="index.html#waymarks">Waymarks</a>
+  <a class="link" href="index.html#alma">Alma</a>
   <a class="link" href="index.html#privacy">Privacy</a>
   <a class="link" href="features.html" aria-current="page">Features</a>
   <a class="mini-cta" href="index.html#download" data-beta="features-nav">Join the beta</a>
@@ -238,7 +255,7 @@ footer { padding: 30px 0 40px; font: 400 13px/1.6 var(--mono); letter-spacing: .
   <header class="head wrap opener">
     <h1 class="display">Everything in <em>Splash</em></h1>
     <div class="head-side">
-      <p class="lede">Every feature in today's beta, grouped the way you'll meet them. Shortcuts are on the right.</p>
+      <p class="lede">Every feature in today's beta, grouped the way you'll meet them, with what's coming at the end. Shortcuts are on the right.</p>
       <label class="filter">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
         <span class="sr-only">Filter features</span>
@@ -248,6 +265,7 @@ footer { padding: 30px 0 40px; font: 400 13px/1.6 var(--mono); letter-spacing: .
     </div>
   </header>
 
+  <div class="top-veil" aria-hidden="true"></div>
   <div class="cats-bar"><nav class="cats" id="cats" aria-label="Feature categories"></nav></div>
 
   <div class="wrap cats-list" id="list">
@@ -259,16 +277,21 @@ footer { padding: 30px 0 40px; font: 400 13px/1.6 var(--mono); letter-spacing: .
       </div>
       <ul class="items">
         <li class="item"><div class="item-head"><h3>Links grow a branch</h3></div><p>Open a link and it becomes a child of the page you were on. Links within the same page stay put.</p></li>
-        <li class="item"><div class="item-head"><h3>Child pages</h3><kbd>⌥⌘T</kbd></div><p>Start a new page under the current one, ready for an address.</p></li>
+        <li class="item"><div class="item-head"><h3>Child pages</h3><kbd>⌥⌘T</kbd></div><p>Start a new page under the current one, ready for an address. ⌃⌘T starts one beside it instead.</p></li>
         <li class="item"><div class="item-head"><h3>Fold, rename and note</h3><kbd>F2</kbd></div><p>Collapse branches, rename any page and keep a note on it.</p></li>
         <li class="item"><div class="item-head"><h3>Pinned pages</h3><kbd>⌘D</kbd></div><p>Pin a page to the top of its trail. Closing it puts it to sleep instead of losing it.</p></li>
-        <li class="item"><div class="item-head"><h3>Drag to rearrange</h3></div><p>Drag pages within the trail, onto another workspace, or into a bookmarks folder.</p></li>
+        <li class="item"><div class="item-head"><h3>Drag to rearrange</h3></div><p>Drag pages within the trail, onto a group, onto another workspace, or into a bookmarks folder. A line shows where the page will land.</p></li>
+        <li class="item is-new"><div class="item-head"><h3>Groups</h3></div><p>Gather trails under a named group with its own icon. Drop a page on any group's heading, even a folded one.</p></li>
+        <li class="item"><div class="item-head"><h3>Name a trail</h3></div><p>Give the first page of a trail an emoji, so a long sidebar is easy to scan.</p></li>
+        <li class="item"><div class="item-head"><h3>Jump between trails</h3><kbd>⇧⌘↓</kbd></div><p>⇧⌘↓ and ⇧⌘↑ go to the next or previous trail, ⇧⌘← and ⇧⌘→ fold and unfold a branch, and ⌥⌘C folds every other trail.</p></li>
         <li class="item"><div class="item-head"><h3>Move from the keyboard</h3><kbd>⌥⌘↑</kbd></div><p>Reorder, nest and un-nest pages with ⌥⌘ and the arrow keys. Arrows alone walk the trail.</p></li>
         <li class="item"><div class="item-head"><h3>Undo every change</h3><kbd>⌘Z</kbd></div><p>Closes, moves and renames come back with ⌘Z. ⇧⌘Z redoes them.</p></li>
         <li class="item"><div class="item-head"><h3>Filter the trail</h3><kbd>⌥⌘F</kbd></div><p>Shows matching pages with their ancestors. Return opens the first match.</p></li>
-        <li class="item"><div class="item-head"><h3>Close a branch</h3></div><p>Close Branch, Close Pages Below or Close Other Pages, each with Undo.</p></li>
+        <li class="item"><div class="item-head"><h3>Close a branch</h3><kbd>⌥⌘W</kbd></div><p>Close Branch, Close Pages Below or Close Other Pages, each with Undo. ⇧⌘K clears the workspace's loose pages and keeps pinned and grouped ones.</p></li>
         <li class="item"><div class="item-head"><h3>Folded rows keep their state</h3></div><p>A collapsed branch shows how many pages it hides and any sound, download or error inside.</p></li>
         <li class="item"><div class="item-head"><h3>Export a trail</h3></div><p>Save a trail as a Markdown outline, or paste an outline of links to rebuild one.</p></li>
+        <li class="item"><div class="item-head"><h3>Where you left off</h3></div><p>Back after an hour away with several trails open, Splash offers a summary of where you stopped in each one.</p></li>
+        <li class="item"><div class="item-head"><h3>More than one window</h3><kbd>⌘N</kbd></div><p>Every window shows the same trails. Move a page to a new window, or to one that's already open.</p></li>
       </ul>
     </section>
 
@@ -278,10 +301,12 @@ footer { padding: 30px 0 40px; font: 400 13px/1.6 var(--mono); letter-spacing: .
         <p>One box finds anything, and the keyboard reaches everything.</p>
       </div>
       <ul class="items">
-        <li class="item"><div class="item-head"><h3>Search everything</h3><kbd>⌘K</kbd></div><p>Open pages in every workspace, bookmarks, history and commands. The footer says what Return will do.</p></li>
-        <li class="item"><div class="item-head"><h3>Commands</h3><kbd>&gt;</kbd></div><p>Start with &gt; to search commands only. Toggles name what they will do, like “Unpin page”.</p></li>
-        <li class="item"><div class="item-head"><h3>Address suggestions</h3><kbd>⌘L</kbd></div><p>Bookmarks, history and search suggestions as you type. The field can sit in the toolbar or the sidebar.</p></li>
-        <li class="item"><div class="item-head"><h3>Waymarks</h3><kbd>w ␣</kbd></div><p>A short word and a space searches one site: w for Wikipedia, gh for GitHub. 318 more to add in Settings, from a list that ships with Splash.</p></li>
+        <li class="item"><div class="item-head"><h3>Search everything</h3><kbd>⌘K</kbd></div><p>Open pages in every workspace, bookmarks, history and commands. The selected row says what Return will do, like “Switch to Studio”.</p></li>
+        <li class="item is-new"><div class="item-head"><h3>New page, one field</h3><kbd>⌘T</kbd></div><p>⌘T opens the same palette: type an address or a search to open it as a new page, or pick a page you already have.</p></li>
+        <li class="item"><div class="item-head"><h3>Commands</h3><kbd>&gt;</kbd></div><p>Start with &gt; to search commands only. Toggles name what they will do, like “Unpin page”. Tab switches between All, Commands and Shortcuts.</p></li>
+        <li class="item is-new"><div class="item-head"><h3>Every shortcut</h3><kbd>⌘/</kbd></div><p>The palette lists every keyboard shortcut, grouped. Type ? in the palette to search them.</p></li>
+        <li class="item"><div class="item-head"><h3>Address suggestions</h3><kbd>⌘L</kbd></div><p>Bookmarks, history and search suggestions as you type. The field can sit in the toolbar or the sidebar. ⌥⌘V pastes an address and goes.</p></li>
+        <li class="item"><div class="item-head"><h3>Waymarks</h3><kbd>w ␣</kbd></div><p>A short word and a space searches one site: w for Wikipedia, gh for GitHub. 313 more to add in Settings, from a list that ships with Splash.</p></li>
         <li class="item"><div class="item-head"><h3>Step through pages</h3><kbd>⌃⇥</kbd></div><p>Move through visible rows. ⌘1–8 picks a row and ⌘9 jumps to the last.</p></li>
         <li class="item"><div class="item-head"><h3>Back, forward, swipe</h3><kbd>⌘[</kbd></div><p>Mouse buttons and three-finger swipes work too, and history follows the trail.</p></li>
         <li class="item"><div class="item-head"><h3>Find and zoom</h3><kbd>⌘F</kbd></div><p>Find in the page. ⌘+, ⌘− and ⌘0 set the zoom.</p></li>
@@ -298,7 +323,7 @@ footer { padding: 30px 0 40px; font: 400 13px/1.6 var(--mono); letter-spacing: .
       <ul class="items">
         <li class="item"><div class="item-head"><h3>Separate trails</h3><kbd>⌃1–9</kbd></div><p>Each workspace remembers its trail, selected page and split view.</p></li>
         <li class="item"><div class="item-head"><h3>Your colours</h3></div><p>Pick up to three colours on the wheel or start from a preset. The frame gets a gradient and a little grain.</p></li>
-        <li class="item"><div class="item-head"><h3>Light or dark</h3></div><p>Warm paper, warm charcoal, or follow macOS. Websites follow the theme too.</p></li>
+        <li class="item"><div class="item-head"><h3>Light or dark</h3></div><p>Warm charcoal to start with, warm paper, or follow macOS. A workspace can keep its own, and websites follow the theme too.</p></li>
         <li class="item"><div class="item-head"><h3>Move pages across</h3></div><p>Drag a page onto a workspace or use Move to Workspace, with Go there and Undo.</p></li>
         <li class="item"><div class="item-head"><h3>Rename, reorder, delete</h3></div><p>Manage workspaces from the sidebar or Settings. Deleting one can be undone.</p></li>
       </ul>
@@ -324,19 +349,23 @@ footer { padding: 30px 0 40px; font: 400 13px/1.6 var(--mono); letter-spacing: .
 
     <section class="cat" id="reading" data-name="Reading">
       <div class="cat-side">
-        <h2>Reading and <em>media</em></h2>
-        <p>Compare pages, watch, listen, print and save.</p>
+        <h2>Reading, notes and <em>media</em></h2>
+        <p>Compare pages, read without clutter, write things down, watch and listen.</p>
       </div>
       <ul class="items">
         <li class="item"><div class="item-head"><h3>Split view</h3><kbd>⌘\</kbd></div><p>Two related pages side by side, the parent on the left. The pair survives a restart.</p></li>
-        <li class="item"><div class="item-head"><h3>Assistant panel</h3></div><p>Claude, ChatGPT, Perplexity, Gemini or Le Chat beside the page, signed in with your own account.</p></li>
-        <li class="item"><div class="item-head"><h3>Picture in picture</h3></div><p>Float a video over your other pages while you keep reading.</p></li>
-        <li class="item"><div class="item-head"><h3>Sound on the trail</h3></div><p>Rows show which page is playing. Click to mute. Media keys and Now Playing work as on macOS.</p></li>
+        <li class="item is-new"><div class="item-head"><h3>Reader</h3><kbd>⌥⌘R</kbd></div><p>Just the article, in serif text and Splash's own light or dark, with the author and reading time. A− and A+ set the size.</p></li>
+        <li class="item is-new"><div class="item-head"><h3>Notes</h3><kbd>⌥⌘N</kbd></div><p>Notes that know which sites they're about. Type / for headings, to-dos, callouts, tables, code, maths, diagrams and sketches. Kept as Markdown.</p></li>
+        <li class="item is-new"><div class="item-head"><h3>Notes on the page you're on</h3></div><p>Link a note to a site, or paste a link into it, and the Notes button shows a count whenever you're back on that site.</p></li>
+        <li class="item"><div class="item-head"><h3>Assistant panel</h3><kbd>⇧⌘A</kbd></div><p>Claude, ChatGPT, Perplexity, Gemini or Le Chat beside the page, signed in with your own account.</p></li>
+        <li class="item"><div class="item-head"><h3>Picture in picture</h3><kbd>⌥⌘P</kbd></div><p>Float a video over your other pages while you keep reading. Also from a video's right-click menu.</p></li>
+        <li class="item"><div class="item-head"><h3>Sound on the trail</h3><kbd>⌃⌘M</kbd></div><p>Rows show which page is playing. Click to mute. Media keys and Now Playing work as on macOS.</p></li>
         <li class="item"><div class="item-head"><h3>Full-screen video</h3></div><p>A site's full screen fills the window, even from split view. Esc gives it back.</p></li>
         <li class="item"><div class="item-head"><h3>Open files</h3><kbd>⌘O</kbd></div><p>PDFs, images, text, audio and video open as pages, and come back after a restart.</p></li>
         <li class="item"><div class="item-head"><h3>Print and save</h3><kbd>⌘P</kbd></div><p>Print, save a single-file web archive with ⇧⌘S, or view source with ⌥⌘U.</p></li>
-        <li class="item"><div class="item-head"><h3>Share and copy</h3><kbd>⇧⌘C</kbd></div><p>Copy the page address with a confirmation, or use the macOS share menu.</p></li>
-        <li class="item"><div class="item-head"><h3>Spelling</h3></div><p>Follows your macOS language. Add words to the dictionary from the right-click menu.</p></li>
+        <li class="item"><div class="item-head"><h3>Share and copy</h3><kbd>⇧⌘C</kbd></div><p>Copy the page address with a confirmation, copy it as a Markdown link with ⌥⇧⌘C, or use the macOS share menu.</p></li>
+        <li class="item"><div class="item-head"><h3>Spelling</h3></div><p>Follows your macOS language, or pick one in Settings. Add words to the dictionary from the right-click menu.</p></li>
+        <li class="item"><div class="item-head"><h3>Task manager</h3></div><p>Memory and CPU for every page across your windows, from the View menu. End a page that's misbehaving.</p></li>
       </ul>
     </section>
 
@@ -348,13 +377,17 @@ footer { padding: 30px 0 40px; font: 400 13px/1.6 var(--mono); letter-spacing: .
       <ul class="items">
         <li class="item"><div class="item-head"><h3>Ads and trackers blocked</h3></div><p>uBlock Origin is built in, with its filter lists.</p></li>
         <li class="item"><div class="item-head"><h3>Cookie banners rejected</h3></div><p>Consent pop-ups are answered with “reject”, never accepted on your behalf.</p></li>
-        <li class="item"><div class="item-head"><h3>Third-party cookies off</h3></div><p>Off by default, with a cookie list per site in Settings.</p></li>
+        <li class="item"><div class="item-head"><h3>Block third-party cookies</h3></div><p>One switch in Settings, with exceptions per site. It starts off, because some sign-ins and embedded players need them.</p></li>
+        <li class="item"><div class="item-head"><h3>Cookies per site</h3></div><p>See which sites keep cookies, and delete one site's or all of them, from Settings.</p></li>
+        <li class="item"><div class="item-head"><h3>Tracking parameters removed</h3></div><p>Tags like fbclid and gclid come off an address before the request leaves your Mac.</p></li>
+        <li class="item"><div class="item-head"><h3>Pop-ups kept in check</h3></div><p>Only a click or a key press can open a pop-up. Allow or block them per site, and open a blocked one from the address bar.</p></li>
         <li class="item"><div class="item-head"><h3>HTTPS first</h3></div><p>Public sites are tried over HTTPS before anything is sent. HTTP only if you choose to continue.</p></li>
+        <li class="item is-new"><div class="item-head"><h3>Secure DNS</h3></div><p>Encrypted lookups through Cloudflare, Quad9, Mullvad or Google Public DNS, or your network's own DNS, encrypted when it can be. A strict mode never falls back.</p></li>
         <li class="item"><div class="item-head"><h3>Dangerous-site warnings</h3></div><p>Checked against lists kept on your Mac and refreshed every 12 hours. Your addresses aren't sent anywhere.</p></li>
         <li class="item"><div class="item-head"><h3>Private windows</h3><kbd>⇧⌘N</kbd></div><p>Browse without keeping history, cookies or site data afterwards.</p></li>
         <li class="item"><div class="item-head"><h3>Per-site permissions</h3></div><p>Camera, microphone, location, JavaScript, images and autoplay, decided and remembered per site.</p></li>
         <li class="item"><div class="item-head"><h3>Clear browsing data</h3></div><p>Clear by time range, with Undo for history, or clear automatically when you quit.</p></li>
-        <li class="item"><div class="item-head"><h3>Do Not Track signal</h3></div><p>Asks sites not to track you. On by default.</p></li>
+        <li class="item"><div class="item-head"><h3>Ask sites not to track you</h3></div><p>Sends Global Privacy Control and Do Not Track. On by default.</p></li>
         <li class="item"><div class="item-head"><h3>Certificate warnings</h3></div><p>Continuing past a warning applies to that one certificate only. Sites that require HTTPS are never bypassed.</p></li>
         <li class="item"><div class="item-head"><h3>Sandboxed pages</h3></div><p>Websites run sandboxed, with no access to Splash itself or your files.</p></li>
         <li class="item"><div class="item-head"><h3>Links to other apps</h3></div><p>mailto:, tel: and similar links ask before opening an app, and remember your answer per site.</p></li>
@@ -368,7 +401,8 @@ footer { padding: 30px 0 40px; font: 400 13px/1.6 var(--mono); letter-spacing: .
       </div>
       <ul class="items">
         <li class="item"><div class="item-head"><h3>Password vault</h3></div><p>Saved logins are sealed with a key held in your macOS Keychain. A copy of the database reveals nothing.</p></li>
-        <li class="item"><div class="item-head"><h3>Autofill</h3></div><p>Fill logins, addresses and cards on the page, from a small menu next to the field.</p></li>
+        <li class="item"><div class="item-head"><h3>Autofill</h3></div><p>Fill logins, addresses and cards on the page, from a small menu next to the field. Cards ask for Touch ID first.</p></li>
+        <li class="item"><div class="item-head"><h3>Strong passwords</h3></div><p>On a sign-up form, Splash suggests a strong password, fills it in and saves it straight away, so it can't get lost.</p></li>
         <li class="item"><div class="item-head"><h3>Sign-in prompts</h3></div><p>Sites that ask for a server password get a native sign-in sheet that names the server.</p></li>
         <li class="item"><div class="item-head"><h3>Import and export logins</h3></div><p>Bring logins in from a CSV file and export them again whenever you want.</p></li>
       </ul>
@@ -414,6 +448,37 @@ footer { padding: 30px 0 40px; font: 400 13px/1.6 var(--mono); letter-spacing: .
         <li class="item"><div class="item-head"><h3>Back online by itself</h3></div><p>Pages that failed offline reload once your Mac reconnects. Other errors say what happened and offer Try again.</p></li>
         <li class="item"><div class="item-head"><h3>Safe upgrades</h3></div><p>Your data is copied before every database upgrade, and damaged settings are recovered field by field.</p></li>
         <li class="item"><div class="item-head"><h3>Diagnostics</h3></div><p>Export a diagnostics file from About when something goes wrong.</p></li>
+      </ul>
+    </section>
+
+    <section class="cat is-coming" id="coming" data-name="Coming">
+      <div class="cat-side">
+        <h2>On the <em>way</em></h2>
+        <p>Planned and being worked on, in no fixed order. Plans can change.</p>
+      </div>
+      <ul class="items">
+        <li class="item"><div class="item-head"><h3>Alma view in the beta</h3><kbd>⌥⌘G</kbd></div><p>The map of your pages, in preview today, arrives in beta builds once it's ready.</p></li>
+        <li class="item"><div class="item-head"><h3>Automatic updates</h3></div><p>Once builds are signed by Apple, Splash updates itself and says what changed in About.</p></li>
+        <li class="item"><div class="item-head"><h3>Passkeys</h3></div><p>Sign in with passkeys and Touch ID. Until then, Splash tells you when a site asks for one.</p></li>
+        <li class="item"><div class="item-head"><h3>Resizable split view</h3></div><p>Drag the divider between two pages, and later put more than two side by side.</p></li>
+        <li class="item"><div class="item-head"><h3>Ask about this page</h3></div><p>Summarise the page you're on, or ask about what you've selected, in the assistant panel.</p></li>
+        <li class="item"><div class="item-head"><h3>Your own shortcuts</h3></div><p>Change the keys for any command.</p></li>
+        <li class="item"><div class="item-head"><h3>Logins per workspace</h3></div><p>Each workspace signed in to its own accounts, so work and home stay apart.</p></li>
+        <li class="item"><div class="item-head"><h3>Translation</h3></div><p>Translate a page, offered only when it's in a language you don't read.</p></li>
+        <li class="item"><div class="item-head"><h3>Sync between Macs</h3></div><p>Your trails on every Mac you use. Later, after profiles.</p></li>
+      </ul>
+    </section>
+
+    <section class="cat is-coming" id="not-yet" data-name="Not yet">
+      <div class="cat-side">
+        <h2>Not <em>yet</em></h2>
+        <p>What the beta can't do today, said out loud.</p>
+      </div>
+      <ul class="items">
+        <li class="item"><div class="item-head"><h3>Some streaming video</h3></div><p>Netflix, Disney+ and Spotify on the web may not play, because Electron doesn't include Widevine.</p></li>
+        <li class="item"><div class="item-head"><h3>Intel Macs</h3></div><p>The beta runs on Macs with Apple silicon only.</p></li>
+        <li class="item"><div class="item-head"><h3>Some extensions</h3></div><p>A few Chrome extension features aren't available yet, so some extensions may not work fully.</p></li>
+        <li class="item"><div class="item-head"><h3>Sync</h3></div><p>Trails, bookmarks and passwords stay on the Mac they were made on.</p></li>
       </ul>
     </section>
 
@@ -523,6 +588,11 @@ const mark_current = () => {
   if (chip) cats.scrollTo({ left: chip.offsetLeft - (cats.clientWidth - chip.offsetWidth) / 2, behavior: 'smooth' });
 };
 addEventListener('scroll', mark_current, { passive: true });
+// The frosted band only shows once the category bar has stuck under the nav.
+const catsBar = document.querySelector('.cats-bar');
+const markStuck = () => document.body.classList.toggle('cats-stuck', catsBar.getBoundingClientRect().top <= parseFloat(getComputedStyle(catsBar).top) + 1);
+addEventListener('scroll', markStuck, { passive: true });
+markStuck();
 q.addEventListener('input', mark_current);
 mark_current();
 </script>
