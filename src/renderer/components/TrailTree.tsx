@@ -1283,11 +1283,13 @@ const TrailRow = memo(function TrailRow({
             className="trail-title data-context:text-fg-subtle"
             data-context={!matched || undefined}
           >
-            {filter ? (
-              <Highlighted text={parts.title} query={filter} />
-            ) : (
-              parts.title
-            )}
+            <span className="trail-title-text">
+              {filter ? (
+                <Highlighted text={parts.title} query={filter} />
+              ) : (
+                parts.title
+              )}
+            </span>
           </span>
           {parts.site && showSiteNames && (
             <span className="trail-site text-fg-subtle">{parts.site}</span>

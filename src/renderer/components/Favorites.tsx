@@ -274,7 +274,9 @@ function FavoriteRow({
           {icon}
         </span>
         <span className="trail-label min-w-0 flex-1">
-          <span className="trail-title">{label}</span>
+          <span className="trail-title">
+            <span className="trail-title-text">{label}</span>
+          </span>
           {site && <span className="trail-site text-fg-subtle">{site}</span>}
         </span>
         {folder && flat && <RowChevron open={open} minimal={minimal} />}

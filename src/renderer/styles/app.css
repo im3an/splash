@@ -967,16 +967,27 @@ details:not([open]) > summary .sidebar-section-label > svg,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Scrolling on hover: no ellipsis, and the text fades out at both edges. */
+/* Scrolling on hover: no ellipsis, and the text fades out at the edges. The
+   left fade only shows once the text has moved, so the first letter reads in
+   full at rest. The inner span moves by transform: Chromium doesn't repaint
+   text-indent changes under a mask, so the text looked stuck. */
+@property --marquee-edge {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 1;
+}
 .trail-label > .trail-title[data-marquee='true'] {
   text-overflow: clip;
   mask-image: linear-gradient(
     to right,
-    transparent,
+    color-mix(in srgb, black calc(var(--marquee-edge) * 100%), transparent),
     black 6px,
     black calc(100% - 10px),
     transparent
   );
+}
+.trail-title[data-marquee='true'] > .trail-title-text {
+  display: inline-block;
 }
 .trail-site {
   flex-shrink: 0;

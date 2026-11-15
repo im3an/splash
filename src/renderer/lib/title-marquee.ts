@@ -14,13 +14,13 @@ const HOLD_MS = 1100;
  */
 export function installTitleMarquee(root: HTMLElement): () => void {
   let title: HTMLElement | null = null;
-  let animation: Animation | null = null;
+  let animations: Animation[] = [];
   let timer = 0;
 
   const stop = () => {
     window.clearTimeout(timer);
-    animation?.cancel();
-    animation = null;
+    for (const animation of animations) animation.cancel();
+    animations = [];
     if (title) delete title.dataset.marquee;
     title = null;
   };
@@ -28,23 +28,42 @@ export function installTitleMarquee(root: HTMLElement): () => void {
   const start = (next: HTMLElement) => {
     // Reduced motion sets the motion tokens to zero.
     if (durationMs('--duration-fast') === 0) return;
+    const text = next.querySelector<HTMLElement>('.trail-title-text');
+    if (!text) return;
     const shift = next.scrollWidth - next.clientWidth;
     if (shift < 2) return;
     const travel = (shift / SPEED) * 1000;
     const total = 2 * (travel + HOLD_MS);
     const hold = HOLD_MS / total;
-    const end = `${-shift}px`;
+    const timing = { duration: total, iterations: Infinity };
+    // Rest, scroll to the end, rest, scroll back.
+    const offsets = [0, hold, 0.5, 0.5 + hold, 1];
+    const easing = ['linear', 'ease-in-out', 'linear', 'ease-in-out', 'linear'];
+    const end = `translateX(${-shift}px)`;
+    const moves = ['none', 'none', end, end, 'none'];
+    // The left fade comes in as the start of the title leaves.
+    const edges = ['1', '1', '0', '0', '1'];
     next.dataset.marquee = 'true';
-    animation = next.animate(
-      [
-        { textIndent: '0px', offset: 0 },
-        { textIndent: '0px', offset: hold, easing: 'ease-in-out' },
-        { textIndent: end, offset: 0.5 },
-        { textIndent: end, offset: 0.5 + hold, easing: 'ease-in-out' },
-        { textIndent: '0px', offset: 1 },
-      ],
-      { duration: total, iterations: Infinity },
-    );
+    // Moved by transform, not text-indent: Chromium doesn't repaint
+    // text-indent under the title's edge mask, so the text looked stuck.
+    animations = [
+      text.animate(
+        offsets.map((offset, i) => ({
+          offset,
+          easing: easing[i],
+          transform: moves[i],
+        })),
+        timing,
+      ),
+      next.animate(
+        offsets.map((offset, i) => ({
+          offset,
+          easing: easing[i],
+          '--marquee-edge': edges[i],
+        })),
+        timing,
+      ),
+    ];
   };
 
   const over = (event: PointerEvent) => {
