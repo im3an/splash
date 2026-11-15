@@ -170,6 +170,7 @@ function scene(nodes: SceneNode[]): Scene {
     gravity: 0,
     rings: [],
     hulls: [],
+    groups: [],
     labelMargin: 0,
     centerId: null,
     counts: { pages: nodes.length, trails: 1, sites: nodes.length },

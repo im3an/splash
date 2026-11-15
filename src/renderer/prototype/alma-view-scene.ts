@@ -121,8 +121,6 @@ export interface SceneEdge {
   curve: 'line' | 'horizontal' | 'radial';
   /** On the way down to the current page, like the sidebar's guide lines. */
   path: 'current' | 'ancestor' | null;
-  /** Only keeps its ends apart, and never draws them together. */
-  apart?: boolean;
 }
 
 export interface Scene {
@@ -135,6 +133,11 @@ export interface Scene {
   rings: number[];
   /** Trails outlined behind their pages. */
   hulls: { id: string; memberIds: string[] }[];
+  /**
+   * Pages that settle as one: they push each other about, while the group
+   * as a whole keeps clear of the others. Empty leaves every node on its own.
+   */
+  groups: { id: string; memberIds: string[] }[];
   labelMargin: number;
   centerId: PageId | null;
   counts: { pages: number; trails: number; sites: number };
@@ -411,7 +414,12 @@ function buildWeb(data: GraphData, walk: Walk, options: SceneOptions) {
       memberIds: walk.order.filter((id) => walk.rootOf.get(id) === root),
     }))
     .filter((hull) => hull.memberIds.length >= 3);
-  return { nodes, edges, hulls, gravity: 0.045 };
+  // Every trail, a lone page too, so nothing drifts off by itself.
+  const groups = walk.roots.map((root) => ({
+    id: root,
+    memberIds: walk.order.filter((id) => walk.rootOf.get(id) === root),
+  }));
+  return { nodes, edges, hulls, groups, gravity: 0.045 };
 }
 
 interface Gathering {
@@ -563,6 +571,7 @@ function buildFolders(data: GraphData, walk: Walk, options: SceneOptions) {
   const nodes = [...web.nodes];
   const edges = [...web.edges];
   const hulls: Scene['hulls'] = [];
+  const filed = new Set<PageId>();
   for (const group of data.groups) {
     const roots = walk.roots.filter(
       (root) => data.pages[root]!.groupId === group.id,
@@ -612,8 +621,7 @@ function buildFolders(data: GraphData, walk: Walk, options: SceneOptions) {
         path: root === data.activePageId ? 'current' : null,
       });
     }
-    // Every page leans toward its folder, so the hub ends up among them and
-    // folders keep apart rather than overlapping.
+    // Every page leans toward its folder, so the hub ends up among them.
     for (const id of ids) {
       if (roots.includes(id)) continue;
       edges.push({
@@ -629,29 +637,15 @@ function buildFolders(data: GraphData, walk: Walk, options: SceneOptions) {
       });
     }
     hulls.push({ id: hub, memberIds: [hub, ...ids] });
+    for (const root of roots) filed.add(root);
   }
-  // Folders hold each other at arm's length, by how much each has to hold.
-  const hubs = hulls.map((hull) => ({
-    id: hull.id,
-    reach: 26 * Math.sqrt(hull.memberIds.length),
-  }));
-  hubs.forEach((a, i) => {
-    for (const b of hubs.slice(i + 1)) {
-      edges.push({
-        id: `bind:${a.id}:${b.id}`,
-        a: a.id,
-        b: b.id,
-        kind: 'bind',
-        weight: 1,
-        length: a.reach + b.reach + 60,
-        strength: 0.3,
-        curve: 'line',
-        path: null,
-        apart: true,
-      });
-    }
-  });
-  return { nodes, edges, hulls, gravity: web.gravity };
+  // A folder settles as one, so it keeps clear of the other folders and of
+  // the trails in none; those settle as they do in Web.
+  const groups = [
+    ...hulls,
+    ...web.groups.filter((group) => !filed.has(group.id)),
+  ];
+  return { nodes, edges, hulls, groups, gravity: web.gravity };
 }
 
 function buildTrails(data: GraphData, walk: Walk, options: SceneOptions) {
@@ -930,6 +924,7 @@ export function buildScene(
     gravity: 0,
     rings: [],
     hulls: [],
+    groups: [],
     labelMargin: 0,
     centerId: null,
     counts: { pages: walk.order.length, trails: walk.roots.length, sites },
