@@ -194,7 +194,7 @@ export function AppearanceSettings() {
       <Section title="Appearance">
         <Row
           label="Theme"
-          help="Websites follow it too. A workspace’s own theme wins while it’s open."
+          help="For workspaces left at Default. Websites follow along."
         >
           <Choice
             label="Theme"

@@ -23,6 +23,7 @@ import { api } from '../splash-api';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
 
 const MODES: { value: WorkspaceMode; label: string }[] = [
+  { value: 'default', label: 'Default' },
   { value: 'dark', label: 'Dark' },
   { value: 'light', label: 'Light' },
   { value: 'system', label: 'System' },

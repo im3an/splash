@@ -133,6 +133,35 @@ describe('migrations', () => {
     expect(new SqliteTrailStore(db).getPreference('kept')).toBe('yes');
   });
 
+  it('turns a workspace’s old System, the Theme in Settings, into Default', () => {
+    const db = new DatabaseSync(':memory:');
+    migrate(db, MIGRATIONS.slice(0, 11));
+    const insert = db.prepare(
+      'INSERT INTO workspaces (id, name, appearance, position, created_at) VALUES (?, ?, ?, ?, 1)',
+    );
+    const look = (mode: string) =>
+      JSON.stringify({
+        icon: { kind: 'letter' },
+        accent: 'ember',
+        frame: 'paper',
+        mode,
+      });
+    insert.run('a', 'A', look('system'), 0);
+    insert.run('b', 'B', look('dark'), 1);
+    insert.run('c', 'C', null, 2);
+    migrate(db);
+    const modes = db
+      .prepare(
+        "SELECT id, json_extract(appearance, '$.mode') AS mode FROM workspaces ORDER BY id",
+      )
+      .all();
+    expect(modes).toEqual([
+      { id: 'a', mode: 'default' },
+      { id: 'b', mode: 'dark' },
+      { id: 'c', mode: null },
+    ]);
+  });
+
   it('rolls back a failing migration', () => {
     const db = new DatabaseSync(':memory:');
     expect(() =>

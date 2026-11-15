@@ -23,8 +23,8 @@ function articlePage() {
 
 const host = () => document.getElementById(READER_HOST_ID);
 const reader = () => host()?.shadowRoot ?? null;
-const toggle = (dark = false) =>
-  toggleReader(Readability, DOMPurify, { dark, siteName: 'example.com' });
+const toggle = () =>
+  toggleReader(Readability, DOMPurify, { siteName: 'example.com' });
 
 afterEach(() => {
   host()?.remove();
@@ -97,10 +97,14 @@ it('makes the text larger and smaller within bounds', () => {
   expect(size()).toBeGreaterThanOrEqual(14);
 });
 
-it('follows Splash’s theme', () => {
+it('follows Splash’s light and dark as they change, not only when it opens', () => {
   articlePage();
-  toggle(true);
-  expect(host()?.dataset.theme).toBe('dark');
+  toggle();
+  const css = reader()?.querySelector('style')?.textContent ?? '';
+  expect(css).toMatch(
+    /@media \(prefers-color-scheme: dark\) \{ :host \{ color-scheme: dark;/,
+  );
+  expect(host()?.dataset.theme).toBeUndefined();
 });
 
 it('says so when a page has no article', () => {

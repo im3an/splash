@@ -450,8 +450,11 @@ export type WorkspaceIcon =
   /** A small square PNG, as a data URL. */
   | { kind: 'image'; dataUrl: string };
 
-/** Light or dark for a workspace; `system` follows the app's setting. */
-export type WorkspaceMode = 'system' | 'light' | 'dark';
+/**
+ * Light or dark for a workspace: `default` takes the Theme in Settings,
+ * `system` follows macOS.
+ */
+export type WorkspaceMode = 'default' | 'light' | 'dark' | 'system';
 
 /** A workspace's look; ids refer to the presets in `shared/appearance.ts`. */
 export interface WorkspaceAppearance {

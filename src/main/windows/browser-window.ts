@@ -975,10 +975,8 @@ export class TrailWindow {
     } catch {
       // A page without an address shows no site line.
     }
-    const result = await toggleReaderIn(contents, {
-      dark: nativeTheme.shouldUseDarkColors,
-      siteName,
-    });
+    // Reader follows light and dark by itself, like the page under it.
+    const result = await toggleReaderIn(contents, { siteName });
     if (result === 'none') this.notify({ kind: 'no-article' });
   }
 
@@ -1117,14 +1115,14 @@ export class TrailWindow {
   }
 
   /**
-   * A workspace can insist on light or dark; otherwise the app-wide choice
-   * applies. The window frame takes the workspace's frame colour. While the
-   * workspace editor is open, the mode it's showing wins.
+   * A workspace can be light, dark or follow macOS; left at Default, the
+   * Theme in Settings applies. The window frame takes the workspace's frame
+   * colour. While the workspace editor is open, the mode it's showing wins.
    */
   applyAppearance(): void {
     const mode = this.previewMode ?? this.controller.activeAppearance.mode;
     const source =
-      mode !== 'system' ? mode : this.options.preferences.get().theme;
+      mode === 'default' ? this.options.preferences.get().theme : mode;
     if (nativeTheme.themeSource !== source) nativeTheme.themeSource = source;
     if (!this.window.isDestroyed()) {
       this.window.setBackgroundColor(

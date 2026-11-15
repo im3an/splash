@@ -20,7 +20,7 @@ afterEach(() => {
 
 it('runs from text alone, bringing Readability and DOMPurify with it', () => {
   articlePage();
-  const script = readerScript({ dark: false, siteName: 'example.com' });
+  const script = readerScript({ siteName: 'example.com' });
   expect(runInPage(script)).toBe('shown');
   expect(
     document.getElementById(READER_HOST_ID)?.shadowRoot?.textContent,
@@ -30,7 +30,7 @@ it('runs from text alone, bringing Readability and DOMPurify with it', () => {
 
 it('leaves no globals behind in the world it runs in', () => {
   articlePage();
-  runInPage(readerScript({ dark: true, siteName: 'example.com' }));
+  runInPage(readerScript({ siteName: 'example.com' }));
   expect('Readability' in globalThis).toBe(false);
   expect('DOMPurify' in globalThis).toBe(false);
 });
@@ -40,7 +40,7 @@ it('runs in its own world of the page’s main frame, and says why it couldn’t
     executeJavaScriptInIsolatedWorld: vi.fn(async () => 'shown'),
   };
   await expect(
-    toggleReaderIn(contents as never, { dark: false, siteName: 'a.example' }),
+    toggleReaderIn(contents as never, { siteName: 'a.example' }),
   ).resolves.toBe('shown');
   const [world, scripts] = contents.executeJavaScriptInIsolatedWorld.mock
     .calls[0] as unknown as [number, { code: string }[]];
@@ -51,6 +51,6 @@ it('runs in its own world of the page’s main frame, and says why it couldn’t
     new Error('navigated'),
   );
   await expect(
-    toggleReaderIn(contents as never, { dark: false, siteName: 'a.example' }),
+    toggleReaderIn(contents as never, { siteName: 'a.example' }),
   ).resolves.toBe('none');
 });

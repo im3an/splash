@@ -87,6 +87,8 @@ import { watchMemoryPressure } from './browser/memory-pressure';
 import { contentsForPage, pageHandleFor } from './browser/electron-page-host';
 import { PreferencesService } from './preferences';
 import { keepSpelling } from './spelling';
+import { letWikimediaFollowTheme } from './browser/wikimedia-theme';
+import { keepYouTubeInStep } from './browser/youtube-theme';
 import type { DownloadManager } from './downloads/download-manager';
 import { createDownloadManager } from './downloads/electron-downloads';
 
@@ -820,6 +822,20 @@ if (!app.requestSingleInstanceLock()) {
       systemPreferences,
     );
     nativeTheme.themeSource = preferences.get().theme;
+    // Websites see Splash's light or dark through nativeTheme; Wikipedia
+    // needs telling to listen, and YouTube only looks as it loads. The
+    // shell's own session has no websites.
+    const isWebsite = (contents: WebContents) =>
+      contents.session !== session.defaultSession;
+    const youTube = keepYouTubeInStep({
+      theme: nativeTheme,
+      pages: () => webContents.getAllWebContents().filter(isWebsite),
+    });
+    app.on('web-contents-created', (_event, contents) => {
+      if (!isWebsite(contents)) return;
+      letWikimediaFollowTheme(contents);
+      youTube.track(contents);
+    });
     threats = createThreatList(preferences);
     const siteRules = createSiteRules(
       session.fromPartition(WEB_PARTITION),

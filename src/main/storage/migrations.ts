@@ -107,6 +107,12 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE pages ADD COLUMN emoji TEXT;
   `,
+  // 12 — a workspace's System now follows macOS. What it meant before, the
+  // Theme in Settings, is called Default.
+  `
+  UPDATE workspaces SET appearance = json_set(appearance, '$.mode', 'default')
+  WHERE json_valid(appearance) AND json_extract(appearance, '$.mode') = 'system';
+  `,
 ];
 
 export class SchemaTooNewError extends Error {}

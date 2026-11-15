@@ -20,7 +20,6 @@ interface Purifier {
 }
 
 export interface ReaderOptions {
-  dark: boolean;
   /** The page's host, for the line above the title. */
   siteName: string;
 }
@@ -82,7 +81,6 @@ export function toggleReader(
 
   const host = document.createElement('div');
   host.id = HOST_ID;
-  host.dataset.theme = options.dark ? 'dark' : 'light';
   host.setAttribute('role', 'dialog');
   host.setAttribute('aria-modal', 'true');
   host.setAttribute('aria-label', 'Reader');
@@ -93,7 +91,7 @@ export function toggleReader(
   const style = document.createElement('style');
   style.textContent = `
     :host { color-scheme: light; --bg: #faf8f5; --fg: #221d17; --muted: #585047; --line: rgb(34 29 23 / 0.14); --accent: #b4542d; --control: rgb(34 29 23 / 0.06); }
-    :host([data-theme="dark"]) { color-scheme: dark; --bg: #201c18; --fg: #ede6dd; --muted: #b3a89b; --line: rgb(237 230 221 / 0.11); --accent: #e3906a; --control: rgb(237 230 221 / 0.08); }
+    @media (prefers-color-scheme: dark) { :host { color-scheme: dark; --bg: #201c18; --fg: #ede6dd; --muted: #b3a89b; --line: rgb(237 230 221 / 0.11); --accent: #e3906a; --control: rgb(237 230 221 / 0.08); } }
     .scroll { position: absolute; inset: 0; overflow-y: auto; background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; outline: none; }
     .bar { position: sticky; top: 0; display: flex; justify-content: flex-end; gap: 4px; padding: 12px 16px; background: var(--bg); border-bottom: 1px solid transparent; font: 13px/1 -apple-system, system-ui, sans-serif; }
     .bar.scrolled { border-bottom-color: var(--line); }
