@@ -1,0 +1,9 @@
+# Not part of the site
+.capture
+wrangler.jsonc
+.assetsignore
+.wrangler
+.DS_Store
+node_modules
+.git
+worker
