@@ -5,12 +5,13 @@ import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import {
   ArrowDown,
   ArrowUp,
+  Check,
   Copy,
   GripVertical,
   Plus,
   Trash2,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BLOCK_COMMANDS } from './commands';
 
 const TURN_INTO = BLOCK_COMMANDS.filter((command) => command.turnInto);
@@ -143,94 +144,122 @@ function BlockMenu({
     editor.commands.focus();
   };
 
+  // Measured after render, so the menu stays on screen however long it is.
+  const [place, setPlace] = useState({ left: at.x, top: at.y, ready: false });
+  useLayoutEffect(() => {
+    const menu = ref.current;
+    if (!menu) return;
+    const margin = 12;
+    const { width, height } = menu.getBoundingClientRect();
+    const below = window.innerHeight - at.y - margin;
+    const top =
+      height <= below
+        ? at.y
+        : Math.max(margin, window.innerHeight - margin - height);
+    const left = Math.min(at.x, window.innerWidth - margin - width);
+    setPlace({ left, top, ready: true });
+  }, [at.x, at.y]);
+
+  const kind = kindOf(node);
+  const item = (
+    key: string,
+    Icon: typeof Copy,
+    label: string,
+    run: () => void,
+    extra?: { danger?: boolean; keys?: string; checked?: boolean },
+  ) => (
+    <button
+      key={key}
+      type="button"
+      role={extra?.checked === undefined ? 'menuitem' : 'menuitemradio'}
+      aria-checked={extra?.checked}
+      className={`note-menu-item${extra?.danger ? ' note-menu-danger' : ''}`}
+      onClick={act(run)}
+    >
+      <Icon size={15} aria-hidden />
+      <span className="note-menu-text">{label}</span>
+      {extra?.keys && <kbd className="note-menu-keys">{extra.keys}</kbd>}
+      {extra?.checked && <Check size={14} aria-hidden />}
+    </button>
+  );
+
   return (
     <div
       ref={ref}
       className="note-pop note-menu note-block-menu"
       role="menu"
       style={{
-        left: Math.min(at.x, window.innerWidth - 240),
-        top: Math.min(at.y, window.innerHeight - 380),
+        left: place.left,
+        top: place.top,
+        visibility: place.ready ? 'visible' : 'hidden',
       }}
     >
-      {textual && (
-        <>
-          <span className="note-menu-label">Turn into</span>
-          {TURN_INTO.map((command) => {
-            const Icon = command.icon;
-            return (
-              <button
-                key={command.id}
-                type="button"
-                role="menuitem"
-                className="note-menu-item"
-                onClick={act(() => {
-                  const inner = node.isTextblock ? pos + 1 : pos + 2;
-                  editor.view.dispatch(
-                    editor.state.tr.setSelection(
-                      TextSelection.create(editor.state.doc, inner),
-                    ),
-                  );
-                  command.run(editor);
-                })}
-              >
-                <Icon size={15} aria-hidden />
-                {command.title}
-              </button>
-            );
-          })}
-          <span className="note-menu-rule" />
-        </>
+      {item('duplicate', Copy, 'Duplicate', () =>
+        editor
+          .chain()
+          .insertContentAt(pos + node.nodeSize, node.toJSON())
+          .focus()
+          .run(),
       )}
-      <button
-        type="button"
-        role="menuitem"
-        className="note-menu-item"
-        onClick={act(() =>
-          editor
-            .chain()
-            .insertContentAt(pos + node.nodeSize, node.toJSON())
-            .focus()
-            .run(),
-        )}
-      >
-        <Copy size={15} aria-hidden />
-        Duplicate
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className="note-menu-item"
-        onClick={act(() => move(-1))}
-      >
-        <ArrowUp size={15} aria-hidden />
-        Move up
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className="note-menu-item"
-        onClick={act(() => move(1))}
-      >
-        <ArrowDown size={15} aria-hidden />
-        Move down
-      </button>
-      <span className="note-menu-rule" />
-      <button
-        type="button"
-        role="menuitem"
-        className="note-menu-item note-menu-danger"
-        onClick={act(() =>
+      {item('up', ArrowUp, 'Move up', () => move(-1), { keys: '⌥⇧↑' })}
+      {item('down', ArrowDown, 'Move down', () => move(1), { keys: '⌥⇧↓' })}
+      {item(
+        'delete',
+        Trash2,
+        'Delete',
+        () =>
           editor
             .chain()
             .deleteRange({ from: pos, to: pos + node.nodeSize })
             .focus()
             .run(),
-        )}
-      >
-        <Trash2 size={15} aria-hidden />
-        Delete
-      </button>
+        { danger: true },
+      )}
+      {textual && (
+        <>
+          <span className="note-menu-rule" />
+          <span className="note-menu-label">Turn into</span>
+          {TURN_INTO.map((command) =>
+            item(
+              command.id,
+              command.icon,
+              command.title,
+              () => {
+                const inner = node.isTextblock ? pos + 1 : pos + 2;
+                editor.view.dispatch(
+                  editor.state.tr.setSelection(
+                    TextSelection.create(editor.state.doc, inner),
+                  ),
+                );
+                command.run(editor);
+              },
+              { checked: command.id === kind },
+            ),
+          )}
+        </>
+      )}
     </div>
   );
+}
+
+/** The block menu's name for a node, matching the slash command ids. */
+function kindOf(node: PmNode): string {
+  switch (node.type.name) {
+    case 'heading':
+      return `h${node.attrs.level as number}`;
+    case 'paragraph':
+      return 'text';
+    case 'blockquote':
+      return 'quote';
+    case 'bulletList':
+      return 'bullets';
+    case 'orderedList':
+      return 'numbers';
+    case 'taskList':
+      return 'todo';
+    case 'codeBlock':
+      return 'code';
+    default:
+      return node.type.name;
+  }
 }

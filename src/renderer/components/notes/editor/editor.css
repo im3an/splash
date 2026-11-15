@@ -4,72 +4,89 @@
  * elevated panes that share one look.
  */
 
-/* Prose */
+/* Prose. One body size; headings are ratios of it, so the scale holds at
+   any text size. Space above a heading is larger than below, which ties
+   each heading to the text it introduces. */
 .note-prose {
   outline: none;
   font-size: var(--note-text);
   line-height: var(--note-leading-text);
-  letter-spacing: -0.006em;
+  letter-spacing: -0.004em;
   color: var(--fg);
   counter-reset: note-section;
   caret-color: var(--accent);
+  font-kerning: normal;
+  font-variant-ligatures: common-ligatures contextual;
+  text-rendering: optimizeLegibility;
   user-select: text;
   -webkit-user-select: text;
 }
 .note-prose > * + * {
-  margin-top: 0.55em;
+  margin-top: 0.75em;
 }
 .note-prose p {
   color: var(--fg);
+  text-wrap: pretty;
 }
 .note-prose h1,
 .note-prose h2,
 .note-prose h3,
 .note-prose h4 {
   color: var(--fg);
+  text-wrap: balance;
   scroll-margin-top: var(--space-8);
 }
 .note-prose h1 {
-  margin: 0 0 0.6em;
-  font-size: var(--note-type-title);
+  margin: 0 0 0.45em;
+  font-size: var(--note-scale-title);
   line-height: var(--note-leading-title);
-  font-weight: 650;
-  letter-spacing: -0.03em;
+  font-weight: 700;
+  letter-spacing: -0.028em;
 }
 .note-prose > h1:first-child {
   margin-top: 0;
 }
+.note-prose > h1 + * {
+  margin-top: 0;
+}
 .note-prose h2 {
   counter-increment: note-section;
-  margin-top: 2.2em;
-  padding-top: 1.6em;
-  border-top: 1px solid var(--hairline);
-  font-size: var(--note-type-section);
+  margin-top: 2em;
+  font-size: var(--note-scale-h2);
   line-height: var(--note-leading-section);
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: -0.02em;
 }
 .note-prose h2::before {
   content: counter(note-section, decimal-leading-zero);
-  display: block;
-  margin-bottom: 0.7em;
-  font-size: var(--type-lead);
+  display: inline-block;
+  min-width: 1.9em;
   font-weight: 500;
   color: var(--fg-subtle);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
 }
 .note-prose h3 {
   margin-top: 1.6em;
-  font-size: var(--note-type-h3);
+  font-size: var(--note-scale-h3);
   line-height: var(--note-leading-section);
-  font-weight: 600;
-  letter-spacing: -0.012em;
+  font-weight: 620;
+  letter-spacing: -0.014em;
 }
 .note-prose h4 {
-  margin-top: 1.3em;
-  font-size: var(--note-text);
-  font-weight: 600;
+  margin-top: 1.4em;
+  font-size: var(--note-scale-h4);
+  line-height: var(--note-leading-section);
+  font-weight: 620;
+  letter-spacing: -0.006em;
+}
+.note-prose h2 + *,
+.note-prose h3 + *,
+.note-prose h4 + * {
+  margin-top: 0.4em;
+}
+.note-prose h1:first-child + h2 {
+  margin-top: 1.2em;
 }
 .note-prose strong {
   font-weight: 650;
@@ -101,8 +118,8 @@
   border-radius: var(--radius-inner);
   background: var(--field);
   font-family: var(--font-mono);
-  font-size: 0.86em;
-  color: var(--danger);
+  font-size: var(--note-scale-code);
+  color: var(--fg);
 }
 .note-prose mark {
   padding: 0.05em 0.1em;
@@ -131,7 +148,7 @@
 .note-prose blockquote {
   padding-left: 1em;
   border-left: 3px solid var(--fg);
-  color: var(--fg);
+  color: var(--fg-muted);
 }
 .note-prose hr {
   margin: 2em 0;
@@ -250,7 +267,7 @@
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 0.9em;
+  font-size: var(--note-scale-dense);
 }
 .note-prose th,
 .note-prose td {
@@ -298,8 +315,9 @@
 /* Callouts */
 .note-callout {
   display: flex;
-  gap: 0.65em;
-  padding: 0.9em 1em;
+  gap: 0.6em;
+  padding: 0.85em 1.1em 0.85em 0.85em;
+  font-size: var(--note-scale-dense);
   border-radius: var(--note-radius-block);
   background: var(--field);
 }
@@ -472,7 +490,7 @@
   padding-block: 0.15em;
   margin-left: 0.9em;
   text-align: left;
-  font-size: 0.9em;
+  font-size: var(--note-scale-dense);
   color: var(--fg-muted);
   text-decoration: underline;
   text-decoration-color: var(--divider);
@@ -522,7 +540,7 @@
   padding: var(--space-2) var(--space-4) var(--space-4);
   overflow-x: auto;
   font-family: var(--font-mono);
-  font-size: var(--note-type-rail);
+  font-size: var(--note-scale-code);
   line-height: var(--note-leading-text);
   tab-size: 2;
   color: var(--fg);
@@ -910,7 +928,22 @@
 .note-block-menu {
   position: fixed;
   z-index: 60;
-  min-width: 220px;
+  min-width: 232px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.note-menu-text {
+  flex: 1;
+}
+.note-menu-keys {
+  font-family: var(--font-ui);
+  font-size: var(--type-small);
+  color: var(--fg-subtle);
+  letter-spacing: 0.04em;
+}
+.note-menu-item[aria-checked='true'] {
+  color: var(--fg);
 }
 
 /* Sheets: math and sketch */

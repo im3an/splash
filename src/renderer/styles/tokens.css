@@ -150,17 +150,25 @@
    * Rail and code sit near body; the document runs from text to title.
    */
   --note-type-rail: 14px;
-  --note-type-text: 18px;
+  /* Note prose: body sizes, then a ratio scale over them, so Small text
+     shrinks the whole hierarchy evenly. */
+  --note-type-text: 17px;
+  --note-type-text-small: 15px;
+  --note-scale-title: 2.4em;
+  --note-scale-h2: 1.5em;
+  --note-scale-h3: 1.22em;
+  --note-scale-h4: 1.04em;
+  --note-scale-meta: 0.78em;
+  --note-scale-code: 0.86em;
+  --note-scale-dense: 0.94em;
+  --note-leading-text: 1.65;
+  --note-leading-title: 1.1;
+  --note-leading-section: 1.28;
+  /* Chrome around the note (menus, empty state) in fixed sizes. */
   --note-type-section: 24px;
-  --note-type-title: clamp(34px, 4.2vw, 46px);
-  --note-leading-title: 1.04;
-  --note-leading-section: 1.2;
-  --note-radius-block: 14px;
-  --note-type-text-small: 16px;
-  --note-type-h3: 20px;
   --note-type-icon: 60px;
-  --note-leading-text: 1.6;
-  --note-column: 720px;
+  --note-radius-block: 12px;
+  --note-column: 680px;
   --note-column-wide: 1120px;
   /* Line heights: one-line chrome, multi-line copy, roomy explanations. */
   --leading-chrome: 1.35;
