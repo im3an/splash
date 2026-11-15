@@ -39,10 +39,15 @@ export class SessionPersister {
     this.timer = setTimeout(() => this.flush(), this.options.delayMs ?? 600);
   }
 
-  /** Saves now if anything changed. Returns whether everything is saved. */
-  flush(): boolean {
+  /**
+   * Saves now if anything changed. Returns whether everything is saved.
+   * `current` saves regardless: some state, such as where the user is in each
+   * page, changes without saying so and is otherwise only caught regularly.
+   */
+  flush({ current = false }: { current?: boolean } = {}): boolean {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    if (current) this.dirty = true;
     if (!this.dirty) return true;
     this.dirty = false;
     try {

@@ -36,6 +36,15 @@ export const LINK_DROPPED = 'page:link-dropped';
 /** A file was dropped on the page and nothing in the page took it. */
 export const FILE_DROPPED = 'page:file-dropped';
 
+/** The top frame says where the user is in it: scroll, videos, sounds. */
+export const PLACE_REPORT = 'page:place';
+
+/**
+ * A new top-frame document asks where the user was in it, saying how it came
+ * to load. Main answers with a `PagePlace` when it should be brought back.
+ */
+export const PLACE_ASK = 'page:place-ask';
+
 /** A new frame asking, once and synchronously, what applies to it. */
 export const PAGE_SETTINGS = 'page:settings';
 

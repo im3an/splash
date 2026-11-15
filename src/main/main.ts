@@ -431,7 +431,8 @@ function openWindow(
     trails,
     saves: {
       schedule: () => persister.schedule(),
-      flush: () => persister.flush(),
+      // Closing a window also keeps where the user was in its pages.
+      flush: () => persister.flush({ current: true }),
       problem: () => saveProblem,
     },
     ...(at

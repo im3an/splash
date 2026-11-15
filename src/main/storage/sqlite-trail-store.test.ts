@@ -225,6 +225,30 @@ describe('SqliteTrailStore sessions', () => {
     ).toEqual({ url: 'https://a.example/', title: 'a' });
   });
 
+  it('keeps where the user was in a page, only for its own addresses', () => {
+    const store = memoryStore();
+    const withPlaces = structuredClone(SESSION);
+    const place = {
+      url: 'https://a.example/',
+      scrollX: 0,
+      scrollY: 2400,
+      media: [{ index: 0, src: '', time: 90, duration: 600, playing: true }],
+    };
+    withPlaces.pages[1]!.history = {
+      entries: [{ url: 'https://a.example/', title: 'a' }],
+      index: 0,
+      places: [
+        place,
+        { ...place, url: 'https://elsewhere.example/' },
+        { ...place, url: 'https://a.example/', scrollY: -5 },
+      ],
+    };
+    store.saveSession(withPlaces);
+    expect(
+      store.loadSession()!.pages.find((p) => p.id === 'b')!.history!.places,
+    ).toEqual([place]);
+  });
+
   it('replaces the previous session on save', () => {
     const store = memoryStore();
     store.saveSession(SESSION);

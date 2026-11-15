@@ -1,7 +1,8 @@
 import { existsSync, renameSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { DEFAULT_APPEARANCE } from '../../shared/appearance';
-import { workspaceAppearanceSchema } from '../../shared/ipc';
+import { pagePlaceSchema, workspaceAppearanceSchema } from '../../shared/ipc';
+import { MAX_PLACES_PER_PAGE } from '../../shared/page-place';
 import type {
   DownloadSummary,
   GroupIcon,
@@ -94,9 +95,20 @@ function parseHistory(value: string | null): PageHistory | null {
       : [];
     if (entries.length === 0) return null;
     const index = Number.isInteger(parsed.index) ? parsed.index : 0;
+    const urls = new Set(entries.map((entry) => entry.url));
+    // Where the user was: one that no longer checks out is only that place lost.
+    const places = (Array.isArray(parsed.places) ? parsed.places : [])
+      .slice(-MAX_PLACES_PER_PAGE)
+      .flatMap((place) => {
+        const checked = pagePlaceSchema.safeParse(place);
+        return checked.success && urls.has(checked.data.url)
+          ? [checked.data]
+          : [];
+      });
     return {
       entries,
       index: Math.max(0, Math.min(entries.length - 1, index)),
+      ...(places.length > 0 ? { places } : {}),
     };
   } catch {
     return null;

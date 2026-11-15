@@ -9,6 +9,7 @@ import {
   type SpellingLanguage,
 } from './preferences';
 import { MAX_NOTE_LENGTH, MAX_NOTE_SITES } from './notes';
+import { MAX_MEDIA_PLACES } from './page-place';
 import { SECURE_DNS_CHOICES } from './secure-dns';
 import {
   isSearchKeyword,
@@ -656,3 +657,38 @@ export const sendContract = {
 
 export type InvokeChannel = keyof typeof invokeContract;
 export type SendChannel = keyof typeof sendContract;
+
+/** Seconds into a video or sound, or its length; a week's worth is plenty. */
+const mediaSeconds = z
+  .number()
+  .finite()
+  .min(0)
+  .max(86_400 * 7);
+const scrollOffset = z.number().finite().min(0).max(10_000_000);
+
+/**
+ * Where a web page says the user was in it (`page:place`), and how its
+ * document came to load (`page:place-ask`). Checked in the main process:
+ * these come from the page's own renderer, which a site may control.
+ */
+export const pagePlaceSchema = z.strictObject({
+  url: z.string().min(1).max(8192),
+  scrollX: scrollOffset,
+  scrollY: scrollOffset,
+  media: z
+    .array(
+      z.strictObject({
+        index: z.number().int().min(0).max(10_000),
+        src: z.string().max(2048),
+        time: mediaSeconds,
+        duration: mediaSeconds,
+        playing: z.boolean(),
+      }),
+    )
+    .max(MAX_MEDIA_PLACES),
+});
+
+export const placeAskSchema = z.strictObject({
+  url: z.string().min(1).max(8192),
+  kind: z.string().max(32),
+});

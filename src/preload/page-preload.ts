@@ -8,8 +8,12 @@ import {
   LINK_ACTIVATED,
   LINK_DROPPED,
   NAVIGATION_BUTTON,
+  PLACE_ASK,
+  PLACE_REPORT,
   VIDEO_UNFLOATED,
 } from '../shared/page-bridge';
+import type { PagePlace } from '../shared/page-place';
+import { installPagePlace } from './page-place';
 
 /*
  * Runs in an isolated world inside every web page. It exposes nothing to the
@@ -48,6 +52,16 @@ if (window === window.top) {
     },
     { capture: true },
   );
+}
+
+// Where the user is in the page comes back after a reload, sleep or relaunch.
+// Only web documents: the start page and Splash's own pages keep no place.
+if (window === window.top && /^(https?|file):$/.test(location.protocol)) {
+  installPagePlace({
+    ask: (url, kind) =>
+      ipcRenderer.invoke(PLACE_ASK, { url, kind }) as Promise<PagePlace | null>,
+    report: (place) => ipcRenderer.send(PLACE_REPORT, place),
+  });
 }
 
 // Wait for document-level routers to handle the click first. Eligible normal

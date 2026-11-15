@@ -22,7 +22,11 @@ import {
   LINK_DROPPED,
   LINK_ACTIVATED,
   NAVIGATION_BUTTON,
+  PLACE_ASK,
+  PLACE_REPORT,
 } from '../../shared/page-bridge';
+import { pagePlaceSchema, placeAskSchema } from '../../shared/ipc';
+import { PagePlaces } from './page-places';
 import type {
   ExternalApp,
   Notice,
@@ -180,6 +184,8 @@ class ElectronPageHost implements PageHost {
   private readonly gestures = new UserGestures();
   private readonly downloads = new PageDownloads();
   private readonly secureAttempt = new SecureAttempt();
+  /** Where the user was in this page's documents, to bring them back. */
+  private readonly places = new PagePlaces();
   /** The HTTPS address showing the warning, and the HTTP one it stands for. */
   private failedUpgrade: { secure: string; plain: string } | null = null;
   /** The address this navigation was stopped at for being dangerous. */
@@ -317,6 +323,7 @@ class ElectronPageHost implements PageHost {
   load(url: string, options: LoadOptions = {}): void {
     if (options.comingBack) this.downloads.comingBack();
     else this.downloads.userActed();
+    if (!options.comingBack) this.places.leave();
     this.sourceUrl = url.startsWith('view-source:') ? url : null;
     if (options.plainAddress && this.environment.httpsOnly()) {
       this.secureAttempt.begin(options.plainAddress, url);
@@ -350,6 +357,7 @@ class ElectronPageHost implements PageHost {
 
   reload({ ignoreCache = false }: { ignoreCache?: boolean } = {}): void {
     this.downloads.userActed();
+    this.places.returnTo(this.contents.getURL() || null);
     this.hung.leave(() => {
       if (ignoreCache) this.contents.reloadIgnoringCache();
       else this.contents.reload();
@@ -410,12 +418,19 @@ class ElectronPageHost implements PageHost {
     // an ordinary failure of an HTTPS address the user never asked for.
     if (this.failedUpgrade && entries[index]?.url === this.failedUpgrade.secure)
       entries[index] = { ...entries[index]!, url: this.failedUpgrade.plain };
-    return { entries, index: Math.max(0, index) };
+    const places = this.places.export(entries.map((entry) => entry.url));
+    return {
+      entries,
+      index: Math.max(0, index),
+      ...(places.length > 0 ? { places } : {}),
+    };
   }
 
   restoreHistory(history: PageHistory): void {
     const active = history.entries[history.index]?.url;
     this.downloads.comingBack();
+    this.places.seed(history.places);
+    this.places.returnTo(active ?? null);
     if (active?.startsWith('view-source:')) {
       this.load(active, { comingBack: true });
       return;
@@ -628,6 +643,19 @@ class ElectronPageHost implements PageHost {
       const floated = this.videoFloats;
       this.videoFloats = false;
       if (floated && playing === true) this.events.onVideoReturned?.();
+    });
+    // Only the top frame's document has a place; it may only speak for itself.
+    contents.ipc.on(PLACE_REPORT, (event, report: unknown) => {
+      const place = pagePlaceSchema.safeParse(report);
+      if (!place.success || event.senderFrame?.parent !== null) return;
+      if (event.senderFrame.url !== place.data.url) return;
+      this.places.remember(place.data);
+    });
+    contents.ipc.handle(PLACE_ASK, (event, question: unknown) => {
+      const ask = placeAskSchema.safeParse(question);
+      if (!ask.success || event.senderFrame?.parent !== null) return null;
+      if (event.senderFrame.url !== ask.data.url) return null;
+      return this.places.ask(ask.data.url, ask.data.kind);
     });
     contents.ipc.on(LINK_DROPPED, (_event, href: unknown) => {
       if (

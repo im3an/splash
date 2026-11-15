@@ -1,4 +1,5 @@
 import type { Rectangle } from 'electron';
+import type { PagePlace } from '../../shared/page-place';
 import type {
   ExternalApp,
   FindResult,
@@ -45,6 +46,8 @@ export interface HistoryEntry {
 export interface PageHistory {
   entries: HistoryEntry[];
   index: number;
+  /** Where the user was in these addresses: scroll, videos, sounds. */
+  places?: PagePlace[];
 }
 
 export interface LoadOptions {
