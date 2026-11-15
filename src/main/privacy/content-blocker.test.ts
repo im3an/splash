@@ -5,6 +5,7 @@ import {
   combinedStatus,
   ContentBlocker,
   COOKIE_NOTICE_LISTS,
+  isConsentPage,
   LIST_MAX_AGE,
   type BlockerOptions,
 } from './content-blocker';
@@ -300,6 +301,23 @@ describe('scriptlets', () => {
     const cosmetics = without.blocker.cosmeticsFor(url);
     expect(cosmetics?.scripts).toEqual([]);
     expect(cosmetics?.styles).toContain('.banner');
+  });
+});
+
+describe('isConsentPage', () => {
+  it('knows pages that only ask for cookie consent', () => {
+    expect(
+      isConsentPage('https://consent.google.com/m?continue=https://x.example/'),
+    ).toBe(true);
+    expect(isConsentPage('https://consent.google.de/ml')).toBe(true);
+    expect(isConsentPage('https://consent.youtube.com/m')).toBe(true);
+  });
+
+  it('leaves every other page to the cookie lists', () => {
+    expect(isConsentPage('https://www.google.com/')).toBe(false);
+    expect(isConsentPage('https://consent.example/')).toBe(false);
+    expect(isConsentPage('https://news.example/consent.html')).toBe(false);
+    expect(isConsentPage(null)).toBe(false);
   });
 });
 

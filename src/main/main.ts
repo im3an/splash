@@ -997,9 +997,10 @@ if (!app.requestSingleInstanceLock()) {
     refreshMenu();
     try {
       extensions = createExtensionHost();
-      extensions.onChange(() =>
-        settings?.send(eventChannels.extensions, extensions?.list() ?? []),
-      );
+      extensions.onChange(() => {
+        settings?.send(eventChannels.extensions, extensions?.list() ?? []);
+        for (const trailWindow of windows) trailWindow.sendExtensions();
+      });
       // Before the first window, so restored pages open with uBlock Origin
       // already running.
       await extensions.loadBundled();

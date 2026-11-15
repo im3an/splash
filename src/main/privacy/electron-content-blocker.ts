@@ -30,6 +30,7 @@ import {
   combinedStatus,
   ContentBlocker,
   COOKIE_NOTICE_LISTS,
+  isConsentPage,
   RETRY_DELAY,
   type BlockerOptions,
   type ContentBlocking,
@@ -151,7 +152,8 @@ export function enableContentBlocking(
         lists: COOKIE_NOTICE_LISTS,
         scriptlets: false,
       }),
-      appliesOn: handlesCookiesOn,
+      appliesOn: (pageUrl: string | null, from: Decisions) =>
+        handlesCookiesOn(pageUrl, from) && !isConsentPage(pageUrl),
     },
   ];
   /** The blockers that apply on the page at `pageUrl`. */

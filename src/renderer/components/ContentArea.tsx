@@ -27,6 +27,7 @@ import { CommandPalette } from './CommandPalette';
 import { canContinuePastCertificate } from '../../shared/certificate-errors';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DownloadsPopover } from './DownloadsPopover';
+import { ExtensionsPopover } from './ExtensionsPopover';
 import { SiteInfoPopover } from './SiteInfoPopover';
 import { StartPage } from './StartPage';
 import { AlmaViewPrototype } from '../prototype/AlmaViewPrototype';
@@ -229,6 +230,8 @@ function OverlayContent({
       return <SiteInfoPopover />;
     case 'downloads':
       return <DownloadsPopover />;
+    case 'extensions':
+      return <ExtensionsPopover />;
     case 'notes':
       return <NotesView />;
     case 'alma-view':

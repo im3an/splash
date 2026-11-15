@@ -693,6 +693,15 @@ export class TrailWindow {
           store.restoreHistory([entry]);
         },
         'extensions:manage': () => this.options.openSettings('extensions'),
+        // The toolbar's Extensions popover: the same controls as Settings.
+        'extensions:list': () => this.options.extensions?.list() ?? [],
+        'extensions:set-enabled': ({ id, enabled }) =>
+          this.extensionHost().setEnabled(id, enabled),
+        'extensions:remove': ({ id }) => this.extensionHost().remove(id),
+        'extensions:open-store': () => this.extensionHost().openWebStore(),
+        'extensions:open-page': ({ url }) => this.extensionHost().openPage(url),
+        'extensions:load-unpacked': () =>
+          this.extensionHost().loadUnpacked(this.window),
         'page:share': ({ pageId }) => {
           const page = this.controller.snapshot().pages[pageId];
           if (page?.url && /^https?:/.test(page.url)) {
@@ -910,6 +919,17 @@ export class TrailWindow {
   /** Tells the shell whether saving works. */
   sendStorage(): void {
     this.send(eventChannels.storage, this.storageStatus());
+  }
+
+  /** Tells the shell which extensions there are, on or off. */
+  sendExtensions(): void {
+    this.send(eventChannels.extensions, this.options.extensions?.list() ?? []);
+  }
+
+  private extensionHost(): ExtensionHost {
+    const host = this.options.extensions;
+    if (!host) throw new Error('Extensions are unavailable');
+    return host;
   }
 
   /** Tells the shell the downloads list changed. */

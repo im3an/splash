@@ -25,6 +25,17 @@ export const COOKIE_NOTICE_LISTS = fullLists.filter(
   (url) => !adsAndTrackingLists.includes(url) && url.includes('cookie'),
 );
 
+/**
+ * A page that exists only to ask for cookie consent, such as
+ * consent.google.com or consent.youtube.com. The cookie lists hide that
+ * question where sites embed it, and on its own page that leaves nothing at
+ * all: a blank page with no way on. The question stays visible there.
+ */
+export function isConsentPage(url: string | null): boolean {
+  if (!url) return false;
+  return parse(url).subdomain === 'consent';
+}
+
 export interface BlockerOptions {
   /** Filter list URLs; ads and trackers if left out. */
   lists?: string[];
