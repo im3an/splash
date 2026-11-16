@@ -18,6 +18,27 @@ import {
 const signing = signingFrom(process.env);
 
 /**
+ * The release channel, from SPLASH_CHANNEL: stable (the default), beta,
+ * preview, nightly or dev. A channel other than stable is its own app: it
+ * has its own name, bundle ID, icon and profile. Run
+ * `npm run brand:channel-icons` after changing a channel master.
+ */
+const CHANNELS = ['stable', 'beta', 'preview', 'nightly', 'dev'];
+const channel = process.env.SPLASH_CHANNEL?.trim().toLowerCase() || 'stable';
+if (!CHANNELS.includes(channel)) {
+  throw new Error(
+    `SPLASH_CHANNEL must be one of ${CHANNELS.join(', ')}, not "${channel}"`,
+  );
+}
+/** Every channel but stable is a separate app that installs beside it. */
+const appName =
+  channel === 'stable'
+    ? 'Splash'
+    : `Splash ${channel.charAt(0).toUpperCase()}${channel.slice(1)}`;
+const iconDir =
+  channel === 'stable' ? 'assets/macos' : `assets/macos/channels/${channel}`;
+
+/**
  * A drag-to-Applications disk image, made with macOS's own `hdiutil`, so the
  * build needs no native modules. The app is copied with `ditto`, which keeps
  * its signature and symlinks intact.
@@ -90,17 +111,21 @@ const config: ForgeConfig = {
       Boolean(file) &&
       !file.startsWith('/.vite') &&
       !['/LICENSE', '/README.md'].includes(file),
-    icon: 'assets/macos/Splash',
+    icon: `${iconDir}/Splash`,
     // Bundled extensions load from disk, outside the asar archive.
     // So are the licence notices Settings › About shows. Chromium's licences
     // would otherwise sit beside the app and miss the disk image.
     extraResource: [
       'extensions',
-      'assets/macos/Splash.png',
+      `${iconDir}/Splash.png`,
       'build/third-party-notices.txt',
       'node_modules/electron/dist/LICENSES.chromium.html',
     ],
-    appBundleId: 'app.splash.browser',
+    ...(channel === 'stable' ? {} : { name: appName }),
+    appBundleId:
+      channel === 'stable'
+        ? 'app.splash.browser'
+        : `app.splash.browser.${channel}`,
     ...(signing ? packagerSigning(signing) : {}),
     appCategoryType: 'public.app-category.productivity',
     darwinDarkModeSupport: true,

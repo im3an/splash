@@ -92,7 +92,14 @@ import { keepYouTubeInStep } from './browser/youtube-theme';
 import type { DownloadManager } from './downloads/download-manager';
 import { createDownloadManager } from './downloads/electron-downloads';
 
-app.setName('Splash');
+// A channel build other than stable is its own app with its own profile, so
+// it can run beside the stable one. See forge.config.mts.
+declare const __SPLASH_CHANNEL__: string;
+app.setName(
+  __SPLASH_CHANNEL__ === 'stable'
+    ? 'Splash'
+    : `Splash ${__SPLASH_CHANNEL__.charAt(0).toUpperCase()}${__SPLASH_CHANNEL__.slice(1)}`,
+);
 // Before anything else, so a crash at startup is kept too.
 startDiagnostics();
 registerShellScheme();
@@ -769,7 +776,7 @@ if (!app.requestSingleInstanceLock()) {
       iconPath: brandIcon,
     });
     app.setAboutPanelOptions({
-      applicationName: 'Splash',
+      applicationName: app.getName(),
       applicationVersion: app.getVersion(),
       iconPath: brandIcon,
       credits: 'A trail-based browser for macOS',
