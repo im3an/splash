@@ -18,7 +18,8 @@
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm test",
     "brand:icons": "electron scripts/generate-brand-icons.cjs",
-    "brand:channel-icons": "electron scripts/generate-channel-icons.cjs"
+    "brand:channel-icons": "electron scripts/generate-channel-icons.cjs",
+    "brand:dmg-backgrounds": "electron scripts/generate-dmg-backgrounds.cjs"
   },
   "devDependencies": {
     "@electron-forge/cli": "^8.0.1",

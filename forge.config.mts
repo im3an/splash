@@ -1,5 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { ForgeConfig, ForgePlatform } from '@electron-forge/shared-types';
@@ -66,13 +74,22 @@ class MakerDMG extends MakerBase<Record<string, never>> {
       `${appName}-${version}-${targetArch}.dmg`,
     );
     await this.ensureFile(dmgPath);
-    const staging = mkdtempSync(join(tmpdir(), 'splash-dmg-'));
+    const work = mkdtempSync(join(tmpdir(), 'splash-dmg-'));
+    const staging = join(work, 'root');
+    const scratch = join(work, 'layout.dmg');
+    const background = `assets/dmg/${channel}.tiff`;
     try {
+      mkdirSync(staging);
       execFileSync('ditto', [
         join(dir, `${appName}.app`),
         join(staging, `${appName}.app`),
       ]);
       symlinkSync('/Applications', join(staging, 'Applications'));
+      copyFileSync(`${iconDir}/Splash.icns`, join(staging, '.VolumeIcon.icns'));
+      if (existsSync(background)) {
+        mkdirSync(join(staging, '.background'));
+        copyFileSync(background, join(staging, '.background/background.tiff'));
+      }
       execFileSync(
         'hdiutil',
         [
@@ -84,10 +101,16 @@ class MakerDMG extends MakerBase<Record<string, never>> {
           '-fs',
           'HFS+',
           '-format',
-          'UDZO',
+          'UDRW',
           '-ov',
-          dmgPath,
+          scratch,
         ],
+        { stdio: 'inherit' },
+      );
+      layOutDiskImage(scratch, appName, existsSync(background));
+      execFileSync(
+        'hdiutil',
+        ['convert', scratch, '-format', 'UDZO', '-ov', '-o', dmgPath],
         { stdio: 'inherit' },
       );
       for (const [command, args] of signing
@@ -96,9 +119,84 @@ class MakerDMG extends MakerBase<Record<string, never>> {
         execFileSync(command, args, { stdio: 'inherit' });
       }
     } finally {
-      rmSync(staging, { recursive: true, force: true });
+      rmSync(work, { recursive: true, force: true });
     }
     return [dmgPath];
+  }
+}
+
+/** The DMG window, in points; assets/dmg/<channel>.svg is drawn to this size. */
+const DMG_WINDOW = { width: 660, height: 420 };
+/** Finder's bounds include the title bar: 32 points on macOS 26 and later. */
+const DMG_TITLE_BAR = 32;
+/** Icon centres, matching the burst and the ripple in the background art. */
+const DMG_APP_AT = [170, 190];
+const DMG_APPLICATIONS_AT = [490, 190];
+
+/**
+ * Mount the read-write image and have Finder save its window layout (size,
+ * icon positions, background) into the volume's .DS_Store, and flag the
+ * custom volume icon. Finder is the only writer of that file macOS supports,
+ * so this needs Automation access to Finder; without it the image still
+ * works, just with Finder's default window.
+ */
+function layOutDiskImage(
+  image: string,
+  appName: string,
+  hasBackground: boolean,
+) {
+  const mount = mkdtempSync(join(tmpdir(), 'splash-dmg-mount-'));
+  execFileSync('hdiutil', [
+    'attach',
+    image,
+    '-readwrite',
+    '-noverify',
+    '-noautoopen',
+    '-mountpoint',
+    mount,
+  ]);
+  try {
+    execFileSync('SetFile', ['-a', 'C', mount]);
+    const left = 200;
+    const top = 120;
+    const script = `
+      set volumeRoot to POSIX file ${JSON.stringify(mount)} as alias
+      tell application "Finder"
+        open volumeRoot
+        set theWindow to container window of (item volumeRoot)
+        set current view of theWindow to icon view
+        set toolbar visible of theWindow to false
+        set statusbar visible of theWindow to false
+        set pathbar visible of theWindow to false
+        set sidebar width of theWindow to 0
+        set bounds of theWindow to {${left}, ${top}, ${left + DMG_WINDOW.width}, ${top + DMG_TITLE_BAR + DMG_WINDOW.height}}
+        set viewOptions to icon view options of theWindow
+        set arrangement of viewOptions to not arranged
+        set icon size of viewOptions to 128
+        set text size of viewOptions to 13
+        set shows item info of viewOptions to false
+        set shows icon preview of viewOptions to false
+        ${hasBackground ? `set background picture of viewOptions to file ".background:background.tiff" of (item volumeRoot)` : ''}
+        set extension hidden of item ${JSON.stringify(`${appName}.app`)} of (item volumeRoot) to true
+        set position of item ${JSON.stringify(`${appName}.app`)} of (item volumeRoot) to {${DMG_APP_AT.join(', ')}}
+        set position of item "Applications" of (item volumeRoot) to {${DMG_APPLICATIONS_AT.join(', ')}}
+        update (item volumeRoot) without registering applications
+        delay 1
+        close theWindow
+        delay 1
+      end tell`;
+    try {
+      execFileSync('osascript', ['-e', script], { stdio: 'inherit' });
+    } catch (error) {
+      console.warn(
+        'Finder could not lay out the disk image window (is Automation access to Finder allowed?); building it with the default window.',
+        error,
+      );
+    }
+    execFileSync('sync');
+  } finally {
+    execFileSync('hdiutil', ['detach', mount, '-force']);
+    rmSync(mount, { recursive: true, force: true });
   }
 }
 
