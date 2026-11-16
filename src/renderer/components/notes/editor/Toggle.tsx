@@ -5,7 +5,7 @@ import {
   ReactNodeViewRenderer,
   type ReactNodeViewProps,
 } from '@tiptap/react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight } from '../../../icons';
 
 /**
  * A block that folds its contents under a one-line title, written as

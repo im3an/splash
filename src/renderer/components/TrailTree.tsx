@@ -45,7 +45,7 @@ import {
   StickyNote,
   Volume2,
   VolumeX,
-} from 'lucide-react';
+} from '../icons';
 import type {
   BrowserSnapshot,
   PageGroup,

@@ -1131,32 +1131,31 @@ details[open] > .sidebar-section-content {
 }
 
 /*
- * Every icon has one chunky, round-cornered weight, set here instead of at
- * each use. The tiny ones and the big ones step to look the same on screen.
+ * Icons are Fluent System drawings (src/renderer/icons). Fluent's regular
+ * line is thin, so every regular icon is traced with an outline in its own
+ * colour, set here instead of at each use, in units of the 20-unit grid.
+ * The tiny ones get more so they read the same on screen.
  */
-.lucide {
-  stroke-width: var(--icon-stroke);
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.icon > .icon-regular {
+  stroke-width: var(--icon-weight);
 }
-.lucide:is([width='10'], [width='11'], [width='12'], [width='13']) {
-  stroke-width: var(--icon-stroke-small);
+.icon:is([width='10'], [width='11'], [width='12'], [width='13'])
+  > .icon-regular {
+  stroke-width: var(--icon-weight-small);
 }
-.lucide:is([width='20'], [width='24']) {
-  stroke-width: var(--icon-stroke-large);
+.icon[data-bold='true'] > .icon-regular {
+  stroke-width: var(--icon-weight-bold);
 }
-.lucide[width='16'] {
-  stroke-width: var(--icon-stroke-md);
+/* The filled drawing shows when asked for, or when the control is on. */
+.icon > .icon-filled {
+  display: none;
 }
-/*
- * The icon grid's main lines fall on whole device pixels at 2x, so a 3-pixel
- * stroke straddles them and leaves soft half-covered edges. A quarter point
- * moves those edges onto the pixel grid.
- */
-@media (min-resolution: 2dppx) {
-  .icon-button > .lucide[width='16'] {
-    translate: 0.25px 0.25px;
-  }
+.icon[data-filled='true'] > .icon-filled,
+[aria-pressed='true'] > .icon > .icon-filled {
+  display: inline;
+}
+[aria-pressed='true'] > .icon > .icon-regular {
+  display: none;
 }
 
 /*

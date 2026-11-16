@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from '../icons';
 import { menuPosition } from '../lib/menu-position';
 import { durationMs } from '../lib/motion';
 

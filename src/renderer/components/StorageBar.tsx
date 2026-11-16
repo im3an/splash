@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DatabaseZap } from 'lucide-react';
+import { DatabaseZap } from '../icons';
 import type { StorageStatus } from '../../shared/types';
 import { api } from '../splash-api';
 import { Reveal } from './Reveal';

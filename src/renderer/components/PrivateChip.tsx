@@ -1,4 +1,4 @@
-import { EyeOff } from 'lucide-react';
+import { EyeOff } from '../icons';
 import { useIsPrivate } from '../hooks/use-is-private';
 
 /** Says, in every private window, that nothing here is kept and what still is. */

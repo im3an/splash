@@ -13,7 +13,7 @@ import {
   TriangleAlert,
   Volume2,
   VolumeX,
-} from 'lucide-react';
+} from '../icons';
 import {
   addressParts,
   permissionNames,

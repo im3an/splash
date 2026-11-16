@@ -17,7 +17,7 @@ import {
   Plus,
   Settings2,
   Trash2,
-} from 'lucide-react';
+} from '../icons';
 import type { SavedCollection } from '../../shared/preferences';
 import {
   openFolder,
@@ -345,7 +345,12 @@ function Bar() {
                 )
               }
             >
-              <Folder size={13} aria-hidden className="shrink-0" />
+              <Folder
+                open={menu?.element?.dataset.drop === `folder:${item.id}`}
+                size={13}
+                aria-hidden
+                className="shrink-0"
+              />
               <span className="min-w-0 truncate">{item.folder.name}</span>
               <ChevronDown size={11} aria-hidden className="shrink-0" />
             </button>

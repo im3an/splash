@@ -11,7 +11,7 @@ import {
   SortableContext,
   useSortable,
 } from '@dnd-kit/sortable';
-import { Archive, ArrowDownToLine, Clock, Plus, Star } from 'lucide-react';
+import { Archive, ArrowDownToLine, Clock, Plus, Star } from '../icons';
 import type { WorkspaceSummary } from '../../shared/types';
 import { api } from '../splash-api';
 import { selectWorkspaces, useShell } from '../stores/shell-store';

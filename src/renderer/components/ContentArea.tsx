@@ -6,7 +6,7 @@ import {
   PanelRight,
   Plus,
   Search,
-} from 'lucide-react';
+} from '../icons';
 import type { ContentInsets, PageId, PageSnapshot } from '../../shared/types';
 import { useContentInsets } from '../hooks/use-content-insets';
 import { describeError, pageLabel, pageParts } from '../lib/format';

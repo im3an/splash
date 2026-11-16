@@ -13,7 +13,7 @@ import {
   Strikethrough,
   Underline,
   Unlink,
-} from 'lucide-react';
+} from '../../../icons';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { BLOCK_COMMANDS } from './commands';
 import { HIGHLIGHTS } from './extensions';

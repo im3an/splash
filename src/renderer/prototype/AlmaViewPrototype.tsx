@@ -46,7 +46,7 @@ import {
   Weight,
   X,
   type LucideIcon,
-} from 'lucide-react';
+} from '../icons';
 import type { MoveOrigin, PageId, PageSnapshot } from '../../shared/types';
 import { GroupMark } from '../components/GroupIconPicker';
 import { PanelState } from '../components/PanelState';

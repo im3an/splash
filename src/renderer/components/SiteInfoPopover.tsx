@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CircleAlert, Lock, LockOpen, RotateCw } from 'lucide-react';
+import { CircleAlert, Lock, LockOpen, RotateCw } from '../icons';
 import type {
   CookieSite,
   PermissionDecision,

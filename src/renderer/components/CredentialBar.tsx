@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { KeyRound } from 'lucide-react';
+import { KeyRound } from '../icons';
 import type { CredentialPrompt } from '../../shared/vault';
 import { api } from '../splash-api';
 import { selectActivePage, useShell } from '../stores/shell-store';

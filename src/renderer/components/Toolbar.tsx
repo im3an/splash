@@ -6,7 +6,7 @@ import {
   PanelLeft,
   RotateCw,
   X,
-} from 'lucide-react';
+} from '../icons';
 import { api } from '../splash-api';
 import {
   selectActivePage,

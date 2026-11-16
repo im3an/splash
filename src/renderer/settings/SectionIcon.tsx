@@ -13,7 +13,7 @@ import {
   Signpost,
   SlidersHorizontal,
   type LucideIcon,
-} from 'lucide-react';
+} from '../icons';
 
 /**
  * Settings' section icons: plain line drawings in the text colour, like

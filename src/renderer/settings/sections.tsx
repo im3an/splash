@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp } from 'lucide-react';
+import { ArrowDown, ArrowUp } from '../icons';
 import {
   TOOLBAR_ACTIONS,
   DEFAULT_PREFERENCES,

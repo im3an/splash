@@ -9,7 +9,7 @@ import {
   Smile,
   Trash2,
   Ungroup,
-} from 'lucide-react';
+} from '../icons';
 import type { PageGroup } from '../../shared/types';
 import { collectionNotice } from '../lib/collections';
 import { useSidebarMenu } from '../hooks/use-sidebar-menu';
@@ -141,7 +141,7 @@ export function TrailGroup({
             onDoubleClick={(event) => event.stopPropagation()}
             className="group-card-mark"
           >
-            <GroupMark group={group} />
+            <GroupMark group={group} open={open} />
           </button>
         )}
         {!renaming && (

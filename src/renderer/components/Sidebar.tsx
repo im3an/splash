@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { FolderPlus, PanelLeft, Plus } from 'lucide-react';
+import { FolderPlus, PanelLeft, Plus } from '../icons';
 import { api } from '../splash-api';
 import { useLinkDrag } from '../stores/drag-store';
 import { openLocation } from '../stores/shell-store';

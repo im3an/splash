@@ -14,7 +14,7 @@ import {
   TriangleAlert,
   X,
   type LucideIcon,
-} from 'lucide-react';
+} from '../icons';
 import {
   downloadCategory,
   type DownloadCategory,

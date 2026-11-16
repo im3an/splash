@@ -1,5 +1,5 @@
 import type { ComponentProps, ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown } from '../icons';
 import { SegmentedControl } from '../components/SegmentedControl';
 
 /** A titled group of settings. */

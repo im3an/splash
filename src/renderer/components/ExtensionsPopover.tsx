@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FolderOpen, Puzzle, Settings, Store, Trash2 } from 'lucide-react';
+import { FolderOpen, Puzzle, Settings, Store, Trash2 } from '../icons';
 import type { ExtensionInfo } from '../../shared/types';
 import { api } from '../splash-api';
 import { useOverlay } from '../stores/overlay-store';

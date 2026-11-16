@@ -1,4 +1,4 @@
-import { Puzzle } from 'lucide-react';
+import { Puzzle } from '../icons';
 import type { DetailedHTMLProps } from 'react';
 import { useIsPrivate } from '../hooks/use-is-private';
 import { useOverlay } from '../stores/overlay-store';

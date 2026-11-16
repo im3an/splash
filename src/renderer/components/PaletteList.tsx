@@ -65,7 +65,7 @@ import {
   Moon,
   Keyboard,
   type LucideIcon,
-} from 'lucide-react';
+} from '../icons';
 import { accentColors } from '../../shared/appearance';
 import type {
   PaletteCommand,

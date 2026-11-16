@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Pencil, Plus, Signpost, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Signpost, Trash2 } from '../icons';
 import type { Preferences } from '../../shared/preferences';
 import {
   normalizeShortcut,

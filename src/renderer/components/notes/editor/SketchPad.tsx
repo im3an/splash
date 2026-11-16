@@ -1,5 +1,5 @@
 import type { Editor } from '@tiptap/core';
-import { Eraser, Undo2 } from 'lucide-react';
+import { Eraser, Undo2 } from '../../../icons';
 import { useEffect, useRef, useState } from 'react';
 import {
   parseSketch,

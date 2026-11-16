@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { CircleAlert, Code2, Globe, Hourglass } from 'lucide-react';
+import { CircleAlert, Code2, Globe, Hourglass } from '../icons';
 import { BrandMark } from './Brand';
 import type { PageSnapshot } from '../../shared/types';
 

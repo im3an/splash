@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { RotateCcw, RotateCw } from 'lucide-react';
+import { RotateCcw, RotateCw } from '../icons';
 import { durationMs } from '../lib/motion';
 import { useShell } from '../stores/shell-store';
 import {

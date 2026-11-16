@@ -22,7 +22,7 @@ import {
   Trash2,
   Type,
   X,
-} from 'lucide-react';
+} from '../../icons';
 import {
   noteOutline,
   noteSites,

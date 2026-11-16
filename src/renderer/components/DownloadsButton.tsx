@@ -1,4 +1,4 @@
-import { ArrowDownToLine } from 'lucide-react';
+import { ArrowDownToLine } from '../icons';
 import { isActiveDownload } from '../../shared/downloads';
 import { useDownloads } from '../stores/downloads-store';
 import { useOverlay } from '../stores/overlay-store';

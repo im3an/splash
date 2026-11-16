@@ -7,7 +7,7 @@ import {
   Sparkles,
   Star,
   House,
-} from 'lucide-react';
+} from '../icons';
 import {
   DEFAULT_PREFERENCES,
   TOOLBAR_ACTIONS,

@@ -6,7 +6,7 @@ import {
   Settings2,
   Sparkles,
   type LucideIcon,
-} from 'lucide-react';
+} from '../icons';
 import type { AutofillItem } from '../../shared/vault';
 import { api } from '../splash-api';
 

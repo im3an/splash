@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft } from '../icons';
 import { useShell } from '../stores/shell-store';
 
 /** The top of a sidebar panel: back to the trail, a title, its actions. */

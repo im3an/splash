@@ -10,7 +10,7 @@ import {
   GripVertical,
   Plus,
   Trash2,
-} from 'lucide-react';
+} from '../../../icons';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { BLOCK_COMMANDS } from './commands';
 

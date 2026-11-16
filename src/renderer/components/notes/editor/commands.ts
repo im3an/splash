@@ -20,7 +20,7 @@ import {
   ListTree,
   ChevronRight,
   type LucideIcon,
-} from 'lucide-react';
+} from '../../../icons';
 import { useNoteUi } from './ui-store';
 
 export interface BlockCommand {

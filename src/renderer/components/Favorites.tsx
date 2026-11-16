@@ -27,7 +27,7 @@ import {
   Settings2,
   Star,
   Trash2,
-} from 'lucide-react';
+} from '../icons';
 import type { SavedCollection } from '../../shared/preferences';
 import {
   folderTree,
@@ -351,6 +351,7 @@ function StackFolder({
         index={index}
         icon={
           <Folder
+            open={open}
             size={16}
             fill="currentColor"
             aria-hidden

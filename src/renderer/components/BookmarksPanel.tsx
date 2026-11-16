@@ -23,7 +23,7 @@ import {
   Star,
   Trash2,
   X,
-} from 'lucide-react';
+} from '../icons';
 import type { SavedCollection } from '../../shared/preferences';
 import {
   BOOKMARK_DRAG_TYPE,
@@ -604,7 +604,12 @@ function Row({
             data-open={!folded}
             className="bookmark-chevron"
           />
-          <Folder size={14} aria-hidden className="shrink-0 text-fg-subtle" />
+          <Folder
+            open={!folded}
+            size={14}
+            aria-hidden
+            className="shrink-0 text-fg-subtle"
+          />
         </>
       ) : (
         <span className="stack-link-icon">

@@ -1,5 +1,5 @@
 import { useRef, useState, type CSSProperties } from 'react';
-import { Minus, Plus } from 'lucide-react';
+import { Minus, Plus } from '../icons';
 import {
   harmonies,
   hexToPoint,

@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown } from '../icons';
 import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';
 

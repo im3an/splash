@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useLayoutEffect, useRef } from 'react';
 import { useHistoryView } from '../stores/history-view-store';
-import { CircleAlert, Folder, History, Layers, Search, X } from 'lucide-react';
+import { CircleAlert, Folder, History, Layers, Search, X } from '../icons';
 import type { ClosedSummary, HistoryEntry } from '../../shared/types';
 import { displayUrl, hostOf } from '../lib/format';
 import { api } from '../splash-api';

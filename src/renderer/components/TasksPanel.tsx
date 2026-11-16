@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Blocks, CircleAlert } from 'lucide-react';
+import { Blocks, CircleAlert } from '../icons';
 import type { TaskEntry, TaskList } from '../../shared/types';
 import { formatBytes } from '../lib/format';
 import { api } from '../splash-api';

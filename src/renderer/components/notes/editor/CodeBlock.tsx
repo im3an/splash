@@ -6,7 +6,7 @@ import {
   type ReactNodeViewProps,
 } from '@tiptap/react';
 import { common, createLowlight } from 'lowlight';
-import { Check, Copy, Pencil } from 'lucide-react';
+import { Check, Copy, Pencil } from '../../../icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   parseSketch,

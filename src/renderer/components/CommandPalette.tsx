@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Search } from '../icons';
 import { useDialogFocus } from '../hooks/use-dialog-focus';
 import {
   COMMAND_PREFIX,

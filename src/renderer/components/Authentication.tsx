@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { LockKeyhole } from 'lucide-react';
+import { LockKeyhole } from '../icons';
 import type { InvokeOutputs } from '../../shared/api';
 import { api } from '../splash-api';
 
