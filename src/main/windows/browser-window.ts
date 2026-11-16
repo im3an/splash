@@ -352,6 +352,7 @@ export class TrailWindow {
         popupsAllowed: (origin) =>
           this.safely(() => store.getPermission(origin, 'popups')) ?? null,
         httpsOnly: () => options.preferences.get().httpsOnly,
+        trackpadSwipes: () => options.preferences.get().trackpadSwipes,
         plainHttpAllowed: (address) =>
           this.safely(() => {
             const { origin } = new URL(address);
@@ -816,12 +817,15 @@ export class TrailWindow {
       this.layout();
       this.aiPanel.layout();
     });
-    // A three-finger swipe goes back or forward, as in Safari.
+    // A three-finger swipe goes back or forward, as in Safari, and down
+    // reloads. macOS only sends these when Trackpad settings leave three
+    // fingers free: not with three-finger drag, Mission Control or App Exposé.
     this.window.on('swipe', (_event, direction) => {
       const pageId = this.controller.activePageId;
-      if (!pageId) return;
+      if (!pageId || !options.preferences.get().trackpadSwipes) return;
       if (direction === 'right') this.controller.goBack(pageId);
       if (direction === 'left') this.controller.goForward(pageId);
+      if (direction === 'down') this.controller.reload(pageId);
     });
     // The window shows the active page's title, as in Mission Control.
     this.window.webContents.on('page-title-updated', (event) =>

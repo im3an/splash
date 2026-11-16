@@ -126,3 +126,27 @@ export type FormFill =
       group: 'card';
       card: { name: string; number: string; expMonth: string; expYear: string };
     };
+
+/**
+ * Which trackpad swipes would do something on this page, and the colours of
+ * its workspace to draw them in; the top frame asks.
+ */
+export const SWIPE_ASK = 'page:swipe-ask';
+
+/** The colours a swipe is drawn in: its workspace's accent and gradient. */
+export interface SwipeColors {
+  /** The accent, for light and dark pages. */
+  accent: { light: string; dark: string };
+  /** The workspace's gradient colours, when it has some. */
+  glow: string[] | null;
+}
+
+export interface SwipeAnswer {
+  back: boolean;
+  forward: boolean;
+  reload: boolean;
+  colors: SwipeColors | null;
+}
+
+/** A trackpad swipe over the page finished: `back`, `forward` or `reload`. */
+export const SWIPE_RUN = 'page:swipe-run';

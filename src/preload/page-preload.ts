@@ -10,10 +10,14 @@ import {
   NAVIGATION_BUTTON,
   PLACE_ASK,
   PLACE_REPORT,
+  SWIPE_ASK,
+  SWIPE_RUN,
   VIDEO_UNFLOATED,
 } from '../shared/page-bridge';
+import type { SwipeAnswer } from '../shared/page-bridge';
 import type { PagePlace } from '../shared/page-place';
 import { installPagePlace } from './page-place';
+import { installPageSwipe } from './page-swipe';
 
 /*
  * Runs in an isolated world inside every web page. It exposes nothing to the
@@ -95,6 +99,17 @@ if (window === window.top)
     event.preventDefault();
     ipcRenderer.send(BRANCH_LINK, href);
   });
+
+// Two fingers past the page's edge go back or forward; pulled down past its
+// top, they reload. Only the top frame: an embedded frame's own scrolling is
+// out of its reach, and it may not speak for the page.
+if (window === window.top) {
+  installPageSwipe({
+    available: () =>
+      ipcRenderer.invoke(SWIPE_ASK) as Promise<SwipeAnswer>,
+    run: (kind) => ipcRenderer.send(SWIPE_RUN, kind),
+  });
+}
 
 // Every frame listens, so the buttons work over embedded videos and maps too.
 window.addEventListener(

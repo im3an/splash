@@ -120,6 +120,7 @@ export const preferencesSchema = z.strictObject({
   downloads: z.enum(['folder', 'ask']),
   awakePages: z.number().int().min(2).max(100),
   autoPictureInPicture: z.boolean(),
+  trackpadSwipes: z.boolean(),
   newPage: z.enum(['search', 'start', 'homepage']),
   homepage: z
     .url()

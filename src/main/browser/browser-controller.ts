@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Rectangle } from 'electron';
 import {
+  accentColors,
+  appearanceColors,
   DEFAULT_APPEARANCE,
   newWorkspaceAppearance,
 } from '../../shared/appearance';
@@ -2853,6 +2855,16 @@ export class BrowserController {
         else at().reload(id);
       },
       navigationAvailability: () => this.trailNavigation(id),
+      workspaceColors: () => {
+        const page = this.pages.get(id);
+        const workspace = page && this.workspaces.get(page.workspaceId);
+        if (!workspace) return null;
+        const { appearance } = workspace;
+        return {
+          accent: accentColors(appearance.accent),
+          glow: appearanceColors(appearance)?.slice(0, 3) ?? null,
+        };
+      },
       searchUrlFor: (query) => searchUrl(query, this.options.search?.()),
       onFocus: () => {
         // Clicking into the other side of a split view makes it active.

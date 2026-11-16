@@ -22,6 +22,9 @@ import {
   LINK_DROPPED,
   LINK_ACTIVATED,
   NAVIGATION_BUTTON,
+  SWIPE_ASK,
+  SWIPE_RUN,
+  type SwipeAnswer,
   PLACE_ASK,
   PLACE_REPORT,
 } from '../../shared/page-bridge';
@@ -75,6 +78,9 @@ const ERR_ABORTED = -3;
 const ERR_TIMED_OUT = -7;
 const MAX_URL_LENGTH = 8192;
 
+/** How long after a swipe navigates that another is taken as its momentum. */
+const SWIPE_SETTLE_MS = 900;
+
 export interface PageHostEnvironment {
   window: BaseWindow;
   session: Session;
@@ -92,6 +98,8 @@ export interface PageHostEnvironment {
   popupsAllowed(origin: string): boolean | null;
   /** The HTTPS-only setting. */
   httpsOnly(): boolean;
+  /** Whether trackpad swipes over a page navigate and reload. */
+  trackpadSwipes(): boolean;
   /** Whether the user already chose to use this plain HTTP address's site. */
   plainHttpAllowed(url: string): boolean;
   /** Whether the user chose to use this site despite its certificate. */
@@ -260,6 +268,13 @@ class ElectronPageHost implements PageHost {
     });
     this.view.webContents.once('destroyed', () => pageHandles.delete(id));
     environment.onContentsCreated?.(this.view.webContents);
+  }
+
+  private lastSwipe = 0;
+
+  /** Whether a swipe just navigated, so this one is its momentum. */
+  private swipedAt(): boolean {
+    return Date.now() - this.lastSwipe < SWIPE_SETTLE_MS;
   }
 
   private get contents(): WebContents {
@@ -695,6 +710,28 @@ class ElectronPageHost implements PageHost {
       const current = contents.getURL();
       if (this.links.take(href) && !isSameDocumentUrl(href, current))
         this.events.onBranchRequest(href, current);
+    });
+    // Only the top frame swipes: it speaks for the page, an embedded frame
+    // doesn't. A swipe's leftover momentum lands on the page it went to, so
+    // a second one so soon is that, not the user.
+    contents.ipc.handle(SWIPE_ASK, (event): SwipeAnswer => {
+      const none = { back: false, forward: false, reload: false, colors: null };
+      if (event.senderFrame?.parent !== null) return none;
+      if (!this.environment.trackpadSwipes() || this.swipedAt()) return none;
+      const { canGoBack, canGoForward } = this.events.navigationAvailability();
+      return {
+        back: canGoBack,
+        forward: canGoForward,
+        reload: true,
+        colors: this.events.workspaceColors(),
+      };
+    });
+    contents.ipc.on(SWIPE_RUN, (event, kind: unknown) => {
+      if (event.senderFrame?.parent !== null) return;
+      if (kind !== 'back' && kind !== 'forward' && kind !== 'reload') return;
+      if (!this.environment.trackpadSwipes() || this.swipedAt()) return;
+      this.lastSwipe = Date.now();
+      this.events.onNavigationCommand(kind);
     });
     // Any frame may report it: the button works over embedded content too.
     contents.ipc.on(NAVIGATION_BUTTON, (_event, button: unknown) => {

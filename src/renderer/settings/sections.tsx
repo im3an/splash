@@ -243,6 +243,18 @@ export function AppearanceSettings() {
           />
         </Row>
       </Section>
+      <Section title="Trackpad">
+        <Row
+          label="Swipe to go back and reload"
+          help="Swipe two fingers right or left past the page’s edge to go back or forward. Pull down past the top to reload."
+        >
+          <Toggle
+            label="Swipe to go back and reload"
+            checked={preferences.trackpadSwipes}
+            onChange={(trackpadSwipes) => update({ trackpadSwipes })}
+          />
+        </Row>
+      </Section>
       <Section title="Bookmarks">
         <Row
           label="Show bookmarks bar"

@@ -76,6 +76,11 @@ export interface Preferences {
   /** A playing video floats in its own small window when you leave its page. */
   autoPictureInPicture: boolean;
   /**
+   * Trackpad swipes: two fingers sideways past a page's edge go back or
+   * forward, pulled down past its top they reload; three-finger swipes too.
+   */
+  trackpadSwipes: boolean;
+  /**
    * What a new page shows: the location field alone, a start page of bookmarks
    * and recent pages, or the homepage.
    */
@@ -222,6 +227,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   downloads: 'folder',
   awakePages: 12,
   autoPictureInPicture: true,
+  trackpadSwipes: true,
   newPage: 'start',
   homepage: null,
   startup: 'restore',
