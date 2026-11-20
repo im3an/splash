@@ -200,7 +200,6 @@ class ElectronPageHost implements PageHost {
   private flaggedUrl: string | null = null;
   private attached = false;
   private closing = false;
-  private hasFormEdits = false;
   /** This document was given the camera or microphone. */
   private capturing = false;
   private videoFloats = false;
@@ -526,7 +525,7 @@ class ElectronPageHost implements PageHost {
     }
   }
 
-  private allowLeave(reason: 'unsaved' | 'unresponsive' | 'edited'): boolean {
+  private allowLeave(reason: 'unsaved' | 'unresponsive'): boolean {
     const url = this.contents.isDestroyed() ? '' : this.contents.getURL();
     let host = 'This page';
     try {
@@ -542,11 +541,9 @@ class ElectronPageHost implements PageHost {
             ? `Leave ${host}?`
             : `${host} isn’t responding.`,
         detail:
-          reason === 'edited'
-            ? 'You edited fields on this page. Some sites save automatically. Leave only if your work is saved, or if you want to discard it.'
-            : reason === 'unsaved'
-              ? 'The site says you may have unsaved changes. Leaving can discard what you entered.'
-              : 'You can keep this page open and wait, or force it to close. Unsaved changes may be lost.',
+          reason === 'unsaved'
+            ? 'The site says you may have unsaved changes. Leaving can discard what you entered.'
+            : 'You can keep this page open and wait, or force it to close. Unsaved changes may be lost.',
         buttons:
           reason !== 'unresponsive'
             ? ['Stay on Page', 'Leave Page']
@@ -558,13 +555,14 @@ class ElectronPageHost implements PageHost {
     );
   }
 
+  // Only the site's own beforeunload asks before closing, as in Chrome. Typing
+  // in a search or chat box isn't unsaved work, and on pages that never reload
+  // the edit flag would never clear; it only keeps the page awake.
   async requestClose(): Promise<boolean> {
-    const edited = this.hasFormEdits;
-    if (edited && !this.allowLeave('edited')) return false;
     this.closing = true;
     try {
       return await requestPageClose(this.contents, (reason) =>
-        reason === 'unsaved' && edited ? true : this.allowLeave(reason),
+        this.allowLeave(reason),
       );
     } finally {
       this.closing = false;
@@ -691,7 +689,6 @@ class ElectronPageHost implements PageHost {
     });
     contents.ipc.on(FORM_EDITED, (event, edited: unknown) => {
       if (!event.senderFrame || edited !== true) return;
-      this.hasFormEdits = true;
       emit({ hasFormEdits: true });
     });
     contents.ipc.on(LINK_ACTIVATED, (event, href: unknown) => {
@@ -874,7 +871,6 @@ class ElectronPageHost implements PageHost {
         this.offerPlainHttp(committed, refused, status, `HTTP ${status}`);
       }
       this.secureAttempt.committed();
-      this.hasFormEdits = false;
       this.capturing = false;
       emit({
         hasFormEdits: false,

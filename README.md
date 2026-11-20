@@ -35,7 +35,7 @@ Privacy holds the tracking signal, third-party cookies, clearing data on quit an
 
 ## Protecting work
 
-Normal page, branch, workspace, window and application close paths consult each live page before destroying its view. Sites can veto leaving through Chromium's `beforeunload` lifecycle. Pages with edited fields receive a conservative leave warning and are kept awake rather than automatically suspended. The flag contains no field values and does not claim to know whether a site saved the work.
+Normal page, branch, workspace, window and application close paths consult each live page before destroying its view. Sites can veto leaving through Chromium's `beforeunload` lifecycle. Splash adds no leave warning of its own; pages with edited fields are only kept awake rather than automatically suspended. The flag contains no field values and does not claim to know whether a site saved the work.
 
 A canceled close retains the trail and the page that refused to leave. During a canceled bulk close, already approved views can be restored from captured Chromium history. Recovery after a crash is best effort; unsaved web application content is not guaranteed to survive a crash or forced termination.
 
