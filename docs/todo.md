@@ -355,44 +355,81 @@ Media and macOS
 - [x] Upgrade Electron: now 45.2.3. No 45.0.1 was released; the fix for hanging
       blocking listeners (electron/electron#55234) works here.
 - [ ] **Rely on uBlock Origin for blocking, not Splash's own hooks.** Decided 6
-      November 2026: the hooks stay for now, but this is where Splash is going.
-      Keeping even one hook can't work: Electron runs extension `chrome.webRequest`
+      November 2026, done 21 November 2026. Electron runs extension `chrome.webRequest`
       listeners only if the session has no `session.webRequest` listener for any
       event (tested on 45.2.3, one hook at a time: the extension saw nothing).
-      So all three hooks go together.
+      Splash now registers none; the rules its hooks ran live in a small bundled
+      MV2 extension, `src/helper-extension` (built into `extensions/splash-helper`
+      by `scripts/build-helper-extension.mjs`, hidden from the Extensions list).
+      Main pushes its settings, site decisions and the dangerous-site hosts to it
+      (`src/main/privacy/helper-extension.ts`), since its listeners answer
+      synchronously.
+  - [x] Private windows: Electron refuses to load extensions into an in-memory
+        session ("Extensions cannot be loaded in a temporary session"), so the user
+        chose (21 November 2026) a throwaway on-disk profile: each private profile
+        is a `persist:private-<uuid>` partition with the same uBlock Origin and
+        helper as other windows (only bundled extensions, as in Chrome).
+        **Private data sits on disk while the private windows are open**, in
+        `Partitions/private-<uuid>` under the profile folder, not in memory as in
+        Chrome. When the last private window closes, its extensions are unloaded,
+        its data cleared and the folder deleted, then deleted again 30 s later,
+        because the disk cache writes its empty index once more after a clear.
+        Anything left (a crash, or a quit with private windows open) is deleted
+        at the next launch, and at quit (`sweepPrivateProfiles`).
+        Tested 21 November 2026 in a dev instance: bild.de had 9 requests blocked
+        in a private window, `httpbin.org/headers` went to HTTPS with `Dnt`,
+        `Sec-Gpc` and client hints; the 47 MB folder was gone on close and still
+        gone 48 s later; after `kill -9` with a private window open, the 43 MB
+        folder was there and gone at the next launch. After a normal quit with
+        a private window open, only two empty 48-byte cache indexes (0 entries)
+        stayed until the next launch removed them.
   - [ ] Reported while using Splash: errors on pages, and popups not showing.
-        Reproduce each on a site with the hooks on and off to see which come from
-        the hooks. Check popups against the popup blocker too.
+        Reproduce each on a site now that the hooks are gone. Check popups against
+        the popup blocker too.
     - [x] idealo.de's "Something has gone wrong" wasn't the hooks: it answered 403
           to `Splash/1.0.0` in the user agent. Fixed, see User-agent in Phase C.
-  - [ ] Cookie filter: move the cookie-notice lists and their network blocking off
-        the built-in blocker. uBlock Origin's own cookie lists are stripped in
-        `scripts/fetch-extensions.mjs` because some rules click "Accept", and Splash
-        must never agree for the user, so decide what replaces them. Hiding rules
-        and autoconsent don't use the hooks.
-  - [ ] Move the rest off the hooks: dangerous-site warning, HTTPS-only,
-        `Sec-GPC`/`DNT`, third-party cookie stripping, per-site script and image
-        blocking
-  - [ ] Connect to uBlock Origin what's tied to the built-in blocker: the blocked
-        count, Block ads, per-site allow, list status
-  - [ ] Remove the built-in network blocker and retest YouTube, with a run that has
-        no blocker to compare against
-  - Tested: a small bundled extension can do the header, cookie, CSP and redirect
-    work beside a blocking extension. Its settings would have to be pushed to it,
-    since its listeners answer synchronously.
-  - YouTube, Electron 45.2.3, signed out, 3 monetised videos, about 30 s each:
-    uBlock Origin alone and today's hooks both played with no ad or enforcement
-    screen. There was no run without a blocker, so this doesn't show either one
-    is what stopped ads. uBlock Origin also blocked one `videoplayback` request
-    per video.
-  - [x] Difference found: uBlock Origin serves working stand-ins for `gpt.js` and
-        `analytics.js`; the built-in blocker's redirects for them failed with
-        `ERR_UNSAFE_REDIRECT`, because Chromium refuses a redirect to `data:`.
-        Fixed: stand-ins now come from Splash's own `splash-stand-in:` scheme,
-        under a host that changes every launch so pages can't probe for it, and
-        it bypasses a page's CSP as extension resources do in Chrome. Tested in
-        the app with the real lists: `gpt.js` gave a working `googletag`, with and
-        without a strict CSP, and nothing reached the network.
+  - [x] Cookie filter: the cookie-notice lists only hide notices now (cosmetics
+        through `content-preload`, `cookie-notice-lists.bin`); their network rules
+        are gone with the hooks. Autoconsent stays, and it only ever refuses.
+        uBlock Origin's own cookie lists stay stripped in
+        `scripts/fetch-extensions.mjs`, because some rules click "Accept".
+  - [x] Moved off the hooks into the helper: dangerous-site warning (the helper
+        cancels the request; main sees `ERR_BLOCKED_BY_CLIENT` for a listed host
+        and shows the warning, for pages and popups), HTTPS-only (the helper
+        redirects; main keeps the fallback bookkeeping from the same rule, and a
+        popup's HTTP fallback is let through per page), `Sec-GPC`/`DNT`, client
+        hints, third-party `Cookie`/`Set-Cookie`, and per-site scripts and images
+        (an extra `Content-Security-Policy` header). Tracking-parameter removal is
+        now uBlock Origin's `removeparam` rules.
+  - [x] electron-chrome-extensions replaces `chrome.webRequest.onHeadersReceived`
+        with an event its main side never fires, so no extension saw response
+        headers. `src/preload/native-web-request.ts` keeps Electron's own event
+        and `extension-preload.ts` puts it back.
+  - [x] Connected to uBlock Origin, through its background page (`self.µBlock`,
+        `src/main/privacy/ublock.ts`): the blocked count is its page store's
+        count for the page; per-site allow is its trusted-site switch, as the
+        popup's power button; the Settings list status and Update come from its
+        assets; "Block ads and trackers" turns it on and off, and turning it off in
+        the Extensions list turns the setting off. On the first launch, sites
+        allowed in Splash's old "ads" decisions move to uBlock Origin's trusted
+        list (default profile only), and Block ads off turns it off.
+  - [x] Removed the built-in network blocker: `filter-lists.bin`'s engine, the
+        `splash-stand-in:` scheme (uBlock Origin serves its own stand-ins, which
+        work), and `stand-ins.ts`.
+  - Tested in a dev instance, 21 November 2026: `httpbin.org/headers` showed
+    `Dnt`, `Sec-Gpc` and the three `Sec-CH-UA` headers; `http://httpbin.org/get`
+    went to HTTPS; `httpforever.com` fell back to the HTTP offer and loaded after
+    it; a listed host showed the dangerous-site warning and loaded after
+    "Continue"; a third-party frame's `SameSite=None` cookie was there with the
+    setting off and gone with it on; scripts off on Wikipedia gave `client-nojs`;
+    bild.de had 8 requests blocked, 0 once trusted from the site panel, and the
+    panel's count matched uBlock Origin's. The Block ads switch and uBlock Origin's
+    Extensions switch followed each other both ways.
+  - YouTube, 21 November 2026, signed out, "Despacito": with uBlock Origin off a
+    34 s pre-roll ad played (`ad-showing`); with it on, the video played with no ad
+    and 21 requests blocked. Earlier (Electron 45.2.3, 3 videos) uBlock Origin
+    alone and the old hooks both played with no ad, and uBlock Origin also
+    blocked one `videoplayback` request per video.
 
 ## Phase D. Shipping
 

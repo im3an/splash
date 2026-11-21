@@ -1,16 +1,14 @@
 import {
   adsAndTrackingLists,
-  Config,
   fetchLists,
   fetchResources,
   FiltersEngine,
   fullLists,
-  Request,
   type Fetch,
 } from '@ghostery/adblocker';
+import type { Session } from 'electron';
 import { parse } from 'tldts-experimental';
 import type { ContentBlockingStatus } from '../../shared/types';
-import { STAND_IN_SECRET, standInBody, standInUrl } from './stand-ins';
 
 /** Filter lists older than this are downloaded again in the background. */
 export const LIST_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
@@ -37,25 +35,10 @@ export function isConsentPage(url: string | null): boolean {
 }
 
 export interface BlockerOptions {
-  /** Filter list URLs; ads and trackers if left out. */
+  /** Filter list URLs; the cookie notice lists if left out. */
   lists?: string[];
-  /** Whether the lists' scriptlets run in pages. On unless turned off. */
+  /** Whether the lists' scriptlets run in pages. Off unless turned on. */
   scriptlets?: boolean;
-  /** The host stand-ins are served under; this launch's secret if left out. */
-  standInSecret?: string;
-}
-
-/** The parts of a web request that blocking looks at. */
-export interface BlockableRequest {
-  id: number;
-  url: string;
-  resourceType?: string;
-  referrer: string;
-}
-
-export interface BlockingResponse {
-  cancel?: boolean;
-  redirectURL?: string;
 }
 
 /** Hiding styles and scriptlets for one page. */
@@ -80,62 +63,29 @@ export interface FilterListSource {
   now(): number;
 }
 
-function requestFor(details: BlockableRequest, pageUrl: string | null) {
-  const request = Request.fromRawDetails({
-    requestId: String(details.id),
-    url: details.url,
-    sourceUrl: pageUrl ?? details.referrer,
-    type: (details.resourceType ?? 'other') as never,
-  });
-  if (request.type === 'other') request.guessTypeOfRequest();
-  return request;
-}
-
 /**
- * Blocks what a set of filter lists names: ads and trackers by default, or
- * cookie notices with `COOKIE_NOTICE_LISTS`. Until the lists have loaded,
- * every request goes through.
+ * Hiding rules from a set of filter lists, the cookie notice lists unless
+ * told otherwise. It blocks nothing on the network: uBlock Origin does that,
+ * and Splash has no request hooks (see helper-extension.ts).
  */
-/**
- * The lists' `$removeparam` rules on their own, unoptimised. Ghostery's
- * optimiser fuses rules that differ only in the parameter into one, which keeps
- * the first rule's parameter only (2.20.3 still does). Unoptimised, they cost
- * about 10 µs a request, so only addresses you go to are cleaned.
- */
-function trackingParameters(engine: FiltersEngine): FiltersEngine {
-  return new FiltersEngine({
-    networkFilters: engine.removeparams.getFilters(),
-    config: new Config({ ...engine.config, enableOptimizations: false }),
-  });
-}
-
 export class ContentBlocker {
   private engine: FiltersEngine | null = null;
-  private parameters: FiltersEngine | null = null;
   private status: ContentBlockingStatus = {
     state: 'loading',
     updatedAt: null,
     updateFailed: false,
   };
   private updating: Promise<void> | null = null;
-  /** Requests blocked since each page last started loading. */
-  private readonly blocked = new Map<string, number>();
 
   private readonly lists: string[];
-  private readonly standInSecret: string;
   private readonly scriptlets: boolean;
 
   constructor(
     private readonly source: FilterListSource,
-    {
-      lists = adsAndTrackingLists,
-      scriptlets = true,
-      standInSecret = STAND_IN_SECRET,
-    }: BlockerOptions = {},
+    { lists = COOKIE_NOTICE_LISTS, scriptlets = false }: BlockerOptions = {},
   ) {
     this.lists = lists;
     this.scriptlets = scriptlets;
-    this.standInSecret = standInSecret;
   }
 
   /**
@@ -147,7 +97,6 @@ export class ContentBlocker {
     if (cached) {
       try {
         this.engine = FiltersEngine.deserialize(cached.data);
-        this.parameters = trackingParameters(this.engine);
         this.status = {
           state: 'ready',
           updatedAt: cached.savedAt,
@@ -185,13 +134,14 @@ export class ContentBlocker {
     try {
       const [lists, resources] = await Promise.all([
         fetchLists(this.source.fetch, this.lists),
-        // uBlock Origin's scriptlets and the stand-ins for blocked scripts.
-        fetchResources(this.source.fetch),
+        // uBlock Origin's scriptlets, for lists that run them.
+        this.scriptlets ? fetchResources(this.source.fetch) : null,
       ]);
       const engine = FiltersEngine.parse(lists.join('\n'));
-      engine.updateResources(resources, String(resources.length));
+      if (resources) {
+        engine.updateResources(resources, String(resources.length));
+      }
       this.engine = engine;
-      this.parameters = trackingParameters(engine);
       this.status = {
         state: 'ready',
         updatedAt: this.source.now(),
@@ -212,62 +162,6 @@ export class ContentBlocker {
 
   getStatus(): ContentBlockingStatus {
     return this.status;
-  }
-
-  /** The answer for one request from a page where blocking is on. */
-  onRequest(
-    details: BlockableRequest,
-    pageId: string | null,
-    pageUrl: string | null,
-  ): BlockingResponse {
-    if (details.resourceType === 'mainFrame') {
-      if (pageId) this.blocked.delete(pageId);
-      return {};
-    }
-    if (!this.engine) return {};
-    const { match, redirect, filter } = this.engine.match(
-      requestFor(details, pageUrl),
-    );
-    if (!match && !redirect) return {};
-    if (pageId) this.blocked.set(pageId, (this.blocked.get(pageId) ?? 0) + 1);
-    return redirect && filter
-      ? {
-          redirectURL: standInUrl(
-            this.standInSecret,
-            filter.getRedirectResource(),
-          ),
-        }
-      : { cancel: true };
-  }
-
-  /** The resource a stand-in address names, ready to answer with. */
-  standIn(name: string): ReturnType<typeof standInBody> | null {
-    if (!this.engine) return null;
-    return standInBody(this.engine.resources.getResource(name));
-  }
-
-  /**
-   * A page's address without the tracking parameters the lists name
-   * (`$removeparam`, such as `fbclid` and `gclid`), or null if it has none.
-   */
-  cleanedAddress(details: BlockableRequest): string | null {
-    if (!this.engine || !this.parameters) return null;
-    const request = requestFor(details, details.url);
-    const { match, redirect } = this.engine.match(request);
-    if (match || redirect) return null;
-    return this.parameters.match(request).rewrite?.url ?? null;
-  }
-
-  /** Extra Content-Security-Policy directives for a document, if any. */
-  cspFor(details: BlockableRequest): string | undefined {
-    if (!this.engine) return undefined;
-    if (
-      details.resourceType !== 'mainFrame' &&
-      details.resourceType !== 'subFrame'
-    ) {
-      return undefined;
-    }
-    return this.engine.getCSPDirectives(requestFor(details, null));
   }
 
   /**
@@ -293,17 +187,8 @@ export class ContentBlocker {
     });
     return active === false ? null : { styles, scripts };
   }
-
-  blockedOn(pageId: string): number {
-    return this.blocked.get(pageId) ?? 0;
-  }
-
-  forget(pageId: string): void {
-    this.blocked.delete(pageId);
-  }
 }
 
-/** One status for several blockers: the least ready one and its oldest lists. */
 /**
  * One script that runs a page's scriptlets. Each scriptlet declares its
  * helpers (`safeSelf`, `proxyApplyFn`) at the top level. Run as separate
@@ -318,30 +203,24 @@ export function bundleScriptlets(scripts: readonly string[]): string | null {
   return `(function () {\n${blocks.join('\n')}\n})();`;
 }
 
-export function combinedStatus(
-  statuses: ContentBlockingStatus[],
-): ContentBlockingStatus {
-  const state = statuses.some((status) => status.state === 'failed')
-    ? 'failed'
-    : statuses.some((status) => status.state === 'loading')
-      ? 'loading'
-      : 'ready';
-  const dates = statuses.map((status) => status.updatedAt);
-  return {
-    state,
-    updatedAt:
-      state === 'ready' && !dates.includes(null)
-        ? Math.min(...(dates as number[]))
-        : null,
-    updateFailed: statuses.some((status) => status.updateFailed),
-  };
+/** What uBlock Origin says about one page and its site. */
+export interface AdsOnPage {
+  /** Requests blocked since the page last started loading. */
+  blocked: number;
+  /** Whether the site is trusted; null when nothing blocks ads. */
+  allowed: boolean | null;
 }
 
-/** What the windows need from content blocking. */
+/** What the windows need from content blocking, which uBlock Origin does. */
 export interface ContentBlocking {
-  /** Requests blocked since the page last started loading. */
-  blockedOn(pageId: string): number;
-  getStatus(): ContentBlockingStatus;
+  adsOn(pageId: string, origin: string): Promise<AdsOnPage>;
+  /** Trusts a site in uBlock Origin, or stops trusting it, in one session. */
+  setAdsAllowed(
+    session: Session,
+    origin: string,
+    allowed: boolean,
+  ): Promise<void>;
+  getStatus(): Promise<ContentBlockingStatus>;
   /** Downloads every list again. */
   update(): Promise<void>;
 }

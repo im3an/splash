@@ -30,6 +30,7 @@ import { AutofillMenu } from './windows/autofill-window';
 import { isHelperGone } from './extensions/native-helper';
 import {
   openPrivateProfile,
+  sweepPrivateProfiles,
   type PrivateProfile,
 } from './browser/private-profile';
 import { buildTaskList, type LivePage } from './browser/task-list';
@@ -52,6 +53,7 @@ import {
   type ContentBlockingHost,
 } from './privacy/electron-content-blocker';
 import { createSiteRules } from './privacy/electron-site-rules';
+import { keepBlockingInStep } from './privacy/ublock';
 import {
   SettingsWindow,
   defaultBrowserStatus,
@@ -500,6 +502,7 @@ function openPrivateWindow(show?: { pageId: string }): TrailWindow {
     preferences,
     threats,
     blocker,
+    extensions,
     onDownloads: () => {
       for (const open of windows) if (open.isPrivate) open.sendDownloads();
     },
@@ -715,9 +718,9 @@ function settingsProfile(): WorkspaceProfile {
 
 /**
  * Wires a workspace's session the way the default one is wired at launch:
- * permission prompts and the user agent, site rules and the blocker (Electron
- * allows one `webRequest` listener per event per session, and `SiteRules`
- * holds them), downloads, spelling and extensions.
+ * permission prompts and the user agent, site rules and the helper extension
+ * that enforces them (no `session.webRequest` listener may be registered, or
+ * uBlock Origin sees no requests), downloads, spelling and extensions.
  */
 function openProfile(
   key: string,
@@ -974,6 +977,8 @@ if (!app.requestSingleInstanceLock()) {
     ).catch((error: unknown) =>
       console.error('Could not remove a deleted workspace’s data', error),
     );
+    // What private windows left when Splash crashed or quit with them open.
+    sweepPrivateProfiles(app.getPath('userData'));
     if (process.platform === 'darwin') {
       watchMemoryPressure((pressure) => {
         trails.memoryPressure = pressure;
@@ -1046,6 +1051,7 @@ if (!app.requestSingleInstanceLock()) {
       store,
       preferences,
       siteRules,
+      threats,
     );
     downloads = createDownloadManager(
       session.fromPartition(WEB_PARTITION),
@@ -1167,6 +1173,14 @@ if (!app.requestSingleInstanceLock()) {
       await Promise.all(
         profiles.all().map((profile) => host.addSession(profile.session)),
       );
+      void keepBlockingInStep({
+        session: session.fromPartition(WEB_PARTITION),
+        extensions: host,
+        preferences,
+        store,
+      }).catch((error: unknown) =>
+        console.error('Could not link Block ads to uBlock Origin', error),
+      );
     } catch (error) {
       console.error('Extensions are unavailable', error);
     }
@@ -1236,6 +1250,8 @@ if (!app.requestSingleInstanceLock()) {
     if (!quitClear || quitClearDone) {
       persister?.dispose();
       store?.close();
+      // Private windows closed with the quit, before their data was cleared.
+      sweepPrivateProfiles(app.getPath('userData'));
       return;
     }
     event.preventDefault();

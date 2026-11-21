@@ -70,11 +70,27 @@ export class ThreatList {
   private updateFailed = false;
   private loading = false;
   private loaded = false;
+  private readonly listeners = new Set<() => void>();
 
   constructor(private readonly options: ThreatListOptions) {}
 
   isListed(hostname: string): boolean {
     return isHostListed(this.listed, hostname);
+  }
+
+  /** Every listed host, for the helper extension that stops requests. */
+  hosts(): string[] {
+    return [...this.listed];
+  }
+
+  /** Called whenever the hosts in use change. */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private changed(): void {
+    for (const listener of this.listeners) listener();
   }
 
   getStatus(): ThreatListStatus {
@@ -115,6 +131,7 @@ export class ThreatList {
     if (!saved) return;
     this.listed = new Set(parseThreatList(saved.text));
     this.updatedAt = this.listed.size > 0 ? saved.savedAt : null;
+    this.changed();
   }
 
   private async download(): Promise<void> {
@@ -125,6 +142,7 @@ export class ThreatList {
       this.listed = new Set(hosts);
       this.updatedAt = this.options.now();
       this.updateFailed = false;
+      this.changed();
       await this.options
         .writeCache([...this.listed].join('\n'))
         .catch((error: unknown) =>

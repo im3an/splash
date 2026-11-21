@@ -287,6 +287,9 @@ const config: ForgeConfig = {
       execFileSync(process.execPath, ['scripts/fetch-extensions.mjs'], {
         stdio: 'inherit',
       });
+      execFileSync(process.execPath, ['scripts/build-helper-extension.mjs'], {
+        stdio: 'inherit',
+      });
       execFileSync(process.execPath, ['scripts/third-party-notices.mjs'], {
         stdio: 'inherit',
       });

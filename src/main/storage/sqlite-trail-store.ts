@@ -202,6 +202,21 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
+const permissionListeners = new Set<() => void>();
+
+function permissionsChanged(): void {
+  for (const listener of permissionListeners) listener();
+}
+
+/**
+ * Called after a site decision changes in any store or profile. The helper
+ * extension keeps a copy of them (src/main/privacy/helper-extension.ts).
+ */
+export function onPermissionsChanged(listener: () => void): () => void {
+  permissionListeners.add(listener);
+  return () => permissionListeners.delete(listener);
+}
+
 export class SqliteTrailStore implements TrailStore {
   /**
    * @param profile whose history and site decisions this instance reads and
@@ -518,6 +533,7 @@ export class SqliteTrailStore implements TrailStore {
           'DELETE FROM permission_decisions WHERE profile = ? AND origin = ? AND permission = ?',
         )
         .run(this.profile, origin, permission);
+      permissionsChanged();
       return;
     }
     this.db
@@ -528,6 +544,7 @@ export class SqliteTrailStore implements TrailStore {
            granted = excluded.granted, decided_at = excluded.decided_at`,
       )
       .run(this.profile, origin, permission, granted ? 1 : 0, Date.now());
+    permissionsChanged();
   }
 
   clearPermissions(origin?: string): void {
@@ -542,6 +559,7 @@ export class SqliteTrailStore implements TrailStore {
         )
         .run(this.profile, origin);
     }
+    permissionsChanged();
   }
 
   listPermissions(): PermissionRecord[] {

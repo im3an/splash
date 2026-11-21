@@ -94,7 +94,7 @@ import type { PageHostFactory } from '../browser/page-host';
 import type { HistoryMatch, TrailStore } from '../storage/trail-store';
 import type { PreferencesService } from '../preferences';
 import type { DownloadManager } from '../downloads/download-manager';
-import type { ContentBlocking } from '../privacy/content-blocker';
+import type { AdsOnPage, ContentBlocking } from '../privacy/content-blocker';
 import type { CookieViewer } from '../privacy/cookies';
 import type { ExtensionHost } from '../extensions/extension-host';
 
@@ -660,10 +660,27 @@ export class TrailWindow {
           this.controller.respondToPermission(pageId, requestId, granted),
         'page:open-blocked-popup': ({ pageId, url }) =>
           this.controller.openBlockedPopup(pageId, url),
-        'site:get-info': ({ pageId }) => this.siteInfo(pageId),
+        'site:get-info': async ({ pageId }) => {
+          const origin = webOrigin(
+            this.controller.snapshot().pages[pageId]?.url ?? undefined,
+          );
+          if (!origin) return null;
+          // uBlock Origin's own count and trusted list, in the page's session.
+          const ads = await this.options.blocker.adsOn(pageId, origin);
+          return this.siteInfo(pageId, ads);
+        },
         'system:open-permission-settings': ({ permission }) =>
           shell.openExternal(systemSettingsUrl(permission)),
         'site:set-permission': ({ origin, permission, decision }) => {
+          // uBlock Origin keeps which sites are trusted, so its popup and
+          // dashboard agree with Splash.
+          if (permission === 'ads') {
+            return this.options.blocker.setAdsAllowed(
+              this.activeProfile.session,
+              origin,
+              decision === 'allow',
+            );
+          }
           this.activeProfile.store.setPermission(
             origin,
             permission,
@@ -693,9 +710,14 @@ export class TrailWindow {
           this.activeProfile.cookies.delete(site, only),
         'cookies:undo': ({ token }) =>
           this.activeProfile.cookies.restore(token),
-        'site:reset': ({ origin }) => {
+        'site:reset': async ({ origin }) => {
           this.activeProfile.store.clearPermissions(origin);
           this.controller.applySoundPolicy(origin, false);
+          await this.options.blocker.setAdsAllowed(
+            this.activeProfile.session,
+            origin,
+            false,
+          );
         },
         'view:freeze': () => this.controller.captureVisiblePages(),
         'tasks:list': () => this.options.listTasks(),
@@ -1251,7 +1273,7 @@ export class TrailWindow {
   }
 
   /** Connection and permission details for the page's site. */
-  private siteInfo(pageId: string): SiteInfo | null {
+  private siteInfo(pageId: string, ads: AdsOnPage): SiteInfo | null {
     const page = this.controller.snapshot().pages[pageId];
     const origin = webOrigin(page?.url ?? undefined);
     if (!origin) return null;
@@ -1264,7 +1286,7 @@ export class TrailWindow {
         !this.safely(() => hasCertificateException(store, origin))
           ? 'secure'
           : 'insecure',
-      blockedCount: this.options.blocker.blockedOn(pageId),
+      blockedCount: ads.blocked,
       refusedBySystem: this.controller.systemRefusedOn(pageId),
       // A secure site has no plain HTTP address to allow.
       permissions: SITE_PERMISSIONS.filter(
@@ -1274,7 +1296,10 @@ export class TrailWindow {
           (permission !== 'insecure' || origin.startsWith('http:')),
       ).map((permission) => {
         const decided =
-          this.safely(() => store.getPermission(origin, permission)) ?? null;
+          permission === 'ads'
+            ? ads.allowed
+            : (this.safely(() => store.getPermission(origin, permission)) ??
+              null);
         return {
           permission,
           label: PERMISSION_LABELS[permission],

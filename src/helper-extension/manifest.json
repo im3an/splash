@@ -1,0 +1,11 @@
+{
+  "manifest_version": 2,
+  "name": "Splash Site Rules",
+  "version": "1.0.0",
+  "description": "Splash's own request rules: HTTPS-only mode, the dangerous-site warning, the privacy signal, client hints, third-party cookies and per-site scripts and images.",
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": true
+  },
+  "permissions": ["webRequest", "webRequestBlocking", "<all_urls>"]
+}

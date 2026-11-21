@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { net, protocol, type Session } from 'electron';
-import { STAND_IN_SCHEME } from '../privacy/stand-ins';
 
 /**
  * Packaged builds serve Splash's own windows from `app://splash/`, not
@@ -24,12 +23,6 @@ export function shellUrl(): string {
 export function registerShellScheme(): void {
   protocol.registerSchemesAsPrivileged([
     { scheme: 'crx', privileges: { bypassCSP: true } },
-    // The blocker's stand-ins for blocked scripts. A page's CSP lets its own
-    // script through, so it has to let the stand-in through too.
-    {
-      scheme: STAND_IN_SCHEME,
-      privileges: { standard: true, secure: true, bypassCSP: true },
-    },
     {
       scheme: SHELL_SCHEME,
       privileges: { standard: true, secure: true, supportFetchAPI: true },

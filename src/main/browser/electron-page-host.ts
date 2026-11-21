@@ -66,6 +66,7 @@ import {
 } from './popup-policy';
 import { stepZoom } from './zoom';
 import { SECURE_ATTEMPT_LIMIT_MS, SecureAttempt } from '../security/https-only';
+import { sessionRulesFor } from '../privacy/helper-extension';
 import {
   floatPlayingVideo,
   sinkFloatingVideo,
@@ -76,6 +77,7 @@ import { CONTENT_RADIUS } from '../../shared/geometry';
 /** Chromium's ERR_ABORTED: a load was superseded by another navigation. */
 const ERR_ABORTED = -3;
 const ERR_TIMED_OUT = -7;
+const ERR_BLOCKED_BY_CLIENT = -20;
 const MAX_URL_LENGTH = 8192;
 
 /** How long after a swipe navigates that another is taken as its momentum. */
@@ -140,10 +142,6 @@ export interface PageHandle {
   /** The site was allowed these, and macOS hasn't allowed them to Splash. */
   refusedBySystem(permissions: SystemPermission[]): void;
   notify(notice: Notice): void;
-  /** Its main-frame request for `url` was stopped: reported as dangerous. */
-  flaggedDangerous(url: string): void;
-  /** Its main-frame request for `plain` is going to `secure` instead. */
-  upgraded(plain: string, secure: string): void;
   /** A download is starting from this page. False means it mustn't. */
   downloadStarting(url: string, filename: string): boolean;
   /** Where it is in its window, while it's on screen. */
@@ -196,8 +194,6 @@ class ElectronPageHost implements PageHost {
   private readonly places = new PagePlaces();
   /** The HTTPS address showing the warning, and the HTTP one it stands for. */
   private failedUpgrade: { secure: string; plain: string } | null = null;
-  /** The address this navigation was stopped at for being dangerous. */
-  private flaggedUrl: string | null = null;
   private attached = false;
   private closing = false;
   /** This document was given the camera or microphone. */
@@ -252,13 +248,6 @@ class ElectronPageHost implements PageHost {
       refusedBySystem: (permissions) =>
         this.events.onPermissionRefusedBySystem(permissions),
       notify: (notice) => this.events.onNotice(notice),
-      flaggedDangerous: (url) => {
-        this.flaggedUrl = url;
-      },
-      upgraded: (plain, secure) => {
-        this.secureAttempt.begin(plain, secure);
-        this.watchSecureAttempt(secure);
-      },
       downloadStarting: (url, filename) => this.downloadStarting(url, filename),
       place: () =>
         this.attached
@@ -307,6 +296,18 @@ class ElectronPageHost implements PageHost {
       const plain = this.secureAttempt.failed(ERR_TIMED_OUT);
       if (plain) this.offerPlainHttp(secure, plain, ERR_TIMED_OUT, 'Timed out');
     }, SECURE_ATTEMPT_LIMIT_MS);
+  }
+
+  /**
+   * The helper extension sends a plain address to HTTPS before the request
+   * leaves (helper-extension.ts); by the same rule, the page knows it's
+   * trying HTTPS in its place and can offer HTTP if that fails.
+   */
+  private noteUpgrade(contents: WebContents, url: string): void {
+    const secure = sessionRulesFor(contents.session)?.upgradeOf(url);
+    if (!secure) return;
+    this.secureAttempt.begin(url, secure);
+    this.watchSecureAttempt(secure);
   }
 
   private stopWatchingSecureAttempt(): void {
@@ -854,8 +855,12 @@ class ElectronPageHost implements PageHost {
       if (!details.isMainFrame || details.isSameDocument) return;
       this.secureAttempt.navigationStarted(details.url);
       this.failedUpgrade = null;
-      this.flaggedUrl = null;
+      this.noteUpgrade(contents, details.url);
       emit({ error: null });
+    });
+    // A site's own redirect to plain HTTP is upgraded by the helper as well.
+    contents.on('did-redirect-navigation', (details) => {
+      if (details.isMainFrame) this.noteUpgrade(contents, details.url);
     });
     contents.on('did-start-loading', () => emit({ isLoading: true }));
     contents.on('did-stop-loading', () =>
@@ -928,12 +933,14 @@ class ElectronPageHost implements PageHost {
       'did-fail-load',
       (_event, code, description, url, isMainFrame) => {
         if (!isMainFrame || code === ERR_ABORTED) return;
-        if (this.flaggedUrl) {
-          const flagged = this.flaggedUrl;
-          this.flaggedUrl = null;
+        // The helper extension stopped it before anything left for the site.
+        if (
+          code === ERR_BLOCKED_BY_CLIENT &&
+          sessionRulesFor(contents.session)?.isDangerous(url)
+        ) {
           emit({
             isLoading: false,
-            error: { kind: 'dangerous-site', code, description, url: flagged },
+            error: { kind: 'dangerous-site', code, description, url },
           });
           return;
         }
