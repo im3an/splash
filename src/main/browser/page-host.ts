@@ -1,4 +1,6 @@
+import type { SwipeColors } from '../../shared/page-bridge';
 import type { Rectangle } from 'electron';
+import type { PagePlace } from '../../shared/page-place';
 import type {
   ExternalApp,
   FindResult,
@@ -7,6 +9,8 @@ import type {
   PageId,
   SitePermission,
   SystemPermission,
+  VideoActivity,
+  WorkspaceId,
 } from '../../shared/types';
 
 /** Live state reported by a page's Chromium view. */
@@ -22,6 +26,8 @@ export interface PageRuntimeState {
   /** The page is producing sound right now. */
   isAudible: boolean;
   isMuted: boolean;
+  /** A video floating above other windows, or one playing that could. */
+  video?: VideoActivity;
   /** Page zoom in percent; shared across a site and remembered for it. */
   zoomPercent: number;
   /** The latest find-in-page result, while a search is open. */
@@ -45,6 +51,8 @@ export interface HistoryEntry {
 export interface PageHistory {
   entries: HistoryEntry[];
   index: number;
+  /** Where the user was in these addresses: scroll, videos, sounds. */
+  places?: PagePlace[];
 }
 
 export interface LoadOptions {
@@ -70,6 +78,11 @@ export interface PageDownload {
 export interface PageHostEvents {
   /** The trail page this host shows. */
   readonly pageId: PageId;
+  /**
+   * The workspace whose profile the page browses in. Fixed for the host's
+   * life: a page moved to another profile gets a new host.
+   */
+  readonly workspaceId: WorkspaceId;
   onStateChange(patch: Partial<PageRuntimeState>): void;
   /** The page asked to open a new window (`window.open`, `target=_blank`). */
   onOpenRequest(url: string, options: { background: boolean }): void;
@@ -83,6 +96,8 @@ export interface PageHostEvents {
   onNavigationCommand(command: 'back' | 'forward' | 'reload'): void;
   /** Whether back/forward lead anywhere, counting the trail. */
   navigationAvailability(): { canGoBack: boolean; canGoForward: boolean };
+  /** The colours of the page's workspace, for what's drawn over the page. */
+  workspaceColors(): SwipeColors | null;
   /** Where searching for this text goes, with the chosen engine. */
   searchUrlFor(query: string): string;
   /** The page took keyboard focus, usually because it was clicked. */

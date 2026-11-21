@@ -2,9 +2,9 @@ import { FiltersEngine } from '@ghostery/adblocker';
 import { runInNewContext } from 'node:vm';
 import {
   bundleScriptlets,
-  combinedStatus,
   ContentBlocker,
   COOKIE_NOTICE_LISTS,
+  isConsentPage,
   LIST_MAX_AGE,
   type BlockerOptions,
 } from './content-blocker';
@@ -44,21 +44,14 @@ function setup(
   return { blocker: new ContentBlocker(source, options), source };
 }
 
-const ad = {
-  id: 1,
-  url: 'https://ads.example/banner.js',
-  resourceType: 'script',
-  referrer: 'https://news.example/',
-};
-
 describe('ContentBlocker', () => {
-  it('lets everything through until the lists have loaded', () => {
+  it('hides nothing until the lists have loaded', () => {
     const { blocker } = setup();
-    expect(blocker.onRequest(ad, 'page', 'https://news.example/')).toEqual({});
+    expect(blocker.cosmeticsFor('https://news.example/')).toBeNull();
     expect(blocker.getStatus().state).toBe('loading');
   });
 
-  it('downloads the lists, blocks matches and counts them per page', async () => {
+  it('downloads the lists and saves them', async () => {
     const { blocker, source } = setup();
     await blocker.load();
     expect(source.writeCache).toHaveBeenCalledOnce();
@@ -67,28 +60,6 @@ describe('ContentBlocker', () => {
       updatedAt: NOW,
       updateFailed: false,
     });
-
-    const pageUrl = 'https://news.example/';
-    expect(blocker.onRequest(ad, 'page', pageUrl)).toEqual({ cancel: true });
-    expect(
-      blocker.onRequest(
-        { ...ad, url: 'https://news.example/app.js' },
-        'page',
-        pageUrl,
-      ),
-    ).toEqual({});
-    expect(blocker.blockedOn('page')).toBe(1);
-
-    // A new page load starts the count again; the document itself is never
-    // blocked.
-    expect(
-      blocker.onRequest(
-        { ...ad, url: pageUrl, resourceType: 'mainFrame' },
-        'page',
-        pageUrl,
-      ),
-    ).toEqual({});
-    expect(blocker.blockedOn('page')).toBe(0);
   });
 
   it('returns hiding rules for the page’s site', async () => {
@@ -105,7 +76,9 @@ describe('ContentBlocker', () => {
     const { blocker, source } = setup(saved);
     await blocker.load();
     expect(source.fetch).not.toHaveBeenCalled();
-    expect(blocker.onRequest(ad, null, null)).toEqual({ cancel: true });
+    expect(blocker.cosmeticsFor('https://news.example/')?.styles).toContain(
+      '.banner',
+    );
   });
 
   it('downloads again when the saved lists are a week old', async () => {
@@ -126,7 +99,9 @@ describe('ContentBlocker', () => {
       state: 'ready',
       updateFailed: true,
     });
-    expect(blocker.onRequest(ad, null, null)).toEqual({ cancel: true });
+    expect(blocker.cosmeticsFor('https://news.example/')?.styles).toContain(
+      '.banner',
+    );
   });
 
   it('reports a failed first download', async () => {
@@ -137,137 +112,16 @@ describe('ContentBlocker', () => {
     expect(blocker.getStatus().state).toBe('failed');
   });
 
-  it('downloads only the lists it was given', async () => {
-    const { blocker, source } = setup(null, NOW, {
-      lists: COOKIE_NOTICE_LISTS,
-    });
+  it('downloads only the cookie notice lists, and no scriptlets', async () => {
+    const { blocker, source } = setup();
     await blocker.load();
     const urls = source.fetch.mock.calls.map(([url]) => url);
-    expect(urls.filter((url) => !url.endsWith('resources.json'))).toEqual(
-      COOKIE_NOTICE_LISTS,
-    );
-  });
-});
-
-describe('stand-ins for blocked scripts', () => {
-  const tag = {
-    id: 3,
-    url: 'https://tags.example/gpt.js',
-    resourceType: 'script',
-    referrer: 'https://news.example/',
-  };
-
-  // Chromium refuses a redirect to a `data:` address (ERR_UNSAFE_REDIRECT),
-  // so the page saw a failed script where uBlock Origin gives a working one.
-  it('are served from Splash’s own scheme, not a data: address', async () => {
-    const { blocker } = setup(null, NOW, { standInSecret: 's3cret' });
-    await blocker.load();
-    expect(blocker.onRequest(tag, 'page', 'https://news.example/')).toEqual({
-      redirectURL: 'splash-stand-in://s3cret/googletagservices_gpt.js',
-    });
-    expect(blocker.blockedOn('page')).toBe(1);
-  });
-
-  it('hand over the resource the address names', async () => {
-    const { blocker } = setup(null, NOW, { standInSecret: 's3cret' });
-    await blocker.load();
-    const script = blocker.standIn('googletagservices_gpt.js');
-    expect(script?.contentType).toBe('application/javascript');
-    expect(typeof script?.body).toBe('string');
-    expect(blocker.standIn('1x1.gif')?.contentType).toBe('image/gif');
-  });
-
-  it('have nothing to hand over before the lists load', () => {
-    expect(setup().blocker.standIn('googletagservices_gpt.js')).toBeNull();
-  });
-});
-
-describe('tracking parameters the lists name', () => {
-  const page = (url: string, resourceType = 'mainFrame') => ({
-    id: 2,
-    url,
-    resourceType,
-    referrer: '',
-  });
-
-  it('come off a page’s address', async () => {
-    const { blocker } = setup();
-    await blocker.load();
-    expect(
-      blocker.cleanedAddress(
-        page('https://news.example/story?id=7&fbclid=IwAR0abc&gclid=Cj0'),
-      ),
-    ).toBe('https://news.example/story?id=7');
-  });
-
-  // Ghostery's optimiser fuses rules like these into one and keeps only the
-  // first rule's parameter (2.20.3 still does).
-  it('each come off, however many rules the lists have', async () => {
-    const { blocker } = setup();
-    await blocker.load();
-    for (const name of ['s_cid', 'fbclid', 'gclid']) {
-      expect(
-        blocker.cleanedAddress(page(`https://news.example/?${name}=1&id=2`)),
-      ).toBe('https://news.example/?id=2');
-    }
-  });
-
-  it('come off with lists loaded from the Mac', async () => {
-    const saved = FiltersEngine.parse(LIST).serialize();
-    const { blocker } = setup(saved);
-    await blocker.load();
-    expect(
-      blocker.cleanedAddress(page('https://news.example/?gclid=1&fbclid=2')),
-    ).toBe('https://news.example/');
-  });
-
-  it('leave the rest of the address alone', async () => {
-    const { blocker } = setup();
-    await blocker.load();
-    expect(
-      blocker.cleanedAddress(page('https://news.example/story?id=7&page=2')),
-    ).toBeNull();
-    expect(blocker.cleanedAddress(page('https://news.example/'))).toBeNull();
-  });
-
-  it('follow the list’s scope: a site’s own rule, for its pages only', async () => {
-    const { blocker } = setup();
-    await blocker.load();
-    expect(
-      blocker.cleanedAddress(page('https://shop.example/?ref_campaign=mail')),
-    ).toBe('https://shop.example/');
-    expect(
-      blocker.cleanedAddress(page('https://news.example/?ref_campaign=mail')),
-    ).toBeNull();
-  });
-
-  it('stay on what a page loads: only addresses you go to are cleaned', async () => {
-    const { blocker } = setup();
-    await blocker.load();
-    expect(
-      blocker.onRequest(
-        {
-          ...ad,
-          url: 'https://news.example/api?fbclid=x&q=1',
-          resourceType: 'xhr',
-        },
-        'page',
-        'https://news.example/',
-      ),
-    ).toEqual({});
-    expect(blocker.blockedOn('page')).toBe(0);
-  });
-
-  it('stay until the lists have loaded', () => {
-    const { blocker } = setup();
-    expect(
-      blocker.cleanedAddress(page('https://news.example/?fbclid=x')),
-    ).toBeNull();
+    expect(urls).toEqual(COOKIE_NOTICE_LISTS);
   });
 });
 
 describe('scriptlets', () => {
-  it('runs a list’s scriptlets unless they are turned off', async () => {
+  it('runs a list’s scriptlets only when they are turned on', async () => {
     const resources = JSON.stringify({
       scriptlets: [
         {
@@ -279,8 +133,8 @@ describe('scriptlets', () => {
       ],
       redirects: [],
     });
-    const withScriptlets = setup();
-    const without = setup(null, NOW, { scriptlets: false });
+    const withScriptlets = setup(null, NOW, { scriptlets: true });
+    const without = setup();
     for (const { source } of [withScriptlets, without]) {
       source.fetch.mockImplementation(async (url: string) => {
         const text = url.endsWith('resources.json') ? resources : LIST;
@@ -303,42 +157,27 @@ describe('scriptlets', () => {
   });
 });
 
+describe('isConsentPage', () => {
+  it('knows pages that only ask for cookie consent', () => {
+    expect(
+      isConsentPage('https://consent.google.com/m?continue=https://x.example/'),
+    ).toBe(true);
+    expect(isConsentPage('https://consent.google.de/ml')).toBe(true);
+    expect(isConsentPage('https://consent.youtube.com/m')).toBe(true);
+  });
+
+  it('leaves every other page to the cookie lists', () => {
+    expect(isConsentPage('https://www.google.com/')).toBe(false);
+    expect(isConsentPage('https://consent.example/')).toBe(false);
+    expect(isConsentPage('https://news.example/consent.html')).toBe(false);
+    expect(isConsentPage(null)).toBe(false);
+  });
+});
+
 describe('COOKIE_NOTICE_LISTS', () => {
   it('names the cookie lists and nothing else', () => {
     expect(COOKIE_NOTICE_LISTS).toHaveLength(2);
     for (const url of COOKIE_NOTICE_LISTS) expect(url).toMatch(/cookie/);
-  });
-});
-
-describe('combinedStatus', () => {
-  const ready = {
-    state: 'ready' as const,
-    updatedAt: NOW,
-    updateFailed: false,
-  };
-
-  it('reports the oldest lists once all are ready', () => {
-    expect(
-      combinedStatus([
-        ready,
-        { ...ready, updatedAt: NOW - 5, updateFailed: true },
-      ]),
-    ).toEqual({ state: 'ready', updatedAt: NOW - 5, updateFailed: true });
-  });
-
-  it('reports the least ready blocker', () => {
-    const loading = {
-      state: 'loading' as const,
-      updatedAt: null,
-      updateFailed: false,
-    };
-    const failed = {
-      state: 'failed' as const,
-      updatedAt: null,
-      updateFailed: true,
-    };
-    expect(combinedStatus([ready, loading]).state).toBe('loading');
-    expect(combinedStatus([loading, failed, ready])).toEqual(failed);
   });
 });
 

@@ -18,16 +18,25 @@ import {
   FILE_DROPPED,
   FORM_EDITED,
   FRAME_GESTURE,
+  VIDEO_FLOATED,
   VIDEO_UNFLOATED,
   LINK_DROPPED,
   LINK_ACTIVATED,
   NAVIGATION_BUTTON,
+  SWIPE_ASK,
+  SWIPE_RUN,
+  type SwipeAnswer,
+  PLACE_ASK,
+  PLACE_REPORT,
 } from '../../shared/page-bridge';
+import { pagePlaceSchema, placeAskSchema } from '../../shared/ipc';
+import { PagePlaces } from './page-places';
 import type {
   ExternalApp,
   Notice,
   SitePermission,
   SystemPermission,
+  VideoActivity,
 } from '../../shared/types';
 import { webContextMenu } from '../menus/web-context-menu';
 import { setDictionaryWord } from '../spelling';
@@ -59,8 +68,10 @@ import {
 } from './popup-policy';
 import { stepZoom } from './zoom';
 import { SECURE_ATTEMPT_LIMIT_MS, SecureAttempt } from '../security/https-only';
+import { sessionRulesFor } from '../privacy/helper-extension';
 import {
   floatPlayingVideo,
+  probeVideo,
   sinkFloatingVideo,
   togglePictureInPicture,
 } from './picture-in-picture';
@@ -69,7 +80,11 @@ import { CONTENT_RADIUS } from '../../shared/geometry';
 /** Chromium's ERR_ABORTED: a load was superseded by another navigation. */
 const ERR_ABORTED = -3;
 const ERR_TIMED_OUT = -7;
+const ERR_BLOCKED_BY_CLIENT = -20;
 const MAX_URL_LENGTH = 8192;
+
+/** How long after a swipe navigates that another is taken as its momentum. */
+const SWIPE_SETTLE_MS = 900;
 
 export interface PageHostEnvironment {
   window: BaseWindow;
@@ -88,6 +103,8 @@ export interface PageHostEnvironment {
   popupsAllowed(origin: string): boolean | null;
   /** The HTTPS-only setting. */
   httpsOnly(): boolean;
+  /** Whether trackpad swipes over a page navigate and reload. */
+  trackpadSwipes(): boolean;
   /** Whether the user already chose to use this plain HTTP address's site. */
   plainHttpAllowed(url: string): boolean;
   /** Whether the user chose to use this site despite its certificate. */
@@ -128,10 +145,6 @@ export interface PageHandle {
   /** The site was allowed these, and macOS hasn't allowed them to Splash. */
   refusedBySystem(permissions: SystemPermission[]): void;
   notify(notice: Notice): void;
-  /** Its main-frame request for `url` was stopped: reported as dangerous. */
-  flaggedDangerous(url: string): void;
-  /** Its main-frame request for `plain` is going to `secure` instead. */
-  upgraded(plain: string, secure: string): void;
   /** A download is starting from this page. False means it mustn't. */
   downloadStarting(url: string, filename: string): boolean;
   /** Where it is in its window, while it's on screen. */
@@ -180,17 +193,19 @@ class ElectronPageHost implements PageHost {
   private readonly gestures = new UserGestures();
   private readonly downloads = new PageDownloads();
   private readonly secureAttempt = new SecureAttempt();
+  /** Where the user was in this page's documents, to bring them back. */
+  private readonly places = new PagePlaces();
   /** The HTTPS address showing the warning, and the HTTP one it stands for. */
   private failedUpgrade: { secure: string; plain: string } | null = null;
-  /** The address this navigation was stopped at for being dangerous. */
-  private flaggedUrl: string | null = null;
   private attached = false;
   private closing = false;
-  private hasFormEdits = false;
   /** This document was given the camera or microphone. */
   private capturing = false;
   private videoFloats = false;
   private wantsFloat = false;
+  /** What the page's videos were last seen doing. */
+  private video: VideoActivity = 'none';
+  private videoCheck: ReturnType<typeof setTimeout> | null = null;
   private origin: string | null = null;
   private sourceUrl: string | null = null;
   private secureTimer: ReturnType<typeof setTimeout> | null = null;
@@ -239,13 +254,6 @@ class ElectronPageHost implements PageHost {
       refusedBySystem: (permissions) =>
         this.events.onPermissionRefusedBySystem(permissions),
       notify: (notice) => this.events.onNotice(notice),
-      flaggedDangerous: (url) => {
-        this.flaggedUrl = url;
-      },
-      upgraded: (plain, secure) => {
-        this.secureAttempt.begin(plain, secure);
-        this.watchSecureAttempt(secure);
-      },
       downloadStarting: (url, filename) => this.downloadStarting(url, filename),
       place: () =>
         this.attached
@@ -254,6 +262,13 @@ class ElectronPageHost implements PageHost {
     });
     this.view.webContents.once('destroyed', () => pageHandles.delete(id));
     environment.onContentsCreated?.(this.view.webContents);
+  }
+
+  private lastSwipe = 0;
+
+  /** Whether a swipe just navigated, so this one is its momentum. */
+  private swipedAt(): boolean {
+    return Date.now() - this.lastSwipe < SWIPE_SETTLE_MS;
   }
 
   private get contents(): WebContents {
@@ -289,6 +304,18 @@ class ElectronPageHost implements PageHost {
     }, SECURE_ATTEMPT_LIMIT_MS);
   }
 
+  /**
+   * The helper extension sends a plain address to HTTPS before the request
+   * leaves (helper-extension.ts); by the same rule, the page knows it's
+   * trying HTTPS in its place and can offer HTTP if that fails.
+   */
+  private noteUpgrade(contents: WebContents, url: string): void {
+    const secure = sessionRulesFor(contents.session)?.upgradeOf(url);
+    if (!secure) return;
+    this.secureAttempt.begin(url, secure);
+    this.watchSecureAttempt(secure);
+  }
+
   private stopWatchingSecureAttempt(): void {
     if (this.secureTimer) clearTimeout(this.secureTimer);
     this.secureTimer = null;
@@ -317,6 +344,7 @@ class ElectronPageHost implements PageHost {
   load(url: string, options: LoadOptions = {}): void {
     if (options.comingBack) this.downloads.comingBack();
     else this.downloads.userActed();
+    if (!options.comingBack) this.places.leave();
     this.sourceUrl = url.startsWith('view-source:') ? url : null;
     if (options.plainAddress && this.environment.httpsOnly()) {
       this.secureAttempt.begin(options.plainAddress, url);
@@ -350,6 +378,7 @@ class ElectronPageHost implements PageHost {
 
   reload({ ignoreCache = false }: { ignoreCache?: boolean } = {}): void {
     this.downloads.userActed();
+    this.places.returnTo(this.contents.getURL() || null);
     this.hung.leave(() => {
       if (ignoreCache) this.contents.reloadIgnoringCache();
       else this.contents.reload();
@@ -410,12 +439,19 @@ class ElectronPageHost implements PageHost {
     // an ordinary failure of an HTTPS address the user never asked for.
     if (this.failedUpgrade && entries[index]?.url === this.failedUpgrade.secure)
       entries[index] = { ...entries[index]!, url: this.failedUpgrade.plain };
-    return { entries, index: Math.max(0, index) };
+    const places = this.places.export(entries.map((entry) => entry.url));
+    return {
+      entries,
+      index: Math.max(0, index),
+      ...(places.length > 0 ? { places } : {}),
+    };
   }
 
   restoreHistory(history: PageHistory): void {
     const active = history.entries[history.index]?.url;
     this.downloads.comingBack();
+    this.places.seed(history.places);
+    this.places.returnTo(active ?? null);
     if (active?.startsWith('view-source:')) {
       this.load(active, { comingBack: true });
       return;
@@ -434,7 +470,10 @@ class ElectronPageHost implements PageHost {
 
   isInUse(): boolean {
     return (
-      this.capturing || this.videoFloats || this.contents.isDevToolsOpened()
+      this.capturing ||
+      this.videoFloats ||
+      this.video === 'floating' ||
+      this.contents.isDevToolsOpened()
     );
   }
 
@@ -453,6 +492,23 @@ class ElectronPageHost implements PageHost {
     if (!this.videoFloats) return;
     this.videoFloats = false;
     void sinkFloatingVideo(this.contents);
+  }
+
+  /**
+   * Looks again at what the page's videos are doing, once things settle: a
+   * play, a pause or a float often comes in a burst of events.
+   */
+  private checkVideo(): void {
+    if (this.videoCheck) clearTimeout(this.videoCheck);
+    this.videoCheck = setTimeout(() => {
+      this.videoCheck = null;
+      if (this.contents.isDestroyed()) return;
+      void probeVideo(this.contents).then((video) => {
+        if (this.contents.isDestroyed() || video === this.video) return;
+        this.video = video;
+        this.events.onStateChange({ video });
+      });
+    }, 150);
   }
 
   setMuted(muted: boolean): void {
@@ -496,7 +552,7 @@ class ElectronPageHost implements PageHost {
     }
   }
 
-  private allowLeave(reason: 'unsaved' | 'unresponsive' | 'edited'): boolean {
+  private allowLeave(reason: 'unsaved' | 'unresponsive'): boolean {
     const url = this.contents.isDestroyed() ? '' : this.contents.getURL();
     let host = 'This page';
     try {
@@ -512,11 +568,9 @@ class ElectronPageHost implements PageHost {
             ? `Leave ${host}?`
             : `${host} isn’t responding.`,
         detail:
-          reason === 'edited'
-            ? 'You edited fields on this page. Some sites save automatically. Leave only if your work is saved, or if you want to discard it.'
-            : reason === 'unsaved'
-              ? 'The site says you may have unsaved changes. Leaving can discard what you entered.'
-              : 'You can keep this page open and wait, or force it to close. Unsaved changes may be lost.',
+          reason === 'unsaved'
+            ? 'The site says you may have unsaved changes. Leaving can discard what you entered.'
+            : 'You can keep this page open and wait, or force it to close. Unsaved changes may be lost.',
         buttons:
           reason !== 'unresponsive'
             ? ['Stay on Page', 'Leave Page']
@@ -528,13 +582,14 @@ class ElectronPageHost implements PageHost {
     );
   }
 
+  // Only the site's own beforeunload asks before closing, as in Chrome. Typing
+  // in a search or chat box isn't unsaved work, and on pages that never reload
+  // the edit flag would never clear; it only keeps the page awake.
   async requestClose(): Promise<boolean> {
-    const edited = this.hasFormEdits;
-    if (edited && !this.allowLeave('edited')) return false;
     this.closing = true;
     try {
       return await requestPageClose(this.contents, (reason) =>
-        reason === 'unsaved' && edited ? true : this.allowLeave(reason),
+        this.allowLeave(reason),
       );
     } finally {
       this.closing = false;
@@ -545,6 +600,7 @@ class ElectronPageHost implements PageHost {
     // Forget the page now: `destroyed` comes later, and until then a sleeping
     // page would still seem to have this view.
     if (!this.contents.isDestroyed()) pageHandles.delete(this.contents.id);
+    if (this.videoCheck) clearTimeout(this.videoCheck);
     this.stopWatchingSecureAttempt();
     this.hide();
     // A WebContentsView does not destroy its WebContents on its own.
@@ -624,10 +680,29 @@ class ElectronPageHost implements PageHost {
       this.gestures.record();
       this.downloads.userActed();
     });
+    // Playing, pausing and floating all change what the page can offer.
+    contents.on('media-started-playing', () => this.checkVideo());
+    contents.on('media-paused', () => this.checkVideo());
+    contents.ipc.on(VIDEO_FLOATED, () => this.checkVideo());
     contents.ipc.on(VIDEO_UNFLOATED, (_event, playing: unknown) => {
-      const floated = this.videoFloats;
+      this.checkVideo();
       this.videoFloats = false;
-      if (floated && playing === true) this.events.onVideoReturned?.();
+      // Still playing means its back button, not its close button: whoever
+      // floated it, the page it belongs to comes to the front.
+      if (playing === true) this.events.onVideoReturned?.();
+    });
+    // Only the top frame's document has a place; it may only speak for itself.
+    contents.ipc.on(PLACE_REPORT, (event, report: unknown) => {
+      const place = pagePlaceSchema.safeParse(report);
+      if (!place.success || event.senderFrame?.parent !== null) return;
+      if (event.senderFrame.url !== place.data.url) return;
+      this.places.remember(place.data);
+    });
+    contents.ipc.handle(PLACE_ASK, (event, question: unknown) => {
+      const ask = placeAskSchema.safeParse(question);
+      if (!ask.success || event.senderFrame?.parent !== null) return null;
+      if (event.senderFrame.url !== ask.data.url) return null;
+      return this.places.ask(ask.data.url, ask.data.kind);
     });
     contents.ipc.on(LINK_DROPPED, (_event, href: unknown) => {
       if (
@@ -648,7 +723,6 @@ class ElectronPageHost implements PageHost {
     });
     contents.ipc.on(FORM_EDITED, (event, edited: unknown) => {
       if (!event.senderFrame || edited !== true) return;
-      this.hasFormEdits = true;
       emit({ hasFormEdits: true });
     });
     contents.ipc.on(LINK_ACTIVATED, (event, href: unknown) => {
@@ -667,6 +741,28 @@ class ElectronPageHost implements PageHost {
       const current = contents.getURL();
       if (this.links.take(href) && !isSameDocumentUrl(href, current))
         this.events.onBranchRequest(href, current);
+    });
+    // Only the top frame swipes: it speaks for the page, an embedded frame
+    // doesn't. A swipe's leftover momentum lands on the page it went to, so
+    // a second one so soon is that, not the user.
+    contents.ipc.handle(SWIPE_ASK, (event): SwipeAnswer => {
+      const none = { back: false, forward: false, reload: false, colors: null };
+      if (event.senderFrame?.parent !== null) return none;
+      if (!this.environment.trackpadSwipes() || this.swipedAt()) return none;
+      const { canGoBack, canGoForward } = this.events.navigationAvailability();
+      return {
+        back: canGoBack,
+        forward: canGoForward,
+        reload: true,
+        colors: this.events.workspaceColors(),
+      };
+    });
+    contents.ipc.on(SWIPE_RUN, (event, kind: unknown) => {
+      if (event.senderFrame?.parent !== null) return;
+      if (kind !== 'back' && kind !== 'forward' && kind !== 'reload') return;
+      if (!this.environment.trackpadSwipes() || this.swipedAt()) return;
+      this.lastSwipe = Date.now();
+      this.events.onNavigationCommand(kind);
     });
     // Any frame may report it: the button works over embedded content too.
     contents.ipc.on(NAVIGATION_BUTTON, (_event, button: unknown) => {
@@ -792,14 +888,20 @@ class ElectronPageHost implements PageHost {
       if (!details.isMainFrame || details.isSameDocument) return;
       this.secureAttempt.navigationStarted(details.url);
       this.failedUpgrade = null;
-      this.flaggedUrl = null;
+      this.noteUpgrade(contents, details.url);
       emit({ error: null });
+    });
+    // A site's own redirect to plain HTTP is upgraded by the helper as well.
+    contents.on('did-redirect-navigation', (details) => {
+      if (details.isMainFrame) this.noteUpgrade(contents, details.url);
     });
     contents.on('did-start-loading', () => emit({ isLoading: true }));
     contents.on('did-stop-loading', () =>
       emit({ isLoading: false, ...this.navigationState() }),
     );
     contents.on('did-navigate', (_event, committed, status) => {
+      // A new document has no videos playing yet.
+      this.checkVideo();
       this.downloads.committed();
       this.stopWatchingSecureAttempt();
       // The secure address answered only to say it has nothing there: the
@@ -809,7 +911,6 @@ class ElectronPageHost implements PageHost {
         this.offerPlainHttp(committed, refused, status, `HTTP ${status}`);
       }
       this.secureAttempt.committed();
-      this.hasFormEdits = false;
       this.capturing = false;
       emit({
         hasFormEdits: false,
@@ -867,12 +968,14 @@ class ElectronPageHost implements PageHost {
       'did-fail-load',
       (_event, code, description, url, isMainFrame) => {
         if (!isMainFrame || code === ERR_ABORTED) return;
-        if (this.flaggedUrl) {
-          const flagged = this.flaggedUrl;
-          this.flaggedUrl = null;
+        // The helper extension stopped it before anything left for the site.
+        if (
+          code === ERR_BLOCKED_BY_CLIENT &&
+          sessionRulesFor(contents.session)?.isDangerous(url)
+        ) {
           emit({
             isLoading: false,
-            error: { kind: 'dangerous-site', code, description, url: flagged },
+            error: { kind: 'dangerous-site', code, description, url },
           });
           return;
         }

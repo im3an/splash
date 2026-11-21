@@ -5,7 +5,7 @@ import {
   ExternalLink,
   RotateCw,
   X,
-} from 'lucide-react';
+} from '../icons';
 import {
   AI_PROVIDERS,
   aiProvider,

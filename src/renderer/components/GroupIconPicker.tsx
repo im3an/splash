@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Folder, Globe } from 'lucide-react';
+import { Folder, Globe } from '../icons';
 import type { PageGroup, PageId } from '../../shared/types';
 import { useDialogFocus } from '../hooks/use-dialog-focus';
 import { menuPosition } from '../lib/menu-position';
@@ -66,14 +66,17 @@ const EMOJI: readonly [value: string, label: string][] = [
 export function GroupMark({
   group,
   size = 16,
+  open = false,
 }: {
   group: PageGroup;
   size?: number;
+  /** Whether the group is unfolded, which opens the folder. */
+  open?: boolean;
 }) {
   return group.icon ? (
     <WorkspaceIcon icon={group.icon} name={group.name} size={size} />
   ) : (
-    <Folder size={size} fill="currentColor" aria-hidden />
+    <Folder open={open} size={size} fill="currentColor" aria-hidden />
   );
 }
 

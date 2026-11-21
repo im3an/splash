@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CircleAlert, Lock, LockOpen, RotateCw } from 'lucide-react';
+import { ChevronDown, CircleAlert, Lock, LockOpen, RotateCw } from '../icons';
 import type {
   CookieSite,
   PermissionDecision,
@@ -23,6 +23,8 @@ export function SiteInfoPopover() {
   const [changed, setChanged] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Settings the site hasn't touched stay folded away until asked for. */
+  const [showAll, setShowAll] = useState(false);
   const pageId = page?.id;
 
   const load = useCallback(async () => {
@@ -132,33 +134,45 @@ export function SiteInfoPopover() {
             {page && page.blockedPopups.length > 0 && (
               <BlockedPopups pageId={page.id} urls={page.blockedPopups} />
             )}
-            <div className="flex flex-col gap-0.5 px-2 py-2">
-              {info.permissions.map(({ permission, label, decision }) => (
-                <div
-                  key={permission}
-                  className="flex h-9 items-center justify-between gap-3 rounded-row px-2"
+            <PermissionRows
+              permissions={info.permissions.filter((row) => row.inUse)}
+              blockedCount={info.blockedCount}
+              busy={busy}
+              onDecide={(permission, decision) =>
+                void decide(permission, decision)
+              }
+            />
+            {info.permissions.every((row) => !row.inUse) && (
+              <p className="px-4 pt-3 pb-1 text-small text-fg-subtle">
+                This site hasn’t asked for anything.
+              </p>
+            )}
+            {info.permissions.some((row) => !row.inUse) && (
+              <>
+                <button
+                  type="button"
+                  aria-expanded={showAll}
+                  onClick={() => setShowAll((shown) => !shown)}
+                  className="mx-2 mb-1 flex h-8 items-center gap-1.5 rounded-row px-2 text-small text-fg-subtle hover:bg-row-hover hover:text-fg-muted"
                 >
-                  <span className="min-w-0 text-fg-muted">
-                    {label}
-                    {permission === 'ads' &&
-                      decision === 'block' &&
-                      info.blockedCount > 0 && (
-                        <span className="block text-caption text-fg-subtle">
-                          {info.blockedCount} blocked on this page
-                        </span>
-                      )}
-                  </span>
-                  <SegmentedControl
-                    compact
-                    label={label}
-                    value={decision}
-                    disabled={busy}
-                    options={siteDecisionOptions(permission)}
-                    onChange={(value) => void decide(permission, value)}
+                  <ChevronDown
+                    size={12}
+                    className={`transition-transform duration-fast ${showAll ? '' : '-rotate-90'}`}
                   />
-                </div>
-              ))}
-            </div>
+                  {showAll ? 'Fewer settings' : 'More settings'}
+                </button>
+                {showAll && (
+                  <PermissionRows
+                    permissions={info.permissions.filter((row) => !row.inUse)}
+                    blockedCount={info.blockedCount}
+                    busy={busy}
+                    onDecide={(permission, decision) =>
+                      void decide(permission, decision)
+                    }
+                  />
+                )}
+              </>
+            )}
             <SiteCookies host={info.host} onChange={() => setChanged(true)} />
             {error && (
               <p
@@ -199,6 +213,50 @@ export function SiteInfoPopover() {
         )}
       </AnchoredPanel>
     </>
+  );
+}
+
+/** One row per setting, each with its Allow / Ask / Block choice. */
+function PermissionRows({
+  permissions,
+  blockedCount,
+  busy,
+  onDecide,
+}: {
+  permissions: SiteInfo['permissions'];
+  blockedCount: number;
+  busy: boolean;
+  onDecide(permission: SitePermission, decision: PermissionDecision): void;
+}) {
+  if (permissions.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-0.5 px-2 py-2">
+      {permissions.map(({ permission, label, decision }) => (
+        <div
+          key={permission}
+          className="flex h-9 items-center justify-between gap-3 rounded-row px-2"
+        >
+          <span className="min-w-0 text-fg-muted">
+            {label}
+            {permission === 'ads' &&
+              decision === 'block' &&
+              blockedCount > 0 && (
+                <span className="block text-caption text-fg-subtle">
+                  {blockedCount} blocked on this page
+                </span>
+              )}
+          </span>
+          <SegmentedControl
+            compact
+            label={label}
+            value={decision}
+            disabled={busy}
+            options={siteDecisionOptions(permission)}
+            onChange={(value) => onDecide(permission, value)}
+          />
+        </div>
+      ))}
+    </div>
   );
 }
 

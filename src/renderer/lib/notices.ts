@@ -107,6 +107,8 @@ export function noticeMessage(notice: Notice): string {
       return `${notice.host} can’t use your ${permissionNames(notice.permissions)}, because macOS hasn’t allowed Splash to.`;
     case 'passkey-unavailable':
       return `${notice.host} asked for a passkey, and Splash can’t use Touch ID or iCloud passkeys yet.`;
+    case 'no-article':
+      return 'Reader can’t find an article on this page.';
     case 'no-video':
       return notice.blocked
         ? 'This site doesn’t allow picture in picture.'
@@ -302,6 +304,7 @@ export function noticeToast(notice: Notice): ToastInput {
     case 'exported':
     case 'password-saved':
     case 'no-video':
+    case 'no-article':
     case 'page-saved':
     case 'copied':
     case 'no-app':

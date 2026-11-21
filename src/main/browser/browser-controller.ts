@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Rectangle } from 'electron';
 import {
+  accentColors,
+  appearanceColors,
   DEFAULT_APPEARANCE,
   newWorkspaceAppearance,
 } from '../../shared/appearance';
@@ -110,6 +112,8 @@ interface Page {
   permissionQueue: PendingPermission[];
   /** Permissions refused on the current site. */
   blocked: Set<SitePermission>;
+  /** Permissions the current site asked for, whatever the answer. */
+  asked: Set<SitePermission>;
   /** Those of them the site was allowed, and macOS refused to Splash. */
   systemRefused: Set<SystemPermission>;
   /** Addresses stopped from opening in the current document. */
@@ -143,12 +147,17 @@ export interface BrowserControllerOptions {
   /** Brings this window to the front, for a page sent to it. */
   focusWindow?(): void;
   onSnapshot(snapshot: BrowserSnapshot): void;
-  /** A page committed a navigation to a new document. */
-  onVisit?(url: string): void;
+  /** A page in this workspace committed a navigation to a new document. */
+  onVisit?(url: string, workspaceId: WorkspaceId): void;
   /** A page reported the title of the document it shows. */
-  onTitle?(url: string, title: string): void;
+  onTitle?(url: string, title: string, workspaceId: WorkspaceId): void;
   /** A page reported the favicon of the document it shows. */
-  onFavicon?(url: string, faviconUrl: string): void;
+  onFavicon?(url: string, faviconUrl: string, workspaceId: WorkspaceId): void;
+  /**
+   * The profile (cookies, storage) a workspace's pages browse in. A page
+   * moved to a workspace with another profile is opened again there.
+   */
+  profileOf?(workspaceId: WorkspaceId): string;
   /** Coalesces snapshot emissions; defaults to one per microtask. */
   schedule?: (flush: () => void) => void;
   createId?: () => string;
@@ -589,6 +598,30 @@ export class BrowserController {
   }
 
   /**
+   * Closes the loose pages of the workspace on screen, like Arc's Clear:
+   * pinned pages and pages in groups stay, with everything under them. One
+   * reopen brings them all back.
+   */
+  clearLoosePages(): void | Promise<void> {
+    const workspace = this.workspace;
+    const { tree } = workspace;
+    const loose = (pageId: PageId) => {
+      const page = this.require(pageId);
+      return !page.pinned && page.groupId === null;
+    };
+    const tops = tree.rootIds.filter(loose);
+    const closing = tops.flatMap((pageId) => tree.branch(pageId));
+    if (closing.length === 0) return;
+    return this.guardRemoval(closing, () => {
+      const active = this.viewOf(workspace).activePageId;
+      const kept = tree.rootIds.find((pageId) => !loose(pageId)) ?? null;
+      const successor =
+        active !== null && closing.includes(active) ? kept : active;
+      this.closeBranchesNow(workspace, closing, successor, null);
+    });
+  }
+
+  /**
    * Closes every page after this one in the sidebar, except pinned pages. One
    * reopen brings them all back. If the page on screen goes, this one shows.
    */
@@ -705,6 +738,7 @@ export class BrowserController {
           ...closed.state,
           isLoading: false,
           isAudible: false,
+          video: 'none',
           isUnresponsive: false,
           find: null,
         },
@@ -859,8 +893,15 @@ export class BrowserController {
   /**
    * Moves a page and its branch under `parentId`, right after the sibling
    * `afterId` (or first, when `afterId` is null), within its workspace.
+   * At the top level, `groupId` says which group it lands in (`null` for
+   * none); left out, its neighbours decide.
    */
-  movePage(id: PageId, parentId: PageId | null, afterId: PageId | null): void {
+  movePage(
+    id: PageId,
+    parentId: PageId | null,
+    afterId: PageId | null,
+    groupId?: string | null,
+  ): void {
     const { tree } = this.workspaceOf(id);
     if (parentId !== null && !tree.has(parentId)) {
       throw new Error(`${parentId} is not in the same workspace`);
@@ -881,7 +922,16 @@ export class BrowserController {
     if (parentId !== null) this.collapsedIds.delete(parentId);
     const page = this.require(id);
     if (parentId !== null) page.groupId = null;
-    else if (!page.pinned) {
+    else if (!page.pinned && groupId !== undefined) {
+      const { groups } = this.workspaceOf(id);
+      const group =
+        groupId === null ? undefined : groups.find((g) => g.id === groupId);
+      if (groupId !== null && !group) {
+        throw new Error(`Group ${groupId} is not in this workspace`);
+      }
+      page.groupId = groupId;
+      if (group) group.collapsed = false;
+    } else if (!page.pinned) {
       // Dropped between two pages of a group, or after its last one, it joins.
       const roots = tree.rootIds;
       const at = roots.indexOf(id);
@@ -1428,6 +1478,21 @@ export class BrowserController {
     if (childId !== null) this.activatePage(childId);
   }
 
+  /** What the page's current site asked for, allowed or not. */
+  askedOn(id: PageId): SitePermission[] {
+    return [...(this.pages.get(id)?.asked ?? [])];
+  }
+
+  /** The page left the screen: a video being watched floats, if allowed. */
+  floatVideo(id: PageId): void {
+    this.pages.get(id)?.host?.floatVideo?.();
+  }
+
+  /** The page came back: a video floated for leaving returns to it. */
+  sinkVideo(id: PageId): void {
+    this.pages.get(id)?.host?.sinkVideo?.();
+  }
+
   /** What macOS refused to Splash on this page, since it last loaded. */
   systemRefusedOn(id: PageId): SystemPermission[] {
     return [...(this.pages.get(id)?.systemRefused ?? [])];
@@ -1636,6 +1701,29 @@ export class BrowserController {
     }
   }
 
+  /**
+   * Frees a page's view so it wakes again in another profile. Unlike
+   * `discard`, it can't wait for unsaved form edits: the page has to go.
+   */
+  private reopenInProfile(id: PageId): void {
+    const page = this.require(id);
+    if (!page.host) return;
+    page.history = page.host.captureHistory() ?? page.history;
+    this.cancelPermissionRequests(page);
+    page.host.destroy();
+    page.host = null;
+    this.forgetView(id);
+    page.state = {
+      ...page.state,
+      isLoading: false,
+      isAudible: false,
+      video: 'none',
+      isUnresponsive: false,
+      hasFormEdits: false,
+      find: null,
+    };
+  }
+
   /** Frees a page's view, keeping its address and history for later. */
   discard(id: PageId): void {
     const page = this.require(id);
@@ -1649,6 +1737,7 @@ export class BrowserController {
       ...page.state,
       isLoading: false,
       isAudible: false,
+      video: 'none',
       isUnresponsive: false,
       find: null,
     };
@@ -2002,6 +2091,9 @@ export class BrowserController {
       }
     }
     source.tree.removeBranch(id);
+    const profileOf = this.options.profileOf;
+    const reopens =
+      profileOf !== undefined && profileOf(source.id) !== profileOf(target.id);
     for (const node of structure) {
       const isRoot = node.pageId === id;
       target.tree.add(
@@ -2011,6 +2103,9 @@ export class BrowserController {
       );
       this.require(node.pageId).workspaceId = target.id;
       this.require(node.pageId).groupId = null;
+      // A view can't change its session, so the page is opened again at the
+      // same place in its new workspace's profile, signed in as that one is.
+      if (reopens) this.reopenInProfile(node.pageId);
     }
     const targetView = this.viewOf(target);
     targetView.activePageId ??= id;
@@ -2202,6 +2297,9 @@ export class BrowserController {
         };
       }),
       activeWorkspaceId: workspace.id,
+      ...(this.options.profileOf
+        ? { activeProfile: this.options.profileOf(workspace.id) }
+        : {}),
     };
   }
 
@@ -2271,6 +2369,7 @@ export class BrowserController {
             ...page.state,
             isLoading: false,
             isAudible: false,
+            video: 'none',
             hasFormEdits: false,
             find: null,
           };
@@ -2315,6 +2414,7 @@ export class BrowserController {
         ...page.state,
         isLoading: false,
         isAudible: false,
+        video: 'none',
         isUnresponsive: false,
         find: null,
       };
@@ -2544,6 +2644,7 @@ export class BrowserController {
       committedUrl: null,
       permissionQueue: [],
       blocked: new Set(),
+      asked: new Set(),
       systemRefused: new Set(),
       blockedPopups: [],
     };
@@ -2770,6 +2871,7 @@ export class BrowserController {
     const at = (): BrowserController => this.pages.get(id)?.holder ?? this;
     const host: PageHost = this.options.createHost({
       pageId: id,
+      workspaceId: this.require(id).workspaceId,
       onStateChange: (patch) => {
         if (isCurrent()) at().updateState(id, patch);
       },
@@ -2801,6 +2903,7 @@ export class BrowserController {
         // A page looping on `window.open` shouldn't redraw the shell each time.
         if (!listed && page.blocked.has('popups')) return;
         page.blocked.add('popups');
+        page.asked.add('popups');
         this.changed();
       },
       onBranchRequest: (url, referrer) => {
@@ -2813,6 +2916,16 @@ export class BrowserController {
         else at().reload(id);
       },
       navigationAvailability: () => this.trailNavigation(id),
+      workspaceColors: () => {
+        const page = this.pages.get(id);
+        const workspace = page && this.workspaces.get(page.workspaceId);
+        if (!workspace) return null;
+        const { appearance } = workspace;
+        return {
+          accent: accentColors(appearance.accent),
+          glow: appearanceColors(appearance)?.slice(0, 3) ?? null,
+        };
+      },
       searchUrlFor: (query) => searchUrl(query, this.options.search?.()),
       onFocus: () => {
         // Clicking into the other side of a split view makes it active.
@@ -2829,6 +2942,13 @@ export class BrowserController {
         if (isCurrent()) at().afterDownload(id, download);
       },
       onNotice: (notice) => at().options.onNotice?.(notice),
+      // The floating window's back button: show the page it came from.
+      onVideoReturned: () => {
+        if (!isCurrent() || !this.pages.has(id)) return;
+        const viewer = at();
+        viewer.activatePage(id);
+        viewer.options.focusWindow?.();
+      },
       onFullscreenChange: (active) => {
         if (!isCurrent()) return;
         const viewer = at();
@@ -2839,6 +2959,7 @@ export class BrowserController {
       onPermissionRequest: (origin, permissions, opens) => {
         const page = this.pages.get(id);
         if (!isCurrent() || !page) return Promise.resolve(false);
+        for (const permission of permissions) page.asked.add(permission);
         return new Promise<boolean>((resolve) => {
           page.permissionQueue.push({
             request: {
@@ -2859,7 +2980,10 @@ export class BrowserController {
       onPermissionBlocked: (permissions) => {
         const page = this.pages.get(id);
         if (!isCurrent() || !page) return;
-        for (const permission of permissions) page.blocked.add(permission);
+        for (const permission of permissions) {
+          page.blocked.add(permission);
+          page.asked.add(permission);
+        }
         this.changed();
       },
       onPermissionRefusedBySystem: (permissions) => {
@@ -2869,6 +2993,7 @@ export class BrowserController {
         if (fresh.length === 0) return;
         for (const permission of fresh) {
           page.blocked.add(permission);
+          page.asked.add(permission);
           page.systemRefused.add(permission);
         }
         at().options.onNotice?.({
@@ -2965,18 +3090,21 @@ export class BrowserController {
         // Requests and refusals belong to the site the page has left.
         this.cancelPermissionRequests(page);
         page.blocked.clear();
+        page.asked.clear();
         page.systemRefused.clear();
       }
       if (previous === null || !isSameDocumentUrl(patch.url, previous)) {
         // Popups are stopped per document; a new one starts with a clean slate.
         page.blockedPopups = [];
         page.blocked.delete('popups');
-        this.options.onVisit?.(patch.url);
+        this.options.onVisit?.(patch.url, page.workspaceId);
       }
     }
-    if (patch.title && url) this.options.onTitle?.(url, patch.title);
+    if (patch.title && url) {
+      this.options.onTitle?.(url, patch.title, page.workspaceId);
+    }
     if (patch.faviconUrl && url) {
-      this.options.onFavicon?.(url, patch.faviconUrl);
+      this.options.onFavicon?.(url, patch.faviconUrl, page.workspaceId);
     }
     if ('error' in patch || 'url' in patch) this.syncVisibleHost();
     this.changed();

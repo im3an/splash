@@ -11,6 +11,7 @@ import {
   app,
   BrowserWindow,
   dialog,
+  ipcMain,
   nativeImage,
   session as sessions,
   webContents,
@@ -26,7 +27,9 @@ import {
 } from 'electron-chrome-web-store';
 import type { ExtensionInfo, ExtensionSource } from '../../shared/types';
 import { allowExtensionPages, isPageUrl } from '../browser/url';
+import { isFromShell } from '../ipc/register-ipc';
 import { onCrxRejected } from './crx-verify';
+import { withGuardedExtensionIpc } from './extension-ipc-guard';
 import {
   describeExtension,
   iconFile,
@@ -51,6 +54,23 @@ interface ExtensionContext {
 
 /** Extensions Splash ships with, by folder under `extensions/`. */
 const BUNDLED = ['ublock-origin'];
+
+/**
+ * Bundled extensions that are part of Splash itself rather than something to
+ * manage: never listed, never saved as user extensions. Whoever needs one
+ * loads it into each session (see `bundledExtension`).
+ */
+const HIDDEN_BUNDLED = ['splash-helper'];
+
+function isBundledPath(extensionPath: string): boolean {
+  return [...BUNDLED, ...HIDDEN_BUNDLED].some(
+    (folder) => extensionPath === bundledPath(folder),
+  );
+}
+
+function isHiddenPath(extensionPath: string): boolean {
+  return HIDDEN_BUNDLED.some((folder) => extensionPath === bundledPath(folder));
+}
 
 /** The library's id for its preload, which Splash swaps for its own. */
 const WEB_STORE_PRELOAD_ID = 'electron-chrome-web-store';
@@ -94,12 +114,24 @@ function bundledPath(folder: string): string {
 }
 
 /**
- * Chrome extensions in the web session. Electron runs them; the
+ * Chrome extensions in the web sessions. Electron runs them; the
  * electron-chrome-extensions library adds the APIs Electron lacks, with
  * Splash's pages standing in for Chrome's tabs.
+ *
+ * Every workspace browses in a session of its own, and Electron binds an
+ * extension to one session, so each workspace session runs its own copy of
+ * every extension, with its own storage (uBlock Origin keeps its filter
+ * lists per workspace). The first session is where extensions are added,
+ * turned off and removed; the others follow it.
  */
 export class ExtensionHost {
   private readonly extensions: ElectronChromeExtensions;
+  /** Each session's copy of the library, the first session's included. */
+  private readonly libraries = new Map<Session, ElectronChromeExtensions>();
+  /** Each other session's extensions, once they have loaded there. */
+  private readonly addingSessions = new Map<Session, Promise<void>>();
+  /** Sessions that run only what Splash ships (private windows). */
+  private readonly bundledOnlySessions = new Set<Session>();
   private readonly changeListeners = new Set<() => void>();
   private disabled: DisabledExtensions = {};
   /** Turning on and off moves folders, so one change happens at a time. */
@@ -132,25 +164,44 @@ export class ExtensionHost {
       this.changed();
     });
     session.extensions.on('extension-unloaded', () => this.changed());
-    this.extensions = new ElectronChromeExtensions({
-      license: 'GPL-3.0',
-      session,
-      createTab: async (details) => {
-        const url = details.url;
-        if (!url || !isPageUrl(url)) {
-          throw new Error('Splash opens pages only for web or extension pages');
-        }
-        const opened = windows.openPage(url, details.active ?? true);
-        if (!opened) throw new Error('No window to open the page in');
-        return [opened.contents, opened.window];
-      },
-      selectTab: (contents) => windows.showPage(contents),
-      removeTab: (contents) => windows.closePage(contents),
-      createWindow: async (details) => {
-        const url = Array.isArray(details.url) ? details.url[0] : details.url;
-        return windows.openWindow(url && isPageUrl(url) ? url : undefined);
-      },
-    });
+    this.extensions = this.attach(session);
+    // Toolbar icons are drawn in the shell, which lives in the default session.
+    ElectronChromeExtensions.handleCRXProtocol(sessions.defaultSession);
+  }
+
+  /** Sets up the library and Splash's preloads in one web session. */
+  private attach(session: Session): ElectronChromeExtensions {
+    const { windows } = this;
+    // Each chrome.* call must come from the extension it names (see
+    // extension-ipc-guard.ts). The guard is installed once, for all sessions.
+    const build = () =>
+      new ElectronChromeExtensions({
+        license: 'GPL-3.0',
+        session,
+        createTab: async (details) => {
+          const url = details.url;
+          if (!url || !isPageUrl(url)) {
+            throw new Error(
+              'Splash opens pages only for web or extension pages',
+            );
+          }
+          const opened = windows.openPage(url, details.active ?? true);
+          if (!opened) throw new Error('No window to open the page in');
+          return [opened.contents, opened.window];
+        },
+        selectTab: (contents) => windows.showPage(contents),
+        removeTab: (contents) => windows.closePage(contents),
+        createWindow: async (details) => {
+          const url = Array.isArray(details.url) ? details.url[0] : details.url;
+          return windows.openWindow(url && isPageUrl(url) ? url : undefined);
+        },
+      });
+    const library = withGuardedExtensionIpc(
+      ipcMain,
+      { fromShell: isFromShell },
+      build,
+    );
+    this.libraries.set(session, library);
     // The library registers its preload from node_modules; Splash ships its
     // own build of it with a fix for Electron 45 (see extension-preload.ts).
     for (const id of ['crx-mv2-preload', 'crx-mv3-preload']) {
@@ -163,10 +214,13 @@ export class ExtensionHost {
     session.registerPreloadScript({ type: 'service-worker', filePath });
     // Icons appear in the order extensions first spoke up, which differs from
     // launch to launch, so they'd swap places. Names keep them still.
-    const keepIconsInOrder = () => this.sortToolbarIcons();
+    const keepIconsInOrder = () => this.sortToolbarIcons(library);
     session.extensions.on('extension-loaded', keepIconsInOrder);
-    // Toolbar icons are drawn in the shell, which lives in the default session.
-    ElectronChromeExtensions.handleCRXProtocol(sessions.defaultSession);
+    // What one session gains (an update, a store install in a workspace)
+    // every other session gains too.
+    session.extensions.on('extension-loaded', (_event, extension) =>
+      this.share(session, extension),
+    );
     // The library adds a `destroyed` listener to a background page for every
     // chrome.* event it subscribes to; uBlock subscribes to more than ten.
     app.on('web-contents-created', (_event, contents) => {
@@ -177,13 +231,110 @@ export class ExtensionHost {
         contents.setMaxListeners(Math.max(contents.getMaxListeners(), 50));
       }
     });
+    return library;
+  }
+
+  /**
+   * Runs Splash's extensions in another workspace's session too, so its
+   * pages are blocked and helped the same way. Safe to call again.
+   */
+  addSession(
+    session: Session,
+    { bundledOnly = false }: { bundledOnly?: boolean } = {},
+  ): Promise<void> {
+    if (session === this.session) return Promise.resolve();
+    let adding = this.addingSessions.get(session);
+    if (!adding) {
+      if (bundledOnly) this.bundledOnlySessions.add(session);
+      adding = this.startSession(session, bundledOnly);
+      this.addingSessions.set(session, adding);
+    }
+    return adding;
+  }
+
+  /**
+   * Stops following a session that is going away (a private window's), so
+   * nothing more is loaded into it. Its extensions stay until it's cleared.
+   */
+  forgetSession(session: Session): void {
+    if (session === this.session) return;
+    this.libraries.delete(session);
+    this.addingSessions.delete(session);
+    this.bundledOnlySessions.delete(session);
+  }
+
+  /** A bundled extension as loaded in a session, by its folder name. */
+  bundledExtension(
+    folder: string,
+    session: Session = this.session,
+  ): Electron.Extension | null {
+    const wanted = bundledPath(folder);
+    return (
+      session.extensions
+        .getAllExtensions()
+        .find((extension) => extension.path === wanted) ?? null
+    );
+  }
+
+  private async startSession(
+    session: Session,
+    bundledOnly: boolean,
+  ): Promise<void> {
+    this.attach(session);
+    for (const extension of this.session.extensions.getAllExtensions()) {
+      if (bundledOnly && !isBundledPath(extension.path)) continue;
+      try {
+        await session.extensions.loadExtension(extension.path);
+      } catch (error) {
+        console.error(`Could not load ${extension.name} in a workspace`, error);
+      }
+    }
+    // The store's Add button works on any workspace's pages.
+    if (!bundledOnly) {
+      await this.enableWebStore(session, { loadExtensions: false });
+    }
+    this.sortToolbarIcons(this.libraries.get(session)!);
+  }
+
+  /** Loads into every other session what one of them just loaded. */
+  private share(from: Session, extension: Electron.Extension): void {
+    for (const other of this.libraries.keys()) {
+      if (other === from) continue;
+      if (
+        this.bundledOnlySessions.has(other) &&
+        !isBundledPath(extension.path)
+      ) {
+        continue;
+      }
+      const there = other.extensions.getExtension(extension.id);
+      if (there?.path === extension.path && there.version === extension.version)
+        continue;
+      if (there) other.extensions.removeExtension(extension.id);
+      void other.extensions
+        .loadExtension(extension.path)
+        .catch((error: unknown) =>
+          console.error(`Could not load ${extension.name} everywhere`, error),
+        );
+    }
+  }
+
+  /** Every web session extensions run in. */
+  private get sessions(): Session[] {
+    return [...this.libraries.keys()];
+  }
+
+  /** The library copy for a page's session. */
+  private libraryOf(contents: WebContents): ElectronChromeExtensions | null {
+    return this.libraries.get(contents.session) ?? null;
   }
 
   /** Extensions in the toolbar, alphabetically by name. */
-  private sortToolbarIcons(): void {
+  private sortToolbarIcons(
+    library: ElectronChromeExtensions = this.extensions,
+  ): void {
     // The library keeps this to itself and offers no way to order it.
     const actions = (
-      this.extensions as unknown as {
+      library as unknown as {
         api?: { browserAction?: { actionMap?: Map<string, unknown> } };
       }
     ).api?.browserAction?.actionMap;
@@ -231,7 +382,7 @@ export class ExtensionHost {
       }
     }
     await this.recoverParked();
-    await this.enableWebStore();
+    await this.enableWebStore(this.session, { loadExtensions: true });
     this.sortToolbarIcons();
   }
 
@@ -286,23 +437,30 @@ export class ExtensionHost {
    * before, and keeps those up to date. Nothing reaches Google for updates
    * until an extension has been added from the store.
    */
-  private async enableWebStore(): Promise<void> {
+  private async enableWebStore(
+    session: Session,
+    { loadExtensions }: { loadExtensions: boolean },
+  ): Promise<void> {
+    // Only the first session loads and updates what the store installed;
+    // the others are handed the same folders as they load.
     const loaded = installChromeWebStore({
-      session: this.session,
+      session,
       extensionsPath: this.storePath,
+      loadExtensions,
+      autoUpdate: loadExtensions,
       beforeInstall: (request) =>
         this.confirmInstall(request as InstallRequest),
     });
     // The library registers its preload before its first await; replace it
     // with the one that checks the store's exact origin.
     if (
-      this.session
+      session
         .getPreloadScripts()
         .some((script) => script.id === WEB_STORE_PRELOAD_ID)
     ) {
-      this.session.unregisterPreloadScript(WEB_STORE_PRELOAD_ID);
+      session.unregisterPreloadScript(WEB_STORE_PRELOAD_ID);
     }
-    this.session.registerPreloadScript({
+    session.registerPreloadScript({
       id: WEB_STORE_PRELOAD_ID,
       type: 'frame',
       filePath: path.join(__dirname, 'chrome-web-store.preload.js'),
@@ -365,6 +523,7 @@ export class ExtensionHost {
   list(): ExtensionInfo[] {
     const loaded = this.session.extensions
       .getAllExtensions()
+      .filter((extension) => !isHiddenPath(extension.path))
       .map((extension) =>
         describeExtension(
           extension,
@@ -412,7 +571,7 @@ export class ExtensionHost {
     const origin = `chrome-extension://${id}/`;
     for (const contents of webContents.getAllWebContents()) {
       if (
-        contents.session === this.session &&
+        this.libraries.has(contents.session) &&
         contents.getURL().startsWith(origin)
       ) {
         this.windows.closePage(contents);
@@ -428,6 +587,7 @@ export class ExtensionHost {
     const home = path.join(this.storePath, id);
     if (store) await rename(parked, home);
     try {
+      // The other sessions follow once it's loaded here (see `share`).
       await this.session.extensions.loadExtension(
         store
           ? path.join(home, path.relative(parked, entry.path))
@@ -449,7 +609,11 @@ export class ExtensionHost {
     const parked = path.join(this.parkedPath, id);
     const info = describeExtension(extension, source, iconDataUrl(extension));
     this.closePagesOf(id);
-    this.session.extensions.removeExtension(id);
+    for (const session of this.sessions) {
+      if (session.extensions.getExtension(id)) {
+        session.extensions.removeExtension(id);
+      }
+    }
     // Written before the folder moves, so a quit in between can't lose it.
     this.disabled[id] = {
       path:
@@ -497,6 +661,11 @@ export class ExtensionHost {
     } else if (this.session.extensions.getExtension(id)) {
       this.session.extensions.removeExtension(id);
     }
+    for (const session of this.sessions) {
+      if (session !== this.session && session.extensions.getExtension(id)) {
+        session.extensions.removeExtension(id);
+      }
+    }
     delete this.disabled[id];
     await Promise.all([this.saveDisabled(), this.saveInstalled()]);
     this.changed();
@@ -537,9 +706,7 @@ export class ExtensionHost {
 
   private sourceOf(extensionPath: string): ExtensionSource {
     if (this.fromWebStore(extensionPath)) return 'store';
-    return BUNDLED.some((folder) => extensionPath === bundledPath(folder))
-      ? 'bundled'
-      : 'unpacked';
+    return isBundledPath(extensionPath) ? 'bundled' : 'unpacked';
   }
 
   private async saveDisabled(): Promise<void> {
@@ -552,8 +719,7 @@ export class ExtensionHost {
       .map((extension) => extension.path)
       .filter(
         (extensionPath) =>
-          !this.fromWebStore(extensionPath) &&
-          !BUNDLED.some((folder) => extensionPath === bundledPath(folder)),
+          !this.fromWebStore(extensionPath) && !isBundledPath(extensionPath),
       );
     await writeFile(
       path.join(app.getPath('userData'), 'extensions.json'),
@@ -566,7 +732,7 @@ export class ExtensionHost {
   addPage(contents: WebContents, window: BrowserWindow): void {
     // The library watches each tab with a dozen listeners of its own.
     contents.setMaxListeners(Math.max(contents.getMaxListeners(), 30));
-    this.extensions.addTab(contents, window);
+    this.libraryOf(contents)?.addTab(contents, window);
   }
 
   /**
@@ -575,18 +741,21 @@ export class ExtensionHost {
    * hook, and adding the tab again doubles its listeners.
    */
   movePage(contents: WebContents, window: BrowserWindow): void {
-    const { store } = (this.extensions as unknown as { ctx: ExtensionContext })
-      .ctx;
+    const library = this.libraryOf(contents);
+    if (!library) return;
+    const { store } = (library as unknown as { ctx: ExtensionContext }).ctx;
     store.addWindow(window);
     store.tabToWindow.set(contents, window);
   }
 
   /** Tells extensions which page is in front. */
   selectPage(contents: WebContents): void {
-    this.extensions.selectTab(contents);
+    this.libraryOf(contents)?.selectTab(contents);
   }
 
   menuItems(contents: WebContents, params: ContextMenuParams): MenuItem[] {
-    return this.extensions.getContextMenuItems(contents, params);
+    return (
+      this.libraryOf(contents)?.getContextMenuItems(contents, params) ?? []
+    );
   }
 }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Check, Plus, Search } from 'lucide-react';
+import { Check, Plus, Search } from '../icons';
 import {
   MAX_SEARCH_SHORTCUTS,
   normalizeShortcut,

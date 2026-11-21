@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Download, FolderOpen } from 'lucide-react';
+import { Download, FolderOpen } from '../icons';
 import {
   DOWNLOAD_CATEGORIES,
   downloadCategory,

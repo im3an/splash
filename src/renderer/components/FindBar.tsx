@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, X } from '../icons';
 import { api } from '../splash-api';
 import { selectActivePage, useShell } from '../stores/shell-store';
 import { Reveal } from './Reveal';

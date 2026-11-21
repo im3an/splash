@@ -79,6 +79,43 @@ describe('PrivacySettings', () => {
     expect(splash.updatePreferences).toHaveBeenCalledWith({ blockAds: false });
   });
 
+  it('chooses who answers DNS, and offers “only secure DNS” for a chosen provider', async () => {
+    const splash = stubApi();
+    const { rerender } = render(<PrivacySettings />);
+    const select = await screen.findByRole<HTMLSelectElement>('combobox', {
+      name: 'Secure DNS',
+    });
+    expect(select.value).toBe('automatic');
+    expect([...select.options].map((option) => option.text)).toEqual([
+      'Automatic',
+      'Cloudflare',
+      'Quad9',
+      'Mullvad',
+      'Google Public DNS',
+      'Off',
+    ]);
+    // Strict means nothing for the network's own provider.
+    expect(
+      screen.queryByRole('switch', { name: 'Only secure DNS' }),
+    ).toBeNull();
+
+    fireEvent.change(select, { target: { value: 'quad9' } });
+    expect(splash.updatePreferences).toHaveBeenCalledWith({
+      secureDns: 'quad9',
+    });
+
+    useShell.setState({
+      preferences: { ...DEFAULT_PREFERENCES, secureDns: 'quad9' },
+    });
+    rerender(<PrivacySettings />);
+    const strict = screen.getByRole('switch', { name: 'Only secure DNS' });
+    expect(strict.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(strict);
+    expect(splash.updatePreferences).toHaveBeenCalledWith({
+      secureDnsStrict: true,
+    });
+  });
+
   it('turns hiding cookie notices off', async () => {
     const splash = stubApi();
     render(<PrivacySettings />);

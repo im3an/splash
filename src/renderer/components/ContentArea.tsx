@@ -6,7 +6,7 @@ import {
   PanelRight,
   Plus,
   Search,
-} from 'lucide-react';
+} from '../icons';
 import type { ContentInsets, PageId, PageSnapshot } from '../../shared/types';
 import { useContentInsets } from '../hooks/use-content-insets';
 import { describeError, pageLabel, pageParts } from '../lib/format';
@@ -27,9 +27,11 @@ import { CommandPalette } from './CommandPalette';
 import { canContinuePastCertificate } from '../../shared/certificate-errors';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DownloadsPopover } from './DownloadsPopover';
+import { ExtensionsPopover } from './ExtensionsPopover';
 import { SiteInfoPopover } from './SiteInfoPopover';
 import { StartPage } from './StartPage';
 import { AlmaViewPrototype } from '../prototype/AlmaViewPrototype';
+import { NotesView } from './notes/NotesView';
 
 const PANE =
   'relative overflow-hidden rounded-content bg-surface shadow-content';
@@ -219,13 +221,19 @@ function OverlayContent({
 }) {
   switch (overlay?.kind) {
     case 'palette':
-      return <CommandPalette scope={overlay.scope} />;
+      return (
+        <CommandPalette scope={overlay.scope} initialQuery={overlay.query} />
+      );
     case 'suggestions':
       return <AddressSuggestions />;
     case 'site-info':
       return <SiteInfoPopover />;
     case 'downloads':
       return <DownloadsPopover />;
+    case 'extensions':
+      return <ExtensionsPopover />;
+    case 'notes':
+      return <NotesView />;
     case 'alma-view':
       return import.meta.env.DEV ? <AlmaViewPrototype /> : null;
     default:

@@ -355,44 +355,81 @@ Media and macOS
 - [x] Upgrade Electron: now 45.2.3. No 45.0.1 was released; the fix for hanging
       blocking listeners (electron/electron#55234) works here.
 - [ ] **Rely on uBlock Origin for blocking, not Splash's own hooks.** Decided 6
-      November 2026: the hooks stay for now, but this is where Splash is going.
-      Keeping even one hook can't work: Electron runs extension `chrome.webRequest`
+      November 2026, done 21 November 2026. Electron runs extension `chrome.webRequest`
       listeners only if the session has no `session.webRequest` listener for any
       event (tested on 45.2.3, one hook at a time: the extension saw nothing).
-      So all three hooks go together.
+      Splash now registers none; the rules its hooks ran live in a small bundled
+      MV2 extension, `src/helper-extension` (built into `extensions/splash-helper`
+      by `scripts/build-helper-extension.mjs`, hidden from the Extensions list).
+      Main pushes its settings, site decisions and the dangerous-site hosts to it
+      (`src/main/privacy/helper-extension.ts`), since its listeners answer
+      synchronously.
+  - [x] Private windows: Electron refuses to load extensions into an in-memory
+        session ("Extensions cannot be loaded in a temporary session"), so the user
+        chose (21 November 2026) a throwaway on-disk profile: each private profile
+        is a `persist:private-<uuid>` partition with the same uBlock Origin and
+        helper as other windows (only bundled extensions, as in Chrome).
+        **Private data sits on disk while the private windows are open**, in
+        `Partitions/private-<uuid>` under the profile folder, not in memory as in
+        Chrome. When the last private window closes, its extensions are unloaded,
+        its data cleared and the folder deleted, then deleted again 30 s later,
+        because the disk cache writes its empty index once more after a clear.
+        Anything left (a crash, or a quit with private windows open) is deleted
+        at the next launch, and at quit (`sweepPrivateProfiles`).
+        Tested 21 November 2026 in a dev instance: bild.de had 9 requests blocked
+        in a private window, `httpbin.org/headers` went to HTTPS with `Dnt`,
+        `Sec-Gpc` and client hints; the 47 MB folder was gone on close and still
+        gone 48 s later; after `kill -9` with a private window open, the 43 MB
+        folder was there and gone at the next launch. After a normal quit with
+        a private window open, only two empty 48-byte cache indexes (0 entries)
+        stayed until the next launch removed them.
   - [ ] Reported while using Splash: errors on pages, and popups not showing.
-        Reproduce each on a site with the hooks on and off to see which come from
-        the hooks. Check popups against the popup blocker too.
+        Reproduce each on a site now that the hooks are gone. Check popups against
+        the popup blocker too.
     - [x] idealo.de's "Something has gone wrong" wasn't the hooks: it answered 403
           to `Splash/1.0.0` in the user agent. Fixed, see User-agent in Phase C.
-  - [ ] Cookie filter: move the cookie-notice lists and their network blocking off
-        the built-in blocker. uBlock Origin's own cookie lists are stripped in
-        `scripts/fetch-extensions.mjs` because some rules click "Accept", and Splash
-        must never agree for the user, so decide what replaces them. Hiding rules
-        and autoconsent don't use the hooks.
-  - [ ] Move the rest off the hooks: dangerous-site warning, HTTPS-only,
-        `Sec-GPC`/`DNT`, third-party cookie stripping, per-site script and image
-        blocking
-  - [ ] Connect to uBlock Origin what's tied to the built-in blocker: the blocked
-        count, Block ads, per-site allow, list status
-  - [ ] Remove the built-in network blocker and retest YouTube, with a run that has
-        no blocker to compare against
-  - Tested: a small bundled extension can do the header, cookie, CSP and redirect
-    work beside a blocking extension. Its settings would have to be pushed to it,
-    since its listeners answer synchronously.
-  - YouTube, Electron 45.2.3, signed out, 3 monetised videos, about 30 s each:
-    uBlock Origin alone and today's hooks both played with no ad or enforcement
-    screen. There was no run without a blocker, so this doesn't show either one
-    is what stopped ads. uBlock Origin also blocked one `videoplayback` request
-    per video.
-  - [x] Difference found: uBlock Origin serves working stand-ins for `gpt.js` and
-        `analytics.js`; the built-in blocker's redirects for them failed with
-        `ERR_UNSAFE_REDIRECT`, because Chromium refuses a redirect to `data:`.
-        Fixed: stand-ins now come from Splash's own `splash-stand-in:` scheme,
-        under a host that changes every launch so pages can't probe for it, and
-        it bypasses a page's CSP as extension resources do in Chrome. Tested in
-        the app with the real lists: `gpt.js` gave a working `googletag`, with and
-        without a strict CSP, and nothing reached the network.
+  - [x] Cookie filter: the cookie-notice lists only hide notices now (cosmetics
+        through `content-preload`, `cookie-notice-lists.bin`); their network rules
+        are gone with the hooks. Autoconsent stays, and it only ever refuses.
+        uBlock Origin's own cookie lists stay stripped in
+        `scripts/fetch-extensions.mjs`, because some rules click "Accept".
+  - [x] Moved off the hooks into the helper: dangerous-site warning (the helper
+        cancels the request; main sees `ERR_BLOCKED_BY_CLIENT` for a listed host
+        and shows the warning, for pages and popups), HTTPS-only (the helper
+        redirects; main keeps the fallback bookkeeping from the same rule, and a
+        popup's HTTP fallback is let through per page), `Sec-GPC`/`DNT`, client
+        hints, third-party `Cookie`/`Set-Cookie`, and per-site scripts and images
+        (an extra `Content-Security-Policy` header). Tracking-parameter removal is
+        now uBlock Origin's `removeparam` rules.
+  - [x] electron-chrome-extensions replaces `chrome.webRequest.onHeadersReceived`
+        with an event its main side never fires, so no extension saw response
+        headers. `src/preload/native-web-request.ts` keeps Electron's own event
+        and `extension-preload.ts` puts it back.
+  - [x] Connected to uBlock Origin, through its background page (`self.µBlock`,
+        `src/main/privacy/ublock.ts`): the blocked count is its page store's
+        count for the page; per-site allow is its trusted-site switch, as the
+        popup's power button; the Settings list status and Update come from its
+        assets; "Block ads and trackers" turns it on and off, and turning it off in
+        the Extensions list turns the setting off. On the first launch, sites
+        allowed in Splash's old "ads" decisions move to uBlock Origin's trusted
+        list (default profile only), and Block ads off turns it off.
+  - [x] Removed the built-in network blocker: `filter-lists.bin`'s engine, the
+        `splash-stand-in:` scheme (uBlock Origin serves its own stand-ins, which
+        work), and `stand-ins.ts`.
+  - Tested in a dev instance, 21 November 2026: `httpbin.org/headers` showed
+    `Dnt`, `Sec-Gpc` and the three `Sec-CH-UA` headers; `http://httpbin.org/get`
+    went to HTTPS; `httpforever.com` fell back to the HTTP offer and loaded after
+    it; a listed host showed the dangerous-site warning and loaded after
+    "Continue"; a third-party frame's `SameSite=None` cookie was there with the
+    setting off and gone with it on; scripts off on Wikipedia gave `client-nojs`;
+    bild.de had 8 requests blocked, 0 once trusted from the site panel, and the
+    panel's count matched uBlock Origin's. The Block ads switch and uBlock Origin's
+    Extensions switch followed each other both ways.
+  - YouTube, 21 November 2026, signed out, "Despacito": with uBlock Origin off a
+    34 s pre-roll ad played (`ad-showing`); with it on, the video played with no ad
+    and 21 requests blocked. Earlier (Electron 45.2.3, 3 videos) uBlock Origin
+    alone and the old hooks both played with no ad, and uBlock Origin also
+    blocked one `videoplayback` request per video.
 
 ## Phase D. Shipping
 
@@ -463,6 +500,35 @@ When to go to testers and to the public, and how updates reach installed copies:
       page, a branch ("and 2 more"), a group or a workspace. Click or Enter reopens
       that entry, wherever it is in the list; hidden while searching. Tried in the
       real app. Older records have no address, so those rows show no site icon.
+- [ ] Alma view (the page graph, ⌥⌘G) ready for release builds. Still dev builds only.
+  - [x] Node outlines in the zoomed-in view, light and dark. Chips were drawn with
+        `--hairline`, which in dark is light on a light chip and faint on the ground,
+        and Focus cards had no edge, so lines ended in the air. Every chip, hub and card
+        now takes `--border-hover` just outside its fill. `alma-view-canvas.test.ts`
+        checks the drawing and the token's contrast in both themes. Checked in the
+        real app by pixels.
+  - [x] Filter rail: the History panel's field with a clear button and "8 of 53
+        pages" plus Select all; a pressed row is raised like a chosen segment; a row
+        that would give an empty graph shows 0 and can't be pressed; groups with
+        nothing in them stay out; "By address" marks types as guesses; mode options
+        sit under their own heading. ↑ ↓ Home End walk the field, its hints and the
+        rows, and Space and Enter press a row instead of acting on the graph.
+  - [x] States: loading, no pages yet, and no match (with Clear filter) in the graph.
+        Failed closes and moves say so, and Undo returns only what went.
+  - [x] The graph reads as an image with a summary, and J/K announce the page they
+        land on. Sample and Stress data are dev-only, and "prototype" is gone from
+        the button.
+  - [x] Large trails: the rail's dozen counts share one walk of the trails per
+        snapshot. At 1,060 pages the forces take 1.6 ms a frame and drawing 2.2 ms.
+  - [ ] Decide whether it ships. It is gated in five places: `WorkspaceBar`,
+        `ContentArea`, the palette entry (`palette.ts`), the View menu item
+        (`app.isPackaged` in `application-menu.ts`) and the Settings switch. Then
+        check all five in a packaged build.
+  - [ ] Page types are still guessed from the address (`PAGE_TYPES`).
+  - [ ] Screen readers get a summary and the keyboard cursor, not the graph. A
+        list view of the same pages would be the real answer.
+  - [ ] Rename `src/renderer/prototype/` and `AlmaViewPrototype` once it ships.
+  - [ ] Test the rail and keys with a real keyboard and VoiceOver.
 - [ ] Resizable split view, then more than two panes
 - [x] Contrast check for custom workspace accents: clamped, and all pass (see
       [accessibility-audit.md](accessibility-audit.md))
@@ -475,7 +541,19 @@ When to go to testers and to the public, and how updates reach installed copies:
 - [ ] Shortcut customisation
 - [ ] Page-aware AI: summarise this page, ask about the selection
 - [ ] Per-workspace isolated logins
-- [ ] Reader mode, page screenshots, reading list, translation
+- [x] Reader mode (11 November): View › Toggle Reader, ⌥⌘R. Mozilla's
+      Readability (Firefox's Reader View) finds the article in a copy of the
+      page; DOMPurify cleans it; it shows over the page in Splash's light or dark
+      colours, serif text, A−/A+, Close or Escape. A page without one says
+      "Reader can’t find an article on this page." Both libraries are only sent
+      to a page when Reader is asked for, in their own isolated world
+      (`src/main/browser/reader.ts`, `reader-page.ts`). Checked in the app on
+      Wikipedia (dark), GitHub with its strict CSP (light), Escape, the menu
+      toggle and a form-only page.
+  - [ ] Offer Reader from the address bar when a page has an article, as Safari
+        does (`isProbablyReaderable`).
+  - [ ] Remember the text size; follow a theme change while Reader is open.
+- [ ] Page screenshots, reading list, translation
 - [ ] Profiles, then cross-device sync, then localisation
 
 ## Phase F. Premium-browser features
@@ -523,7 +601,22 @@ Arc / Zen style
 - [ ] Link routing rules: links from an app or domain open in a chosen workspace
 - [ ] Auto-archive pages untouched for N days, with a way to find them again
 - [ ] Boosts: per-site CSS/JS tweaks, dark mode per site, element zapper
-- [ ] Auto-hide / compact sidebar with a hover reveal
+- [x] Auto-hide / compact sidebar with a hover reveal (21 November). With the
+      address bar in the sidebar and the sidebar shut, nothing sits above the
+      page, not even the window buttons. The pointer at the window's left edge
+      brings the sidebar out over the frozen page, and a toast does too, going
+      with it. The sidebar's top row is Arc's: the toggle by the window
+      buttons, back and forward at the other end. The page's actions sit
+      behind one button at the end of the address pill, beside extensions'
+      own buttons. ⌘S keeps the sidebar open; there is no separate peek key.
+      Unit tested (`use-sidebar-peek.test.tsx`) and checked in the app: in
+      split view, for a toast, and with sound playing, which carries on.
+  - [ ] By hand: in full screen, and on a second display to the left (the
+        edge is shared). Neither could be driven from a test.
+  - [ ] Tests for `PageMenuButton.tsx`: entries for a web page, a private
+        page and split view, and that the extensions popover lines up with it.
+  - [ ] Keyboard for the page menu button: reach it with Tab, open with Space
+        or Enter, arrows in the menu.
 - [ ] Essentials: always-on pinned sites shared by every workspace
 - [ ] Page-aware notes and a scratchpad per workspace
 - [ ] Sidebar web panels (chat, music, calendar) beside the trail
@@ -555,14 +648,24 @@ Brave / privacy style
 - [ ] Block fingerprinting
 - [ ] Bounce-tracking protection and storage partitioning
 - [ ] Tor / VPN private window (optional, later)
-- [ ] Built-in DNS over HTTPS with a provider choice
+- [x] Built-in DNS over HTTPS with a provider choice (11 November). Settings ›
+      Privacy › Connections › Secure DNS: Automatic (Chromium's default, the
+      network's DNS encrypted when its provider supports it), Cloudflare, Quad9,
+      Mullvad, Google Public DNS or Off. A chosen provider falls back to the
+      network's DNS unless "Only secure DNS" is on. It applies at launch before
+      any page loads, and at once on a change (`app.configureHostResolver`,
+      `src/main/privacy/secure-dns.ts`). Checked in the app: 1.1.1.1/help says
+      "Using DNS over HTTPS: Yes" with Cloudflare strict, also after a restart,
+      and "No" with Off. Quad9, Mullvad and Google each loaded a page in strict
+      mode.
+  - [ ] By hand: a captive portal (hotel Wi-Fi) with a provider, strict and not.
 - [ ] Block scripts, social widgets and trackers by category
 
 Safari / Orion style polish
 
 - [ ] Hide My Email / Sign in with Apple helpers, iCloud Keychain handoff
 - [ ] Share to Reminders, Notes, Messages (native share exists)
-- [ ] Reader mode with themes, and text-to-speech
+- [ ] Reader text-to-speech (Reader itself is done, see above)
 - [ ] Translation of the page, offered on the right languages only
 - [ ] Per-site settings sheet for zoom, camera, auto-play, content blockers
 - [ ] Web inspector / developer tools tuned for the trail

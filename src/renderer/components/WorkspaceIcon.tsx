@@ -40,7 +40,7 @@ import {
   Wrench,
   Zap,
   type LucideIcon,
-} from 'lucide-react';
+} from '../icons';
 import type { SYMBOLS } from '../../shared/appearance';
 import type { WorkspaceIcon as Icon } from '../../shared/types';
 

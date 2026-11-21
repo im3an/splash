@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Hourglass } from 'lucide-react';
+import { Hourglass } from '../icons';
 import { hostOf, pageLabel } from '../lib/format';
 import { api } from '../splash-api';
 import { selectActivePage, useShell } from '../stores/shell-store';

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { LucideIcon } from 'lucide-react';
+import type { LucideIcon } from '../icons';
 
 /** Shared hierarchy for a sidebar's empty and recoverable error states. */
 export function PanelState({

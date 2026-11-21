@@ -133,6 +133,63 @@ describe('migrations', () => {
     expect(new SqliteTrailStore(db).getPreference('kept')).toBe('yes');
   });
 
+  it('turns a workspace’s old System, the Theme in Settings, into Default', () => {
+    const db = new DatabaseSync(':memory:');
+    migrate(db, MIGRATIONS.slice(0, 11));
+    const insert = db.prepare(
+      'INSERT INTO workspaces (id, name, appearance, position, created_at) VALUES (?, ?, ?, ?, 1)',
+    );
+    const look = (mode: string) =>
+      JSON.stringify({
+        icon: { kind: 'letter' },
+        accent: 'ember',
+        frame: 'paper',
+        mode,
+      });
+    insert.run('a', 'A', look('system'), 0);
+    insert.run('b', 'B', look('dark'), 1);
+    insert.run('c', 'C', null, 2);
+    migrate(db);
+    const modes = db
+      .prepare(
+        "SELECT id, json_extract(appearance, '$.mode') AS mode FROM workspaces ORDER BY id",
+      )
+      .all();
+    expect(modes).toEqual([
+      { id: 'a', mode: 'default' },
+      { id: 'b', mode: 'dark' },
+      { id: 'c', mode: null },
+    ]);
+  });
+
+  it('keeps existing history and site decisions in the default profile', () => {
+    const db = new DatabaseSync(':memory:');
+    migrate(db, MIGRATIONS.slice(0, 12));
+    db.exec(`
+      INSERT INTO history (url, title, visit_count, last_visited_at, favicon_url)
+        VALUES ('https://mail.example/', 'Mail', 3, 30, 'https://mail.example/i.png');
+      INSERT INTO permission_decisions (origin, permission, granted, decided_at)
+        VALUES ('https://meet.example', 'camera', 1, 5);
+    `);
+    migrate(db);
+    const kept = new SqliteTrailStore(db);
+    expect(kept.profile).toBe('web');
+    expect(kept.listHistory('', 10)).toEqual([
+      {
+        url: 'https://mail.example/',
+        title: 'Mail',
+        visitCount: 3,
+        lastVisitedAt: 30,
+        faviconUrl: 'https://mail.example/i.png',
+      },
+    ]);
+    expect(kept.getPermission('https://meet.example', 'camera')).toBe(true);
+    // A workspace with a profile of its own starts with none of it.
+    const fresh = kept.forProfile('ws-two');
+    expect(fresh.listHistory('', 10)).toEqual([]);
+    expect(fresh.getPermission('https://meet.example', 'camera')).toBeNull();
+  });
+
   it('rolls back a failing migration', () => {
     const db = new DatabaseSync(':memory:');
     expect(() =>
@@ -194,6 +251,30 @@ describe('SqliteTrailStore sessions', () => {
     expect(
       store.loadSession()!.pages.find((p) => p.id === 'b')!.history!.entries[0],
     ).toEqual({ url: 'https://a.example/', title: 'a' });
+  });
+
+  it('keeps where the user was in a page, only for its own addresses', () => {
+    const store = memoryStore();
+    const withPlaces = structuredClone(SESSION);
+    const place = {
+      url: 'https://a.example/',
+      scrollX: 0,
+      scrollY: 2400,
+      media: [{ index: 0, src: '', time: 90, duration: 600, playing: true }],
+    };
+    withPlaces.pages[1]!.history = {
+      entries: [{ url: 'https://a.example/', title: 'a' }],
+      index: 0,
+      places: [
+        place,
+        { ...place, url: 'https://elsewhere.example/' },
+        { ...place, url: 'https://a.example/', scrollY: -5 },
+      ],
+    };
+    store.saveSession(withPlaces);
+    expect(
+      store.loadSession()!.pages.find((p) => p.id === 'b')!.history!.places,
+    ).toEqual([place]);
   });
 
   it('replaces the previous session on save', () => {
@@ -415,6 +496,105 @@ describe('SqliteTrailStore history and preferences', () => {
     store.setPreference('x', '1');
     store.setPreference('x', '2');
     expect(store.getPreference('x')).toBe('2');
+  });
+});
+
+describe('SqliteTrailStore profiles', () => {
+  it('keeps each profile’s history apart', () => {
+    const home = memoryStore();
+    const work = home.forProfile('ws-work');
+    home.recordVisit('https://news.example/', 10);
+    work.recordVisit('https://intranet.example/', 20);
+    work.recordVisit('https://intranet.example/', 30);
+    work.recordTitle('https://intranet.example/', 'Intranet');
+    home.recordTitle('https://intranet.example/', 'Not here');
+
+    expect(home.listHistory('', 10).map((row) => row.url)).toEqual([
+      'https://news.example/',
+    ]);
+    expect(work.listHistory('', 10)).toEqual([
+      expect.objectContaining({
+        url: 'https://intranet.example/',
+        title: 'Intranet',
+        visitCount: 2,
+      }),
+    ]);
+    expect(home.searchHistory('intranet', 10)).toEqual([]);
+    expect(work.frequentHistory(10).map((row) => row.url)).toEqual([
+      'https://intranet.example/',
+    ]);
+  });
+
+  it('lets the same address be in two profiles', () => {
+    const home = memoryStore();
+    const work = home.forProfile('ws-work');
+    home.recordVisit('https://mail.example/', 10);
+    work.recordVisit('https://mail.example/', 20);
+    work.deleteHistoryEntry('https://mail.example/');
+    expect(home.listHistory('', 10).map((row) => row.url)).toEqual([
+      'https://mail.example/',
+    ]);
+    expect(work.listHistory('', 10)).toEqual([]);
+    expect(work.deleteHistory(0)).toEqual([]);
+    expect(home.deleteHistory(0)).toHaveLength(1);
+  });
+
+  it('keeps site decisions per profile', () => {
+    const home = memoryStore();
+    const work = home.forProfile('ws-work');
+    home.setPermission('https://meet.example', 'camera', true);
+    work.setPermission('https://meet.example', 'camera', false);
+    work.setPermission('https://ads.example', 'ads', true);
+    expect(home.getPermission('https://meet.example', 'camera')).toBe(true);
+    expect(work.getPermission('https://meet.example', 'camera')).toBe(false);
+    expect(home.listPermissions()).toEqual([
+      { origin: 'https://meet.example', permission: 'camera', granted: true },
+    ]);
+    work.clearPermissions();
+    expect(work.listPermissions()).toEqual([]);
+    expect(home.getPermission('https://meet.example', 'camera')).toBe(true);
+  });
+
+  it('shares everything else between profiles', () => {
+    const home = memoryStore();
+    const work = home.forProfile('ws-work');
+    work.setPreference('theme', 'dark');
+    expect(home.getPreference('theme')).toBe('dark');
+    work.saveSession(SESSION);
+    expect(home.loadSession()).toEqual(work.loadSession());
+    expect(home.forProfile('web')).toBe(home);
+  });
+
+  it('imports and restores history into its own profile', () => {
+    const home = memoryStore();
+    const work = home.forProfile('ws-work');
+    const row = {
+      url: 'https://docs.example/',
+      title: 'Docs',
+      visitCount: 4,
+      lastVisitedAt: 40,
+    };
+    expect(work.importHistory([row])).toEqual(['https://docs.example/']);
+    expect(home.importHistory([row])).toEqual(['https://docs.example/']);
+    work.forgetHistory(['https://docs.example/']);
+    expect(work.listHistory('', 10)).toEqual([]);
+    work.restoreHistory([row]);
+    expect(work.listHistory('', 10)).toHaveLength(1);
+    expect(home.listHistory('', 10)).toHaveLength(1);
+  });
+
+  it('forgets a deleted workspace’s profile and nothing else', () => {
+    const home = memoryStore();
+    const work = home.forProfile('ws-work');
+    home.recordVisit('https://news.example/', 10);
+    home.setPermission('https://news.example', 'sound', false);
+    work.recordVisit('https://intranet.example/', 20);
+    work.setPermission('https://intranet.example', 'popups', true);
+    home.forgetProfile('ws-work');
+    expect(work.listHistory('', 10)).toEqual([]);
+    expect(work.listPermissions()).toEqual([]);
+    expect(home.listHistory('', 10)).toHaveLength(1);
+    expect(home.listPermissions()).toHaveLength(1);
   });
 });
 

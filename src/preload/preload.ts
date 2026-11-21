@@ -124,6 +124,8 @@ const api: SplashApi = {
   closeBranch: (pageId) => invoke('page:close-branch', { pageId }),
   closeOtherPages: (pageId) => invoke('page:close-others', { pageId }),
   closePagesBelow: (pageId) => invoke('page:close-below', { pageId }),
+  clearLoosePages: () => invoke('trail:clear-loose'),
+  toggleFullScreen: () => invoke('window:toggle-full-screen'),
   listDictionaryWords: () => invoke('spelling:words'),
   setDictionaryWord: (word, known) =>
     invoke('spelling:set-word', { word, known }),
@@ -138,8 +140,8 @@ const api: SplashApi = {
   recentlyClosed: () => invoke('page:recently-closed'),
   undoClose: (serial) => invoke('page:undo-close', { serial }),
   closeAgain: (serial) => invoke('page:close-again', { serial }),
-  movePage: (pageId, parentId, afterId) =>
-    invoke('page:move', { pageId, parentId, afterId }),
+  movePage: (pageId, parentId, afterId, groupId) =>
+    invoke('page:move', { pageId, parentId, afterId, groupId }),
   returnPage: (pageId, origin) => invoke('page:return', { pageId, origin }),
   setPinned: (pageId, pinned, origin) =>
     invoke('page:set-pinned', { pageId, pinned, origin }),
@@ -161,6 +163,9 @@ const api: SplashApi = {
   movePageToWindow: (pageId, windowId) =>
     invoke('page:move-to-window', { pageId, windowId }),
   setNote: (pageId, note) => invoke('page:set-note', { pageId, note }),
+  listNotes: () => invoke('notes:list'),
+  saveNote: (input) => invoke('notes:save', input),
+  deleteNote: (id) => invoke('notes:delete', { id }),
   openSplit: (pageId, otherId, side) =>
     invoke('page:open-split', { pageId, otherId, side }),
   toggleSplit: (pageId) => invoke('page:toggle-split', { pageId }),
@@ -190,6 +195,8 @@ const api: SplashApi = {
   resetSite: (origin) => invoke('site:reset', { origin }),
   freezePage: () => invoke('view:freeze'),
   setOverlayActive: (active) => send('view:set-overlay', { active }),
+  setWindowButtonsVisible: (visible) =>
+    send('view:set-window-buttons', { visible }),
   setTrailUndoOffered: (offered) =>
     send('view:set-trail-undo-offered', { offered }),
   previewWorkspaceMode: (mode) => send('workspace:preview-mode', { mode }),

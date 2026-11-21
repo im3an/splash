@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Trash2, Undo2 } from 'lucide-react';
+import { Trash2, Undo2 } from '../icons';
 import type { ImportResult, ImportSource } from '../../shared/types';
 import { api } from '../splash-api';
 import { Button, Row, Section } from './controls';

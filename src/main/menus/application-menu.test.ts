@@ -237,3 +237,21 @@ describe('⇧⌘ and an arrow', () => {
     expect(activateAdjacentTrail).toHaveBeenCalledWith(1);
   });
 });
+
+it('lists only shortcuts the menu really binds in the cheat sheet', async () => {
+  const { SHORTCUT_GROUPS } = await import('../../shared/shortcuts');
+  setup();
+  const template = electron.build.mock.calls.at(-1)![0];
+  const bound = new Set<string>();
+  const walk = (items: MenuItemConstructorOptions[]) => {
+    for (const item of items) {
+      if (typeof item.accelerator === 'string') bound.add(item.accelerator);
+      if (Array.isArray(item.submenu)) walk(item.submenu);
+    }
+  };
+  walk(template);
+  const missing = SHORTCUT_GROUPS.flatMap((group) => group.entries)
+    .filter((entry) => entry.accelerator && !bound.has(entry.accelerator))
+    .map((entry) => `${entry.label} (${entry.accelerator})`);
+  expect(missing).toEqual([]);
+});

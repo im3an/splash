@@ -1,5 +1,6 @@
 import type { AiProviderId } from './ai';
 import { DEFAULT_SEARCH_SHORTCUTS, type SearchShortcut } from './search';
+import type { SecureDns } from './secure-dns';
 
 /** App-wide settings. Per-workspace looks live in `appearance.ts`. */
 
@@ -75,6 +76,11 @@ export interface Preferences {
   /** A playing video floats in its own small window when you leave its page. */
   autoPictureInPicture: boolean;
   /**
+   * Trackpad swipes: two fingers sideways past a page's edge go back or
+   * forward, pulled down past its top they reload; three-finger swipes too.
+   */
+  trackpadSwipes: boolean;
+  /**
    * What a new page shows: the location field alone, a start page of bookmarks
    * and recent pages, or the homepage.
    */
@@ -97,6 +103,10 @@ export interface Preferences {
   privacySignal: boolean;
   /** Pages can't use or set cookies for other sites they embed or load from. */
   blockThirdPartyCookies: boolean;
+  /** Who answers DNS lookups over HTTPS; "automatic" is the network's own. */
+  secureDns: SecureDns;
+  /** With a chosen provider, never fall back to unencrypted DNS. */
+  secureDnsStrict: boolean;
   /** Cleared each time Splash quits; open pages stay in their trails. */
   clearOnQuit: ClearOnQuit;
   /** The assistant the AI panel shows. */
@@ -217,6 +227,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   downloads: 'folder',
   awakePages: 12,
   autoPictureInPicture: true,
+  trackpadSwipes: true,
   newPage: 'start',
   homepage: null,
   startup: 'restore',
@@ -227,6 +238,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   warnDangerousSites: true,
   privacySignal: true,
   blockThirdPartyCookies: false,
+  secureDns: 'automatic',
+  secureDnsStrict: false,
   clearOnQuit: {
     history: false,
     cookies: false,

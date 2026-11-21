@@ -209,8 +209,18 @@ export function installApplicationMenu(actions: MenuActions): void {
       label: 'File',
       submenu: [
         {
-          label: 'New Page',
+          // As in Arc: one field to open an address, find a page or run a
+          // command. An address typed there opens in a new page.
+          label: 'New Page…',
           accelerator: 'CmdOrCtrl+T',
+          click: () => {
+            const window = actions.currentWindow();
+            if (window) window.sendUiCommand({ type: 'open-palette' });
+            else actions.openWindow();
+          },
+        },
+        {
+          label: 'New Blank Page',
           click: () => {
             const window = actions.currentWindow() ?? actions.openWindow();
             window.controller.createPage();
@@ -350,6 +360,12 @@ export function installApplicationMenu(actions: MenuActions): void {
           click: withActivePage((w, id) => w.controller.closeOtherPages(id)),
         },
         {
+          label: 'Clear Unpinned Pages',
+          accelerator: 'Shift+CmdOrCtrl+K',
+          click: () =>
+            void actions.currentWindow()?.controller.clearLoosePages(),
+        },
+        {
           label: 'Close Pages Below',
           enabled:
             activeSnapshot !== undefined &&
@@ -455,6 +471,14 @@ export function installApplicationMenu(actions: MenuActions): void {
             actions.currentWindow()?.sendUiCommand({ type: 'open-palette' }),
         },
         {
+          label: 'Keyboard Shortcuts',
+          accelerator: 'CmdOrCtrl+/',
+          click: () =>
+            actions
+              .currentWindow()
+              ?.sendUiCommand({ type: 'open-palette', query: '?' }),
+        },
+        {
           label: 'Filter Pages',
           accelerator: 'Alt+CmdOrCtrl+F',
           click: () =>
@@ -496,6 +520,12 @@ export function installApplicationMenu(actions: MenuActions): void {
           click: withActivePage((w, id) => w.controller.stop(id)),
         },
         { type: 'separator' },
+        {
+          label: 'Toggle Reader',
+          accelerator: 'Alt+CmdOrCtrl+R',
+          enabled: Boolean(activePage),
+          click: withActivePage((w, id) => void w.toggleReader(id)),
+        },
         {
           label: 'Picture in Picture',
           accelerator: 'Alt+CmdOrCtrl+P',
@@ -607,6 +637,12 @@ export function installApplicationMenu(actions: MenuActions): void {
           label: 'Task Manager',
           click: () =>
             actions.currentWindow()?.sendUiCommand({ type: 'show-tasks' }),
+        },
+        {
+          label: 'Notes',
+          accelerator: 'Alt+CmdOrCtrl+N',
+          click: () =>
+            actions.currentWindow()?.sendUiCommand({ type: 'show-notes' }),
         },
         // PROTOTYPE: see src/renderer/prototype/.
         ...(app.isPackaged

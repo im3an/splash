@@ -45,7 +45,7 @@ const BETA_ENDPOINT = 'https://script.google.com/macros/s/AKfycbw_poGzCcouvR3NYY
 
   async function send(record) {
     if (!BETA_ENDPOINT) {
-      if (local) { console.info('[beta] BETA_ENDPOINT is not set; would send', record); return; }
+      if (local) { console.info('[beta] BETA_ENDPOINT is not set; would send', record); return false; }
       throw new Error('no endpoint');
     }
     // Sent as text/plain so the browser makes a simple request: Apps Script can't answer the CORS
@@ -57,6 +57,7 @@ const BETA_ENDPOINT = 'https://script.google.com/macros/s/AKfycbw_poGzCcouvR3NYY
     // Apps Script answers 200 even when it turns a record down, so the verdict is in the body.
     const reply = await res.json().catch(() => null);
     if (!reply || reply.ok !== true) throw new Error('rejected: ' + (reply && reply.error));
+    return true;
   }
 
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -96,11 +97,12 @@ const BETA_ENDPOINT = 'https://script.google.com/macros/s/AKfycbw_poGzCcouvR3NYY
         if (!email) return fail('Enter your email address.');
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return fail('That doesn’t look like an email address. Check for a typo?');
         const state = { id: newId(), email, at: new Date().toISOString() };
-        if (form.website.value) { write(localStorage, STORE, state); return stepQuestions(state); } // a bot filled the hidden field
+        if (form.website.value) { write(localStorage, STORE, { ...state, sent: true }); return stepQuestions(state); } // a bot filled the hidden field
         button.disabled = true; button.textContent = 'Sending…';
         try {
-          await send({ type: 'signup', id: state.id, email, source, platform, page: location.pathname, ...read(sessionStorage, STORE + '-arrival'), at: state.at });
-          write(localStorage, STORE, state);
+          // `sent` is only true when the sign-up really reached the sheet; see the resend below.
+          const sent = await send({ type: 'signup', id: state.id, email, source, platform, page: location.pathname, ...read(sessionStorage, STORE + '-arrival'), at: state.at });
+          write(localStorage, STORE, { ...state, sent });
           window.dispatchEvent(new CustomEvent('beta:signed-up', { detail: root }));
           stepQuestions(state);
         } catch {
@@ -136,7 +138,7 @@ const BETA_ENDPOINT = 'https://script.google.com/macros/s/AKfycbw_poGzCcouvR3NYY
     const finish = state => {
       if (Object.keys(answers).length) {
         send({ type: 'answers', id: state.id, email: state.email, ...answers, at: new Date().toISOString() }).catch(() => {});
-        write(localStorage, STORE, { ...state, answered: true });
+        write(localStorage, STORE, { ...(read(localStorage, STORE) || state), answered: true, answers });
       }
       stepDone(state);
     };
@@ -174,6 +176,16 @@ const BETA_ENDPOINT = 'https://script.google.com/macros/s/AKfycbw_poGzCcouvR3NYY
       return stepEmail();
     };
     return { start };
+  }
+
+  // A sign-up saved on this browser that never reached the sheet (made on a page that had no endpoint
+  // yet) goes out now, once it can, so nobody is left believing they're on the list when they aren't.
+  const saved = read(localStorage, STORE);
+  if (saved?.email && !saved.sent && BETA_ENDPOINT) {
+    send({ type: 'signup', id: saved.id, email: saved.email, source: 'resent', platform, page: location.pathname, ...arrival, at: saved.at })
+      .then(() => saved.answers && send({ type: 'answers', id: saved.id, email: saved.email, ...saved.answers, at: new Date().toISOString() }))
+      .then(() => write(localStorage, STORE, { ...read(localStorage, STORE), sent: true }))
+      .catch(() => {}); // tried again on the next visit
   }
 
   // Inline form(s)

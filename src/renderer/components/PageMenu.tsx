@@ -30,7 +30,7 @@ import {
   Type,
   Ungroup,
   X,
-} from 'lucide-react';
+} from '../icons';
 import { pagesBelow } from '../../shared/pages-below';
 import type { BrowserSnapshot, PageId } from '../../shared/types';
 import { bookmarkBranch, branchLinks } from '../lib/bookmarks';

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Download, FolderOpen } from 'lucide-react';
+import { Download, FolderOpen } from '../icons';
 import { popoverDownloads } from '../../shared/downloads';
 import { downloadsSummary } from '../lib/format';
 import { api } from '../splash-api';

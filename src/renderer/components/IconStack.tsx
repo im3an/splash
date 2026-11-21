@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { create } from 'zustand';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight } from '../icons';
 import type { SavedCollection } from '../../shared/preferences';
 import { api } from '../splash-api';
 import {

@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { RotateCcw, RotateCw } from 'lucide-react';
+import { RotateCcw, RotateCw } from '../icons';
 import { durationMs } from '../lib/motion';
-import { useShell } from '../stores/shell-store';
+import {
+  selectToastPlace,
+  useShell,
+  type ToastPlace,
+} from '../stores/shell-store';
 import {
   useToast,
   type Toast as ToastData,
@@ -16,13 +20,12 @@ import {
 /** Letters past which a button beside the message would crowd it. */
 const LONG_LABEL = 8;
 
-export function Toast({ placement }: { placement: 'sidebar' | 'toolbar' }) {
+export function Toast({ placement }: { placement: ToastPlace }) {
   const toast = useToast((state) => state.toast);
   const dismiss = useToast((state) => state.dismiss);
   const hold = useToast((state) => state.hold);
-  const sidebarOpen = useShell((state) => state.sidebarOpen);
-  const current =
-    toast && (placement === 'sidebar') === sidebarOpen ? toast : null;
+  const place = useShell(selectToastPlace);
+  const current = toast && placement === place ? toast : null;
 
   // Once dismissed it stays a moment longer, to animate away.
   const last = useRef<ToastData | null>(null);
@@ -61,7 +64,7 @@ function ToastCard({
   hold,
 }: {
   toast: ToastData;
-  placement: 'sidebar' | 'toolbar';
+  placement: ToastPlace;
   leaving: boolean;
   dismiss(id: number): void;
   hold(held: boolean): void;
@@ -70,7 +73,7 @@ function ToastCard({
     dismiss(toast.id);
     action.run();
   };
-  const compact = placement === 'toolbar';
+  const compact = placement !== 'sidebar';
   // In the narrow sidebar, two buttons or a long one beside the message squeeze
   // it into a column; they go on their own row instead.
   const stacked =

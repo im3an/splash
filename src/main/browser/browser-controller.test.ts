@@ -116,12 +116,14 @@ function setup(
     allowPlainHttp?: (url: string) => void;
     allowDangerousSite?: (url: string) => void;
     allowCertificate?: (url: string) => void;
+    profileOf?: (workspaceId: string) => string;
   } = {},
 ) {
   const { idPrefix = 'page', ...controllerOptions } = options;
   const hosts: FakeHost[] = [];
   const snapshots: BrowserSnapshot[] = [];
   const visits: string[] = [];
+  const visitWorkspaces: string[] = [];
   const titles: [string, string][] = [];
   const notices: Notice[] = [];
   let next = 0;
@@ -129,7 +131,10 @@ function setup(
   const controller = new BrowserController({
     ...controllerOptions,
     now: () => ++clock,
-    onVisit: (url) => visits.push(url),
+    onVisit: (url, workspaceId) => {
+      visits.push(url);
+      visitWorkspaces.push(workspaceId);
+    },
     onTitle: (url, title) => titles.push([url, title]),
     onNotice: (notice) => notices.push(notice),
     createHost: (events) => {
@@ -143,7 +148,15 @@ function setup(
   });
   controller.setContentBounds(BOUNDS);
   const latest = () => snapshots.at(-1)!;
-  return { controller, hosts, latest, visits, titles, notices };
+  return {
+    controller,
+    hosts,
+    latest,
+    visits,
+    visitWorkspaces,
+    titles,
+    notices,
+  };
 }
 
 describe('BrowserController', () => {
@@ -841,6 +854,24 @@ describe('BrowserController', () => {
       expect(latest().rootIds).toEqual([pinned, root, other, stray]);
     });
 
+    it('clears loose pages, keeping pinned and grouped ones, with one undo', () => {
+      const { controller, latest, root, a, a1, b } = trail();
+      const pinned = controller.createPage({ input: 'pin.com' });
+      controller.setPinned(pinned, true);
+      const filed = controller.createPage({ input: 'filed.com' });
+      const group = controller.createGroup('G', filed);
+      controller.activatePage(a1);
+      controller.clearLoosePages();
+      expect(Object.keys(latest().pages).sort()).toEqual(
+        [pinned, filed].sort(),
+      );
+      expect(latest().activePageId).toBe(pinned);
+      controller.reopenClosed();
+      expect(latest().pages[root]?.childIds).toEqual([a, b]);
+      expect(latest().pages[filed]!.groupId).toBe(group);
+      expect(latest().activePageId).toBe(a1);
+    });
+
     it('closes the pages below, keeping pinned ones, with one undo', () => {
       const { controller, latest, root, a, a1, b } = trail();
       const other = controller.createPage({ input: 'other.com' });
@@ -1233,6 +1264,62 @@ describe('BrowserController', () => {
       expect(latest().pages[moved]?.childIds).toHaveLength(1);
       expect(latest().activePageId).toBe(moved);
       expect(notices).toHaveLength(1);
+    });
+
+    it('opens a moved page again in its new workspace’s profile', () => {
+      const { controller, hosts, latest } = setup({
+        profileOf: (workspaceId) => `ws-${workspaceId}`,
+      });
+      const root = controller.createPage({ input: 'a.com' });
+      const home = latest().activeWorkspaceId;
+      expect(hosts[0]?.events.workspaceId).toBe(home);
+      const work = controller.createWorkspace('Work');
+      controller.switchWorkspace(home);
+
+      controller.movePageToWorkspace(root, work);
+      // A view can't change its session, so the old one goes.
+      expect(hosts[0]?.destroyed).toBe(true);
+
+      controller.switchWorkspace(work);
+      const reopened = hosts.at(-1)!;
+      expect(reopened).not.toBe(hosts[0]);
+      expect(reopened.events.workspaceId).toBe(work);
+      // Same place in the page's own history, not a fresh load.
+      expect(reopened.restored?.entries.map((entry) => entry.url)).toEqual([
+        'https://a.com/',
+      ]);
+      expect(latest().activePageId).toBe(root);
+    });
+
+    it('keeps a moved page’s view when both workspaces share a profile', () => {
+      const { controller, hosts, latest } = setup({
+        profileOf: () => 'private',
+      });
+      const root = controller.createPage({ input: 'a.com' });
+      const home = latest().activeWorkspaceId;
+      const work = controller.createWorkspace('Work');
+      controller.switchWorkspace(home);
+      controller.movePageToWorkspace(root, work);
+      expect(hosts[0]?.destroyed).toBe(false);
+    });
+
+    it('tells which workspace a visit belongs to and which profile is in front', () => {
+      const { controller, hosts, latest, visitWorkspaces } = setup({
+        profileOf: (workspaceId) => `ws-${workspaceId}`,
+      });
+      controller.createPage({ input: 'a.com' });
+      const home = latest().activeWorkspaceId;
+      hosts[0]!.events.onStateChange({ url: 'https://a.com/' });
+      expect(visitWorkspaces).toEqual([home]);
+      expect(latest().activeProfile).toBe(`ws-${home}`);
+      const work = controller.createWorkspace('Work');
+      expect(latest().activeProfile).toBe(`ws-${work}`);
+    });
+
+    it('names no profile when workspaces have none', () => {
+      const { controller, latest } = setup();
+      controller.createPage({ input: 'a.com' });
+      expect(latest()).not.toHaveProperty('activeProfile');
     });
 
     it('puts a moved branch at the end when its old parent has closed', () => {
@@ -1752,6 +1839,33 @@ describe('BrowserController', () => {
       expect(latest().pages[x]!.groupId).toBe(group);
       controller.movePage(x, null, c);
       expect(latest().pages[x]!.groupId).toBeNull();
+    });
+
+    it('files a dropped page in the group it was dropped on, empty or folded', () => {
+      const { controller, latest } = setup();
+      const a = controller.createPage({ url: 'https://a.example/' });
+      const x = controller.createPage({ url: 'https://x.example/' });
+      const full = controller.createGroup('Full', a);
+      const empty = controller.createGroup('Empty');
+      controller.setGroupCollapsed(empty, true);
+
+      controller.movePage(x, null, null, empty);
+      expect(latest().pages[x]!.groupId).toBe(empty);
+      expect(latest().groups.find((g) => g.id === empty)!.collapsed).toBe(
+        false,
+      );
+      // Groups keep their order: the empty one comes after Full.
+      expect(latest().rootIds).toEqual([a, x]);
+
+      // First in a group, though no group page sits above it.
+      controller.movePage(x, null, null, full);
+      expect(latest().rootIds).toEqual([x, a]);
+      expect(latest().pages[x]!.groupId).toBe(full);
+
+      // Out again, right after the group's last page.
+      controller.movePage(x, null, a, null);
+      expect(latest().pages[x]!.groupId).toBeNull();
+      expect(() => controller.movePage(x, null, null, 'missing')).toThrow();
     });
 
     it('lets a closed page’s children stay in its group', () => {

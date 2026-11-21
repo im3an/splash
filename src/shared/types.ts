@@ -78,6 +78,8 @@ export interface PageSnapshot {
   lastActiveAt?: number;
   isAudible: boolean;
   isMuted: boolean;
+  /** A video floating above other windows, or one playing that could. */
+  video?: VideoActivity;
   zoomPercent: number;
   find: FindResult | null;
   isUnresponsive: boolean;
@@ -91,6 +93,9 @@ export interface PageSnapshot {
   /** A permission request waiting for the user's answer. */
   permissionRequest: PermissionRequest | null;
 }
+
+/** What a page's videos are doing, as far as picture in picture goes. */
+export type VideoActivity = 'none' | 'playing' | 'floating';
 
 /** Site permissions the user can decide on. */
 /** The permissions macOS decides for the whole app, above any one site. */
@@ -142,6 +147,8 @@ export interface SiteInfo {
     permission: SitePermission;
     label: string;
     decision: PermissionDecision;
+    /** Decided for the site, or something the page asked for or used. */
+    inUse: boolean;
   }[];
 }
 
@@ -244,6 +251,7 @@ export type PaletteCommand =
   | 'show-history'
   | 'show-bookmarks'
   | 'show-tasks'
+  | 'show-notes'
   /** PROTOTYPE: see src/renderer/prototype/. */
   | 'show-alma-view'
   | 'toggle-bookmarks-bar'
@@ -263,7 +271,14 @@ export type PaletteCommand =
   | 'toggle-ai-panel'
   | 'close-split'
   | 'rename-workspace'
-  | 'delete-workspace';
+  | 'delete-workspace'
+  | 'clear-pages'
+  | 'reveal-page'
+  | 'next-workspace'
+  | 'previous-workspace'
+  | 'toggle-full-screen'
+  | 'toggle-dark-mode'
+  | 'show-shortcuts';
 
 export type DownloadState =
   | 'progressing'
@@ -442,8 +457,11 @@ export type WorkspaceIcon =
   /** A small square PNG, as a data URL. */
   | { kind: 'image'; dataUrl: string };
 
-/** Light or dark for a workspace; `system` follows the app's setting. */
-export type WorkspaceMode = 'system' | 'light' | 'dark';
+/**
+ * Light or dark for a workspace: `default` takes the Theme in Settings,
+ * `system` follows macOS.
+ */
+export type WorkspaceMode = 'default' | 'light' | 'dark' | 'system';
 
 /** A workspace's look; ids refer to the presets in `shared/appearance.ts`. */
 export interface WorkspaceAppearance {
@@ -525,6 +543,11 @@ export interface BrowserSnapshot {
   lastClosed: ClosedSummary | null;
   workspaces: WorkspaceSummary[];
   activeWorkspaceId: WorkspaceId;
+  /**
+   * The profile the active workspace's pages browse in: their partition is
+   * `persist:<activeProfile>`. Absent where workspaces have no profiles.
+   */
+  activeProfile?: string;
 }
 
 /** Distance from each window edge to the page content area, in CSS pixels. */
@@ -593,6 +616,7 @@ export type Notice =
     }
   /** A page had no video to float, or its site doesn't allow it. */
   | { kind: 'no-video'; blocked: boolean }
+  | { kind: 'no-article' }
   /** A file can't be shown as a page. */
   | { kind: 'cannot-open-file'; filename: string }
   /** A native helper an extension needs ended as soon as it started. */
@@ -679,7 +703,8 @@ export type UiCommand =
   /** Opens the workspace editor: for a new workspace, or the active one. */
   | { type: 'create-workspace' }
   | { type: 'customize-workspace' }
-  | { type: 'open-palette' }
+  /** `query` opens it already typed: `?` for the shortcut sheet. */
+  | { type: 'open-palette'; query?: string }
   /** Something done from a native menu made the open overlay pointless. */
   | { type: 'close-overlay' }
   | { type: 'site-info' }
@@ -688,6 +713,7 @@ export type UiCommand =
   | { type: 'show-history' }
   | { type: 'show-bookmarks' }
   | { type: 'show-tasks' }
+  | { type: 'show-notes' }
   /** PROTOTYPE: see src/renderer/prototype/. */
   | { type: 'show-alma-view' }
   | { type: 'show-trail-summary' }

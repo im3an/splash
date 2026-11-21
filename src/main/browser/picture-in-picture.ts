@@ -1,4 +1,5 @@
 import type { WebContents } from 'electron';
+import type { VideoActivity } from '../../shared/types';
 
 export type PictureInPictureResult = 'ok' | 'none' | 'blocked';
 
@@ -54,6 +55,25 @@ const FLOAT = `(async () => {
   return 'ok';
 })().catch(() => 'none')`;
 
+/**
+ * What a frame's videos are doing: one floating, one worth floating playing
+ * (muted counts: the button is the user's choice), or nothing.
+ */
+const PROBE = `(() => {
+  if (document.pictureInPictureElement) return 'floating';
+  if (!document.pictureInPictureEnabled) return 'none';
+  return [...document.querySelectorAll('video')].some(
+    (video) =>
+      !video.paused &&
+      !video.ended &&
+      video.readyState >= 2 &&
+      !video.disablePictureInPicture &&
+      video.offsetWidth * video.offsetHeight >= ${MIN_FLOATING_VIDEO_AREA},
+  )
+    ? 'playing'
+    : 'none';
+})()`;
+
 const SINK = `document.pictureInPictureElement
   ? document.exitPictureInPicture().then(() => 'ok', () => 'none')
   : 'none'`;
@@ -81,6 +101,24 @@ export function floatPlayingVideo(contents: WebContents): Promise<boolean> {
 /** Brings back a video this page has floating. */
 export function sinkFloatingVideo(contents: WebContents): Promise<boolean> {
   return askFrames(contents, SINK);
+}
+
+/** Whether the page has a video floating, or one playing that could. */
+export async function probeVideo(
+  contents: WebContents,
+): Promise<VideoActivity> {
+  let activity: VideoActivity = 'none';
+  for (const frame of contents.mainFrame.framesInSubtree) {
+    if (frame.isDestroyed()) continue;
+    try {
+      const result = (await frame.executeJavaScript(PROBE)) as VideoActivity;
+      if (result === 'floating') return 'floating';
+      if (result === 'playing') activity = 'playing';
+    } catch {
+      // A frame that navigated away while being asked.
+    }
+  }
+  return activity;
 }
 
 /** Floats the page's video above other windows, or brings it back. */

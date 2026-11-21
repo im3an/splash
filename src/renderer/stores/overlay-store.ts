@@ -6,12 +6,16 @@ import { api } from '../splash-api';
 
 /** Shell surfaces drawn over the page area. */
 export type Overlay =
-  | { kind: 'palette'; scope: PaletteScope }
+  | { kind: 'palette'; scope: PaletteScope; query?: string }
   | { kind: 'toolbar-menu' }
   | { kind: 'bookmarks-menu' }
   | { kind: 'suggestions' }
   | { kind: 'site-info' }
   | { kind: 'downloads' }
+  | { kind: 'extensions' }
+  | { kind: 'notes' }
+  /** The shut sidebar, out over the page while the pointer is on it. */
+  | { kind: 'sidebar-peek' }
   /** PROTOTYPE: see src/renderer/prototype/. */
   | { kind: 'alma-view' };
 

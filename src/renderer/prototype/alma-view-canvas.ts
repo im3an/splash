@@ -1,10 +1,23 @@
 /*
- * PROTOTYPE, throw away. Draws a Scene on a canvas and animates between
+ * Alma view's drawing: a Scene on a canvas, animated between
  * scenes. Bodies outlive the scene they came from, so a page keeps its place
  * and moves when the mode changes. AlmaSettings tune it live.
  */
 import { defaultIconFor } from '../components/Favicon';
+import {
+  enclosingCircle,
+  roundedHull,
+  separateGroups,
+} from './alma-view-physics';
 import type { Glyph, Scene, SceneEdge, SceneNode } from './alma-view-scene';
+
+/** Room a trail's outline leaves around its pages. */
+const HULL_PAD = 18;
+/** Clear ground between two groups' outlines, with room for labels. */
+const GROUP_GAP = 30;
+/** How hard pages in different groups push each other: the groups' own
+ * spacing does the rest, so a far trail can't shove a near one about. */
+const ACROSS_GROUPS = 0.12;
 
 export type AlmaLook = 'icons' | 'stars' | 'ink';
 export type AlmaTint = 'none' | 'trail' | 'site' | 'folder' | 'type';
@@ -61,7 +74,6 @@ interface Body {
 interface Colors {
   surface: string;
   elevated: string;
-  rowHover: string;
   halo: string;
   stroke: number;
   chip: string;
@@ -69,7 +81,8 @@ interface Colors {
   guide: string;
   path: string;
   current: string;
-  hairline: string;
+  /** Every node's edge: chips, hubs and cards. */
+  outline: string;
   fg: string;
   muted: string;
   subtle: string;
@@ -117,6 +130,14 @@ const GLOBE = new Path2D(
 );
 const SAFE_ICON = /^(https?:\/\/|data:image\/)/i;
 
+/**
+ * The edge every chip, hub and card is drawn with: the control edge, which is
+ * strong enough to show on the ground and on a trail's hull in both themes.
+ * `--hairline` is too faint for it, and in dark it is light on a light chip,
+ * which is how the outlines went missing (see alma-view-canvas.test.ts).
+ */
+export const NODE_OUTLINE_TOKEN = '--border-hover';
+
 export function prefersReducedMotion() {
   return document.documentElement.dataset.motion === 'reduced';
 }
@@ -150,6 +171,8 @@ export class AlmaCanvas {
   private scene: Scene | null = null;
   private signature = '';
   private neighbours = new Map<string, Set<string>>();
+  /** Which of the scene's groups each node settles with. */
+  private groupOf = new Map<string, number>();
   private cam = { x: 0, y: 0, k: 1 };
   private camTarget = { x: 0, y: 0, k: 1 };
   private handCamera = false;
@@ -276,6 +299,10 @@ export class AlmaCanvas {
       }
       body.node = node;
       body.alive = true;
+    });
+    this.groupOf = new Map();
+    scene.groups.forEach((group, index) => {
+      for (const id of group.memberIds) this.groupOf.set(id, index);
     });
     this.neighbours = new Map();
     const link = (a: string, b: string) => {
@@ -457,7 +484,6 @@ export class AlmaCanvas {
     const next: Colors = {
       surface: read('--surface'),
       elevated: read('--elevated'),
-      rowHover: read('--row-hover'),
       halo: read('--favicon-halo'),
       stroke: Number.parseFloat(read('--icon-stroke-md')) || 2,
       chip: read('--icon-chip'),
@@ -465,7 +491,7 @@ export class AlmaCanvas {
       guide: read('--guide'),
       path: read('--guide-path'),
       current: read('--guide-current'),
-      hairline: read('--hairline'),
+      outline: read(NODE_OUTLINE_TOKEN),
       fg: read('--fg'),
       muted: read('--fg-muted'),
       subtle: read('--fg-subtle'),
@@ -503,7 +529,7 @@ export class AlmaCanvas {
     const list = [...this.bodies.values()].filter(
       (body) => body.alive && !body.node.orbit,
     );
-    const held = this.press?.moved ? this.press.id : null;
+    const held = this.stillId();
     const repulsion = 620 * scaled(this.settings.spread, 0.2, 3.5);
     const pullBy = scaled(this.settings.pull, 0.2, 2.2);
     const gravity = scene.gravity * scaled(this.settings.gather, 0.1, 4);
@@ -519,8 +545,14 @@ export class AlmaCanvas {
         }
         const d2 = dx * dx + dy * dy;
         if (d2 > 640000) continue;
+        const ga = this.groupOf.get(a.node.id);
+        const across = ga !== undefined && ga !== this.groupOf.get(b.node.id);
         const push =
-          (repulsion * a.node.charge * b.node.charge * alpha) /
+          (repulsion *
+            a.node.charge *
+            b.node.charge *
+            alpha *
+            (across ? ACROSS_GROUPS : 1)) /
           Math.max(d2, 36);
         a.vx -= dx * push;
         a.vy -= dy * push;
@@ -546,8 +578,6 @@ export class AlmaCanvas {
       const dx = b.x + b.vx - a.x - a.vx;
       const dy = b.y + b.vy - a.y - a.vy;
       const d = Math.hypot(dx, dy) || 1;
-      // Two folders only ever push apart: being far off is fine.
-      if (edge.apart && d > edge.length) continue;
       const pull = ((d - edge.length) / d) * edge.strength * pullBy * alpha;
       a.vx += dx * pull * 0.5;
       a.vy += dy * pull * 0.5;
@@ -567,11 +597,44 @@ export class AlmaCanvas {
       body.x += body.vx;
       body.y += body.vy;
     }
+    this.packGroups(held);
+  }
+
+  /** Whole groups shift so their outlines keep clear of each other. */
+  private packGroups(held: string | null) {
+    const scene = this.scene;
+    if (!scene?.groups.length) return;
+    const groups = scene.groups.flatMap((group) => {
+      const members = group.memberIds.flatMap((id) => {
+        const body = this.bodies.get(id);
+        return body?.alive && !body.node.orbit ? [body] : [];
+      });
+      if (!members.length) return [];
+      const circle = enclosingCircle(
+        members.map((body) => ({
+          x: body.x,
+          y: body.y,
+          r: Math.max(body.w, body.h) / 2 + HULL_PAD,
+        })),
+      );
+      return [{ members, circle }];
+    });
+    separateGroups(groups, GROUP_GAP, 0.35, (body) => body.node.id === held);
+  }
+
+  /**
+   * The node that stays put while everything else keeps moving: the one being
+   * dragged, or else the one under the pointer, so it holds still to be
+   * clicked without stopping the rest of the graph.
+   */
+  private stillId() {
+    if (this.press?.moved) return this.press.id;
+    return this.hoverId;
   }
 
   /** Pages around their site. Returns whether any still has far to go. */
   private orbits(ease: number, spin: number) {
-    const held = this.press?.moved ? this.press.id : null;
+    const held = this.stillId();
     let moving = false;
     for (const body of this.bodies.values()) {
       const orbit = body.node.orbit;
@@ -598,15 +661,11 @@ export class AlmaCanvas {
     const drifting = drift && !calm;
     if (drifting || (flow && !calm)) moving = true;
 
-    // Something you're about to click stays where it is.
-    const paused = this.hoverId !== null && !this.press?.moved;
-    if (!paused) this.clock += Math.min(50, now - this.lastFrame);
+    this.clock += Math.min(50, now - this.lastFrame);
     this.lastFrame = now;
     const time = this.clock;
 
-    if (paused) {
-      // The forces wait, with their heat kept for when the pointer moves on.
-    } else if (!scene.positions) {
+    if (!scene.positions) {
       if (this.alpha > 0.006) {
         this.forces(this.alpha);
         this.alpha *= 0.982;
@@ -621,7 +680,7 @@ export class AlmaCanvas {
         this.forces(0.02);
       }
     } else {
-      const held = this.press?.moved ? this.press.id : null;
+      const held = this.stillId();
       for (const body of this.bodies.values()) {
         const spot = scene.positions.get(body.node.id);
         if (!spot || !body.alive || body.node.id === held) continue;
@@ -636,7 +695,7 @@ export class AlmaCanvas {
         body.y += dy * 0.13;
       }
     }
-    if (!paused && this.orbits(0.16, drifting ? time / 14000 : 0)) {
+    if (this.orbits(0.16, drifting ? time / 14000 : 0)) {
       moving = true;
     }
 
@@ -1117,50 +1176,26 @@ export class AlmaCanvas {
 
   private drawHulls(scene: Scene, colors: Colors) {
     const { ctx } = this;
-    const PAD = 18;
     for (const hull of scene.hulls) {
       const bodies = hull.memberIds.flatMap((id) => this.bodies.get(id) ?? []);
       if (!bodies.length) continue;
       const focus = Math.min(...bodies.map((body) => body.focus));
-      const shell = convexHull(bodies);
       const grown = Math.min(...bodies.map((body) => body.grown));
       ctx.globalAlpha =
         Math.min(...bodies.map((body) => body.opacity)) *
         grown *
         (this.hoverId || this.matches ? Math.max(0.35, focus) : 1);
-      if (shell.length < 3) {
-        ctx.strokeStyle = colors.hover;
-        ctx.lineCap = 'round';
-        ctx.lineWidth = PAD * 2;
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(shell[0]!.x, shell[0]!.y);
-        ctx.lineTo(shell.at(-1)!.x, shell.at(-1)!.y);
-        ctx.stroke();
-        continue;
-      }
-      const cx = shell.reduce((sum, p) => sum + p.x, 0) / shell.length;
-      const cy = shell.reduce((sum, p) => sum + p.y, 0) / shell.length;
-      const outer = shell.map((p) => {
-        const d = Math.hypot(p.x - cx, p.y - cy) || 1;
-        return {
-          x: p.x + ((p.x - cx) / d) * PAD * 1.5,
-          y: p.y + ((p.y - cy) / d) * PAD * 1.5,
-        };
-      });
+      // Grown from the hull's sides, past the biggest node, so a page on the
+      // edge of a long trail or folder is never left outside.
+      const reach =
+        HULL_PAD +
+        Math.max(...bodies.map((body) => Math.max(body.w, body.h) / 2));
+      const outline = roundedHull(bodies, reach);
+      if (outline.length < 3) continue;
       ctx.fillStyle = colors.hover;
       ctx.beginPath();
-      const last = outer.at(-1)!;
-      ctx.moveTo((last.x + outer[0]!.x) / 2, (last.y + outer[0]!.y) / 2);
-      outer.forEach((point, i) => {
-        const next = outer[(i + 1) % outer.length]!;
-        ctx.quadraticCurveTo(
-          point.x,
-          point.y,
-          (point.x + next.x) / 2,
-          (point.y + next.y) / 2,
-        );
-      });
+      ctx.moveTo(outline[0]!.x, outline[0]!.y);
+      for (const point of outline.slice(1)) ctx.lineTo(point.x, point.y);
       ctx.closePath();
       ctx.fill();
     }
@@ -1411,9 +1446,15 @@ export class AlmaCanvas {
       ctx.roundRect(x - w / 2, y - h / 2, w, h, corner);
       ctx.fillStyle = isHub ? colors.elevated : colors.chip;
       ctx.fill();
-      ctx.strokeStyle = tint ?? colors.hairline;
-      ctx.lineWidth = (tint ? 2 : 1) / cam.k;
-      ctx.stroke();
+      this.drawOutline(
+        x,
+        y,
+        w,
+        h,
+        corner,
+        tint ?? colors.outline,
+        tint ? 2 : 1,
+      );
 
       if (node.glyph) {
         this.drawGlyph(
@@ -1489,7 +1530,7 @@ export class AlmaCanvas {
 
     const isActive = this.pageIdOf(node) === this.activeId;
     const isHover = node.id === this.hoverId;
-    if (!isCard && (isActive || isHover)) {
+    if (isActive || isHover) {
       // Selection is neutral, as in the sidebar. The accent is on its line.
       ctx.globalAlpha = body.opacity * body.grown * (isActive ? 1 : 0.7);
       ctx.strokeStyle = isActive ? colors.fg : colors.muted;
@@ -1527,13 +1568,15 @@ export class AlmaCanvas {
       this.pageIdOf(node) === this.activeId;
     ctx.beginPath();
     ctx.roundRect(x - w / 2, y - h / 2, w, h, corner);
-    // The surface first, so lines stop at the row's edge rather than run under.
-    ctx.fillStyle = colors.surface;
+    // Raised off the ground like the current trail row, so lines stop at a
+    // visible edge rather than in mid-air.
+    ctx.fillStyle = colors.elevated;
     ctx.fill();
     if (lit) {
-      ctx.fillStyle = colors.rowHover;
+      ctx.fillStyle = colors.hover;
       ctx.fill();
     }
+    this.drawOutline(x, y, w, h, corner, colors.outline, 1);
     const tint = this.tintOf(node);
     if (tint) {
       // A mark at the row's edge: rows in the trail have no borders to colour.
@@ -1562,6 +1605,35 @@ export class AlmaCanvas {
       ctx.fillText(this.ellipsize(node.detail!, room), textX, y + 8);
     }
     ctx.globalAlpha = alpha;
+  }
+
+  /**
+   * A node's edge, just outside its fill so it never sinks into a light chip.
+   * `pixels` is the width on screen, whatever the zoom.
+   */
+  private drawOutline(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    corner: number,
+    color: string,
+    pixels: number,
+  ) {
+    const { ctx, cam } = this;
+    const lw = pixels / cam.k;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.roundRect(
+      x - w / 2 - lw / 2,
+      y - h / 2 - lw / 2,
+      w + lw,
+      h + lw,
+      corner + lw / 2,
+    );
+    ctx.stroke();
   }
 
   /** A hub's own mark, in the app's icon set and stroke. */
@@ -1670,7 +1742,7 @@ export class AlmaCanvas {
     const bx = body.x + body.w / 2 - size * 0.15;
     const by = body.y - body.h / 2 + size * 0.15;
     ctx.fillStyle = colors.elevated;
-    ctx.strokeStyle = colors.hairline;
+    ctx.strokeStyle = colors.outline;
     ctx.lineWidth = 1 / cam.k;
     ctx.beginPath();
     ctx.arc(bx, by, size / 2, 0, Math.PI * 2);
@@ -1797,30 +1869,4 @@ export class AlmaCanvas {
       ctx.fillText(text, lx, ly);
     }
   }
-}
-
-/** Monotone chain. */
-function convexHull(bodies: { x: number; y: number }[]) {
-  const points = bodies
-    .map(({ x, y }) => ({ x, y }))
-    .sort((a, b) => a.x - b.x || a.y - b.y);
-  if (points.length < 3) return points;
-  type Point = { x: number; y: number };
-  const cross = (o: Point, a: Point, b: Point) =>
-    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-  const half = (input: Point[]) => {
-    const out: Point[] = [];
-    for (const point of input) {
-      while (
-        out.length >= 2 &&
-        cross(out[out.length - 2]!, out[out.length - 1]!, point) <= 0
-      ) {
-        out.pop();
-      }
-      out.push(point);
-    }
-    out.pop();
-    return out;
-  };
-  return [...half(points), ...half([...points].reverse())];
 }

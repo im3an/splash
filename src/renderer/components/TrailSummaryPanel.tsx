@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Route } from 'lucide-react';
+import { Route } from '../icons';
 import { trailSummaries } from '../../shared/trail-summary';
 import type { BrowserSnapshot } from '../../shared/types';
 import { pageLabel, pageParts } from '../lib/format';

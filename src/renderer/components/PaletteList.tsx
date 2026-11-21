@@ -29,6 +29,7 @@ import {
   ListPlus,
   ListX,
   Network,
+  NotebookPen,
   Palette,
   PanelLeft,
   Pencil,
@@ -56,8 +57,15 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  BrushCleaning,
+  LocateFixed,
+  ChevronsRight,
+  ChevronsLeft,
+  Maximize2,
+  Moon,
+  Keyboard,
   type LucideIcon,
-} from 'lucide-react';
+} from '../icons';
 import { accentColors } from '../../shared/appearance';
 import type {
   PaletteCommand,
@@ -109,6 +117,7 @@ const COMMAND_ICONS: Record<PaletteCommand, LucideIcon> = {
   'show-history': History,
   'show-bookmarks': Star,
   'show-tasks': Activity,
+  'show-notes': NotebookPen,
   'show-alma-view': Network,
   'toggle-bookmarks-bar': Star,
   'bookmark-branch': Star,
@@ -126,6 +135,13 @@ const COMMAND_ICONS: Record<PaletteCommand, LucideIcon> = {
   'close-split': Square,
   'rename-workspace': Pencil,
   'delete-workspace': Trash2,
+  'clear-pages': BrushCleaning,
+  'reveal-page': LocateFixed,
+  'next-workspace': ChevronsRight,
+  'previous-workspace': ChevronsLeft,
+  'toggle-full-screen': Maximize2,
+  'toggle-dark-mode': Moon,
+  'show-shortcuts': Keyboard,
 };
 
 const SECTION_LABELS: Record<PaletteSection, string | null> = {

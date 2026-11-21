@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef } from 'react';
-import { FolderPlus, PanelLeft, Plus } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { FolderPlus, PanelLeft, Plus } from '../icons';
 import { api } from '../splash-api';
 import { useLinkDrag } from '../stores/drag-store';
 import { openLocation } from '../stores/shell-store';
@@ -8,10 +8,14 @@ import {
   selectFlatTrail,
   useShell,
 } from '../stores/shell-store';
+import { installTitleMarquee } from '../lib/title-marquee';
+import { endSidebarPeek } from '../hooks/use-sidebar-peek';
+import { useOverlay } from '../stores/overlay-store';
 import { SidebarResize } from './SidebarResize';
 import { AddressBar } from './AddressBar';
 import { DownloadsButton } from './DownloadsButton';
-import { ToolbarActions } from './ToolbarActions';
+import { ExtensionActions } from './ExtensionActions';
+import { PageMenuButton } from './PageMenuButton';
 import { SavedGroups, useGroupRename } from './SavedGroups';
 import { SidebarPanel } from './SidebarPanel';
 import { NavigationButtons } from './Toolbar';
@@ -34,6 +38,14 @@ export function Sidebar() {
   const leftForPanel = useRef(false);
   if (panel) leftForPanel.current = true;
   const toggleSidebar = useShell((state) => state.toggleSidebar);
+  // Shut, it can still come out over the page from the window's left edge.
+  const peek = useShell((state) => state.sidebarPeek);
+  const peekLeaving = useOverlay(
+    (state) => state.overlay?.kind === 'sidebar-peek' && state.leaving,
+  );
+  const floating = !open && (peek || peekLeaving);
+  const leaveTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(leaveTimer.current), []);
   // Only while open: the toolbar has the address field while this is shut.
   const addressHere = useShell(selectAddressInSidebar);
   const downloadsPinned = useShell((state) =>
@@ -44,6 +56,12 @@ export function Sidebar() {
   const slide = useWorkspaceSlide();
   const flat = useShell(selectFlatTrail);
   const listRef = useRef<HTMLElement>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  // Long page titles scroll into view on hover.
+  useEffect(() => {
+    const aside = asideRef.current;
+    return aside ? installTitleMarquee(aside) : undefined;
+  }, []);
   const scrollPositions = useRef(new Map<string, number>());
 
   // Each workspace keeps its own scroll position in the trail.
@@ -75,11 +93,27 @@ export function Sidebar() {
 
   return (
     <aside
+      ref={asideRef}
       aria-label="Sidebar"
-      aria-hidden={!open}
-      inert={!open}
-      className="relative shrink-0 overflow-hidden transition-[width] duration-slow ease-emphasized"
-      style={{ width: open ? width : 0 }}
+      aria-hidden={!open && !floating}
+      inert={!open && !floating}
+      data-leaving={peekLeaving}
+      className={
+        floating
+          ? 'sidebar-peek frame-backdrop fixed inset-y-0 left-0 z-40 overflow-hidden pr-(--gutter)'
+          : 'relative shrink-0 overflow-hidden transition-[width] duration-slow ease-emphasized'
+      }
+      style={{
+        width: floating ? `calc(${width} + var(--gutter))` : open ? width : 0,
+      }}
+      onMouseEnter={() => window.clearTimeout(leaveTimer.current)}
+      onMouseLeave={(event) => {
+        if (!floating) return;
+        // Past the window's own edge doesn't count: that's where it came from.
+        if (event.clientX <= 0) return;
+        window.clearTimeout(leaveTimer.current);
+        leaveTimer.current = window.setTimeout(endSidebarPeek, 250);
+      }}
     >
       {/* Keeps its width while the sidebar closes, so nothing reflows. */}
       <div
@@ -88,47 +122,72 @@ export function Sidebar() {
         data-flat={flat}
         style={{ width }}
       >
-        {/* Power-user row: every tool one click away, beside the window controls. */}
-        <div className="drag flex h-(--toolbar-height) shrink-0 items-center gap-0.5 pl-[calc(var(--traffic-lights)-var(--gutter))]">
-          <span className="flex-1" />
-          {addressHere && !downloadsPinned && <DownloadsButton />}
-          <button
-            type="button"
-            onClick={newGroup}
-            aria-label="New group"
-            title="New group"
-            className="icon-button shrink-0"
-          >
-            <FolderPlus size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={newPage}
-            aria-label="New page"
-            title="New page (⌘T)"
-            className="icon-button shrink-0"
-          >
-            <Plus size={16} />
-          </button>
-          <button
-            type="button"
-            className="icon-button shrink-0"
-            aria-label="Hide sidebar"
-            title="Hide sidebar (⌘S)"
-            onClick={toggleSidebar}
-          >
-            <PanelLeft size={16} />
-          </button>
-        </div>
-
-        {addressHere && (
-          <div className="mb-2 flex shrink-0 flex-col gap-1">
-            <div className="flex items-center gap-0.5">
-              <NavigationButtons />
+        {addressHere ? (
+          <>
+            {/* Like Arc's: the sidebar toggle by the window controls, the
+                page's way back and forward at the other end. */}
+            <div className="drag relative flex h-(--toolbar-height) shrink-0 items-center gap-0.5 pl-[calc(var(--traffic-lights)-var(--gutter))]">
+              <button
+                type="button"
+                className="icon-button shrink-0"
+                aria-label={open ? 'Hide sidebar' : 'Keep sidebar open'}
+                title={open ? 'Hide sidebar (⌘S)' : 'Keep sidebar open (⌘S)'}
+                onClick={toggleSidebar}
+              >
+                <PanelLeft size={16} />
+              </button>
               <span className="flex-1" />
-              <ToolbarActions />
+              {!downloadsPinned && <DownloadsButton />}
+              <NavigationButtons />
+              {/* Laid over the page's back and forward while it shows, where
+                  it sat at the end of the toolbar. */}
+              <div className="pointer-events-none absolute inset-y-0 right-0 left-[calc(var(--traffic-lights)-var(--gutter)+var(--control-height)+4px)] flex items-center justify-end *:pointer-events-auto">
+                <Toast placement="sidebar-top" />
+              </div>
             </div>
-            <AddressBar variant="sidebar" />
+            <div className="mb-2 shrink-0">
+              <AddressBar
+                variant="sidebar"
+                trailing={
+                  <>
+                    <ExtensionActions buttonsOnly />
+                    <PageMenuButton />
+                  </>
+                }
+              />
+            </div>
+          </>
+        ) : (
+          /* Power-user row: every tool one click away, beside the window controls. */
+          <div className="drag flex h-(--toolbar-height) shrink-0 items-center gap-0.5 pl-[calc(var(--traffic-lights)-var(--gutter))]">
+            <span className="flex-1" />
+            <button
+              type="button"
+              onClick={newGroup}
+              aria-label="New group"
+              title="New group"
+              className="icon-button shrink-0"
+            >
+              <FolderPlus size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={newPage}
+              aria-label="New page"
+              title="New blank page"
+              className="icon-button shrink-0"
+            >
+              <Plus size={16} />
+            </button>
+            <button
+              type="button"
+              className="icon-button shrink-0"
+              aria-label="Hide sidebar"
+              title="Hide sidebar (⌘S)"
+              onClick={toggleSidebar}
+            >
+              <PanelLeft size={16} />
+            </button>
           </div>
         )}
 
@@ -146,7 +205,25 @@ export function Sidebar() {
           >
             <SavedGroups />
             <div key={workspaceId} className={slide}>
-              <TrailTree />
+              {/* The top row has no room for it with the address bar here. */}
+              <TrailTree
+                newPage={
+                  addressHere ? (
+                    <button
+                      type="button"
+                      onClick={newPage}
+                      className="sidebar-new-page sidebar-row"
+                    >
+                      {/* In the favicon column, wherever that is. */}
+                      <span className="grid size-4 shrink-0 place-items-center">
+                        <Plus size={15} />
+                      </span>
+                      <span className="flex-1 text-left">New page</span>
+                      <kbd className="shortcut">⌘T</kbd>
+                    </button>
+                  ) : undefined
+                }
+              />
             </div>
           </nav>
         </div>

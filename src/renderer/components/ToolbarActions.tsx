@@ -7,7 +7,7 @@ import {
   Sparkles,
   Star,
   House,
-} from 'lucide-react';
+} from '../icons';
 import {
   DEFAULT_PREFERENCES,
   TOOLBAR_ACTIONS,
@@ -31,6 +31,7 @@ import { ExtensionActions } from './ExtensionActions';
 import { PrivateChip } from './PrivateChip';
 import { SplitButton } from './Toolbar';
 import { DownloadsButton } from './DownloadsButton';
+import { NotesButton } from './notes/NotesButton';
 
 export const toolbarLabels: Record<ToolbarAction, string> = {
   bookmark: 'Bookmark',
@@ -234,6 +235,7 @@ export function ToolbarActions() {
        * sidebar's narrow row has no room for it, so there it sits a row above.
        */}
       {!actions.includes('downloads') && !inSidebar && <DownloadsButton />}
+      <NotesButton />
       <button
         type="button"
         className="icon-button data-[on=true]:text-accent"

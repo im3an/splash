@@ -49,6 +49,14 @@ describe('SessionPersister', () => {
     persister.dispose();
   });
 
+  it('saves the current state on request, changed or not', () => {
+    // Where the user is in each page changes without scheduling a save.
+    const { persister, saveSession } = setup();
+    persister.flush({ current: true });
+    expect(saveSession).toHaveBeenCalledTimes(1);
+    persister.dispose();
+  });
+
   it('saves periodically to keep page state fresh', () => {
     const { persister, saveSession } = setup();
     vi.advanceTimersByTime(10_000);

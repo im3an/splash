@@ -68,6 +68,14 @@ describe('undoMessage', () => {
 });
 
 describe('noticeMessage', () => {
+  it('says when a page has nothing for Reader, and goes quietly', () => {
+    expect(noticeMessage({ kind: 'no-article' })).toBe(
+      'Reader can’t find an article on this page.',
+    );
+    const toast = noticeToast({ kind: 'no-article' });
+    expect(toast.actions).toEqual([]);
+  });
+
   it('says what was copied', () => {
     expect(
       noticeMessage({ kind: 'copied', what: 'link', subject: 'Docs' }),

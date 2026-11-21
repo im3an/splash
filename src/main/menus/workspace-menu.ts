@@ -43,15 +43,14 @@ export function workspaceMenuItems(
       click: () => trailWindow.sendUiCommand({ type: 'rename-workspace' }),
     },
     {
-      // Undoable with Reopen Closed Page, so no confirmation is needed.
-      label: 'Delete Workspace',
+      // Its pages can be reopened, but its sign-ins and history can't, so
+      // the window asks first.
+      label: 'Delete Workspace…',
       enabled: workspaces.length > 1,
       // Resolved when clicked: the menu can outlive the workspace it was
       // built for.
       click: () => {
-        if (controller.snapshot().workspaces.length > 1) {
-          controller.deleteWorkspace(controller.currentWorkspaceId);
-        }
+        void trailWindow.deleteWorkspace(controller.currentWorkspaceId);
       },
     },
   ];

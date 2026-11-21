@@ -382,7 +382,7 @@ export const DEFAULT_APPEARANCE: WorkspaceAppearance = {
   icon: { kind: 'letter' },
   accent: 'ember',
   frame: 'paper',
-  mode: 'system',
+  mode: 'default',
 };
 
 const CUSTOM_ACCENT = /^#[0-9a-f]{6}$/i;

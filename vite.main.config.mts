@@ -38,6 +38,13 @@ function checkStoreDownloads(): Plugin {
 // https://vitejs.dev/config
 export default defineConfig({
   plugins: [checkStoreDownloads()],
+  // The release channel (see forge.config.mts). A channel other than stable
+  // runs as its own app, so it needs its own name and profile.
+  define: {
+    __SPLASH_CHANNEL__: JSON.stringify(
+      process.env.SPLASH_CHANNEL?.trim().toLowerCase() || 'stable',
+    ),
+  },
   resolve: {
     alias: [
       {

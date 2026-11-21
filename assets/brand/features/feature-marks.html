@@ -1,0 +1,622 @@
+<title>Splash Feature Marks</title>
+<meta name="claude:viewport-fit-sides" content="cover" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist+Mono:wght@400;500&display=swap"
+/>
+<style>
+  /* Layout: one editorial column; three equal plates, one per feature, each with its mark at work sizes; naming note below. */
+  :root {
+    --paper: #faf8f5;
+    --plate: #f1ece5;
+    --ink: #221d17;
+    --muted: #6b6158;
+    --rule: #e2dbd2;
+    --accent: #b4542d;
+    --tile: #1a1714;
+    --tile-ink: #e3906a;
+    --tile-fg: #f1ebe4;
+    --sans: 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
+    --serif: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
+    --mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --paper: #1a1714;
+      --plate: #24201c;
+      --ink: #f1ebe4;
+      --muted: #a89c8f;
+      --rule: #362f29;
+      --accent: #e3906a;
+      --tile: #0f0d0b;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme='dark'] {
+    --paper: #1a1714;
+    --plate: #24201c;
+    --ink: #f1ebe4;
+    --muted: #a89c8f;
+    --rule: #362f29;
+    --accent: #e3906a;
+    --tile: #0f0d0b;
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding-block: 64px 96px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: grid;
+    gap: 72px;
+  }
+  .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1 {
+    font-size: clamp(34px, 6vw, 64px);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    font-weight: 500;
+    margin: 12px 0 0;
+    text-wrap: balance;
+    max-width: 15ch;
+  }
+  h1 em,
+  h2 em {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-style: italic;
+    letter-spacing: -0.01em;
+  }
+  .lede {
+    max-width: 58ch;
+    color: var(--muted);
+    margin: 20px 0 0;
+    font-size: 17px;
+  }
+
+  .plates {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+  @media (max-width: 880px) {
+    .plates {
+      grid-template-columns: 1fr;
+    }
+  }
+  .plate {
+    background: var(--plate);
+    border-radius: 22px;
+    padding: 28px;
+    display: grid;
+    gap: 22px;
+    align-content: start;
+    min-width: 0;
+  }
+  .hero-mark {
+    aspect-ratio: 1;
+    max-width: 100%;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    background-image: radial-gradient(
+      circle,
+      var(--rule) 1px,
+      transparent 1.2px
+    );
+    background-size: 16px 16px;
+    background-position: center;
+  }
+  .hero-mark svg {
+    width: 46%;
+    height: 46%;
+    color: var(--ink);
+  }
+  .name {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 44px;
+    line-height: 1;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .role {
+    margin: 6px 0 0;
+    font-weight: 500;
+  }
+  .plate p.why {
+    margin: 0;
+    color: var(--muted);
+  }
+  .sizes {
+    display: flex;
+    align-items: end;
+    gap: 18px;
+    flex-wrap: wrap;
+    padding-top: 18px;
+    border-top: 1px solid var(--rule);
+  }
+  .sizes figure {
+    margin: 0;
+    display: grid;
+    gap: 6px;
+    justify-items: center;
+  }
+  .sizes figcaption {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .sizes svg {
+    display: block;
+    color: var(--ink);
+  }
+  .tile {
+    background: var(--tile);
+    border-radius: 13px;
+    width: 56px;
+    height: 56px;
+    display: grid;
+    place-items: center;
+  }
+  .tile svg {
+    color: var(--tile-ink);
+  }
+  .accent svg {
+    color: var(--accent);
+  }
+  .grid-note {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  /* In-app usage */
+  .usage {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 880px) {
+    .usage {
+      grid-template-columns: 1fr;
+    }
+  }
+  .palette {
+    background: var(--plate);
+    border-radius: 16px;
+    padding: 10px;
+    display: grid;
+    gap: 2px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 9px;
+    font-size: 13.5px;
+  }
+  .row svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    color: var(--ink);
+  }
+  .row.on {
+    background: color-mix(in oklab, var(--ink) 8%, transparent);
+  }
+  .row .k {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .row .sub {
+    color: var(--muted);
+  }
+  .lockups {
+    background: var(--plate);
+    border-radius: 16px;
+    padding: 28px;
+    display: grid;
+    gap: 22px;
+    align-content: center;
+  }
+  .lockup {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    font-size: 19px;
+  }
+  .lockup svg {
+    width: 24px;
+    height: 24px;
+    color: var(--ink);
+  }
+  .lockup .of {
+    font-weight: 400;
+    color: var(--muted);
+  }
+
+  /* Naming */
+  .naming {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    gap: 48px;
+    border-top: 1px solid var(--rule);
+    padding-top: 40px;
+  }
+  @media (max-width: 880px) {
+    .naming {
+      grid-template-columns: 1fr;
+      gap: 28px;
+    }
+  }
+  h2 {
+    font-size: clamp(28px, 4vw, 42px);
+    line-height: 1.05;
+    letter-spacing: -0.025em;
+    font-weight: 500;
+    margin: 10px 0 0;
+    text-wrap: balance;
+  }
+  .naming p {
+    margin: 0 0 14px;
+    max-width: 60ch;
+  }
+  .copy {
+    display: grid;
+    gap: 10px;
+    margin: 22px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .copy li {
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: var(--plate);
+    font-size: 14px;
+  }
+  .copy b {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .alts {
+    display: grid;
+    gap: 0;
+    margin-top: 8px;
+  }
+  .alt {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 16px;
+    padding: 14px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .alt:last-child {
+    border-bottom: 1px solid var(--rule);
+  }
+  .alt .n {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 26px;
+    line-height: 1;
+  }
+  .alt p {
+    margin: 0;
+    color: var(--muted);
+  }
+  .pick {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: block;
+    margin-top: 6px;
+  }
+</style>
+
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <symbol id="m-splash" viewBox="0 0 32 32">
+    <path
+      fill="currentColor"
+      d="M16 3.5c-1.6 2-6.75 8.4-6.75 12.6a6.75 6.75 0 0 0 13.5 0C22.75 11.9 17.6 5.5 16 3.5Z"
+    />
+    <path
+      fill="none"
+      stroke="currentColor"
+      stroke-width="3"
+      stroke-linecap="round"
+      d="M5.5 25.5c3 2.1 6.6 3.25 10.5 3.25s7.5-1.15 10.5-3.25"
+    />
+  </symbol>
+  <symbol id="m-delta" viewBox="0 0 32 32">
+    <path
+      fill="currentColor"
+      transform="translate(6.4 1.4) scale(.6)"
+      d="M16 3.5c-1.6 2-6.75 8.4-6.75 12.6a6.75 6.75 0 0 0 13.5 0C22.75 11.9 17.6 5.5 16 3.5Z"
+    />
+    <path
+      fill="none"
+      stroke="currentColor"
+      stroke-width="3"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      d="M16 14v14.5M16 14.5c0 6-4.5 8.25-9.5 13.5M16 14.5c0 6 4.5 8.25 9.5 13.5"
+    />
+  </symbol>
+  <symbol id="m-alma" viewBox="0 0 32 32">
+    <path
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      d="M16 5.5 6.5 26.5M16 5.5l9.5 21M9.9 19h12.2"
+    />
+    <circle cx="16" cy="5.5" r="3.25" fill="currentColor" />
+    <circle cx="6.5" cy="26.5" r="3.25" fill="currentColor" />
+    <circle cx="25.5" cy="26.5" r="3.25" fill="currentColor" />
+    <circle cx="16" cy="19" r="2.5" fill="currentColor" />
+  </symbol>
+  <symbol id="m-waymarks" viewBox="0 0 32 32">
+    <g fill="currentColor">
+      <ellipse cx="16" cy="25.75" rx="10.5" ry="3.25" />
+      <ellipse cx="15.25" cy="17.25" rx="7.25" ry="3.25" />
+      <ellipse
+        cx="16.75"
+        cy="9"
+        rx="4.5"
+        ry="3"
+        transform="rotate(-9 16.75 9)"
+      />
+    </g>
+  </symbol>
+</svg>
+
+<main class="wrap">
+  <header>
+    <span class="label">Splash · feature marks · draft 1</span>
+    <h1>Three marks from the same <em>water</em></h1>
+    <p class="lede">
+      Splash's mark is a drop over the ripple it leaves. These three are drawn
+      the same way: a 32‑unit grid, flat solid shapes, 3‑unit round strokes, one
+      ink. They sit beside the Splash mark without competing with it, and still
+      read at 16 pixels.
+    </p>
+  </header>
+
+  <section class="plates" aria-label="Marks">
+    <article class="plate">
+      <div class="hero-mark">
+        <svg aria-label="Delta mark"><use href="#m-delta" /></svg>
+      </div>
+      <div>
+        <h3 class="name">Delta</h3>
+        <p class="role">The page tree, formerly Trails</p>
+      </div>
+      <p class="why">
+        The Splash drop runs out and divides. A river delta is a tree drawn by
+        water, and it fans downward the same way the sidebar does: parent above,
+        children below.
+      </p>
+      <div class="sizes">
+        <figure>
+          <svg width="64" height="64"><use href="#m-delta" /></svg>
+          <figcaption>64</figcaption>
+        </figure>
+        <figure>
+          <svg width="32" height="32"><use href="#m-delta" /></svg>
+          <figcaption>32</figcaption>
+        </figure>
+        <figure>
+          <svg width="16" height="16"><use href="#m-delta" /></svg>
+          <figcaption>16</figcaption>
+        </figure>
+        <figure class="accent">
+          <svg width="32" height="32"><use href="#m-delta" /></svg>
+          <figcaption>accent</figcaption>
+        </figure>
+        <figure>
+          <div class="tile">
+            <svg width="30" height="30"><use href="#m-delta" /></svg>
+          </div>
+          <figcaption>tile</figcaption>
+        </figure>
+      </div>
+      <p class="grid-note">Splash drop at 60% · stem + 2 branches · stroke 3</p>
+    </article>
+
+    <article class="plate">
+      <div class="hero-mark">
+        <svg aria-label="Alma mark"><use href="#m-alma" /></svg>
+      </div>
+      <div>
+        <h3 class="name">Alma</h3>
+        <p class="role">The map of every page</p>
+      </div>
+      <p class="why">
+        An A built from a graph: four pages and the links between them. Unlike
+        Delta it closes into loops, because the map shows how pages relate, not
+        only where they came from. The node in the crossbar is the page you're
+        on.
+      </p>
+      <div class="sizes">
+        <figure>
+          <svg width="64" height="64"><use href="#m-alma" /></svg>
+          <figcaption>64</figcaption>
+        </figure>
+        <figure>
+          <svg width="32" height="32"><use href="#m-alma" /></svg>
+          <figcaption>32</figcaption>
+        </figure>
+        <figure>
+          <svg width="16" height="16"><use href="#m-alma" /></svg>
+          <figcaption>16</figcaption>
+        </figure>
+        <figure class="accent">
+          <svg width="32" height="32"><use href="#m-alma" /></svg>
+          <figcaption>accent</figcaption>
+        </figure>
+        <figure>
+          <div class="tile">
+            <svg width="30" height="30"><use href="#m-alma" /></svg>
+          </div>
+          <figcaption>tile</figcaption>
+        </figure>
+      </div>
+      <p class="grid-note">4 nodes ⌀6.5 / ⌀5 · links stroke 2</p>
+    </article>
+
+    <article class="plate">
+      <div class="hero-mark">
+        <svg aria-label="Waymarks mark"><use href="#m-waymarks" /></svg>
+      </div>
+      <div>
+        <h3 class="name">Waymarks</h3>
+        <p class="role">318 search shortcuts</p>
+      </div>
+      <p class="why">
+        A cairn: three river stones stacked where a path turns. Walkers leave
+        one so the next person knows the way, which is what a shortcut is. The
+        top stone tilts a few degrees so the stack looks placed by hand.
+      </p>
+      <div class="sizes">
+        <figure>
+          <svg width="64" height="64"><use href="#m-waymarks" /></svg>
+          <figcaption>64</figcaption>
+        </figure>
+        <figure>
+          <svg width="32" height="32"><use href="#m-waymarks" /></svg>
+          <figcaption>32</figcaption>
+        </figure>
+        <figure>
+          <svg width="16" height="16"><use href="#m-waymarks" /></svg>
+          <figcaption>16</figcaption>
+        </figure>
+        <figure class="accent">
+          <svg width="32" height="32"><use href="#m-waymarks" /></svg>
+          <figcaption>accent</figcaption>
+        </figure>
+        <figure>
+          <div class="tile">
+            <svg width="30" height="30"><use href="#m-waymarks" /></svg>
+          </div>
+          <figcaption>tile</figcaption>
+        </figure>
+      </div>
+      <p class="grid-note">3 stones · gaps 2 · top stone −9°</p>
+    </article>
+  </section>
+
+  <section class="usage" aria-label="In the app">
+    <div class="palette" aria-label="Command palette example">
+      <div class="row on">
+        <svg><use href="#m-alma" /></svg>Open Alma view<span class="k"
+          >⌥⌘G</span
+        >
+      </div>
+      <div class="row">
+        <svg><use href="#m-delta" /></svg>New page in this delta<span class="k"
+          >⌘N</span
+        >
+      </div>
+      <div class="row">
+        <svg><use href="#m-waymarks" /></svg>Waymarks
+        <span class="sub">· wiki, gh, mdn …</span><span class="k">Tab</span>
+      </div>
+      <div class="row">
+        <svg><use href="#m-splash" /></svg>About Splash
+      </div>
+    </div>
+    <div class="lockups">
+      <span class="label"
+        >Lockups · system font, semibold, −0.025em, 8px gap</span
+      >
+      <div class="lockup">
+        <svg><use href="#m-delta" /></svg>Delta
+        <span class="of">by Splash</span>
+      </div>
+      <div class="lockup">
+        <svg><use href="#m-alma" /></svg>Alma view
+      </div>
+      <div class="lockup">
+        <svg><use href="#m-waymarks" /></svg>Waymarks
+      </div>
+    </div>
+  </section>
+
+  <section class="naming" aria-label="Renaming Trails">
+    <div>
+      <span class="label">Renaming Trails</span>
+      <h2>Trails becomes <em>Delta</em></h2>
+      <ul class="copy">
+        <li>Splash, <b>the delta browser</b> for macOS.</li>
+        <li>
+          Every page you open branches from the one before it. Your
+          <b>delta</b> keeps the whole shape.
+        </li>
+        <li>Drag a page onto another to move its <b>branch</b>.</li>
+      </ul>
+    </div>
+    <div>
+      <p>
+        "Trail" is a fine word, but it's the hiking metaphor and Splash is a
+        water brand. A delta is the shape water makes when one channel splits
+        into many, which is exactly the parent and child structure the sidebar
+        shows. It's one short word, sounds like a technology, and keeps "branch"
+        as its natural verb.
+      </p>
+      <p>
+        The rename touches about 790 mentions in 136 source files and 81 on the
+        site. I'd change what people read (menus, Settings, palette, onboarding,
+        site) and leave code names like <code>SharedTrails</code> alone, so
+        nothing breaks.
+      </p>
+      <div class="alts">
+        <div class="alt">
+          <span class="n">Delta</span>
+          <p>
+            Branching water, fans downward like the sidebar.
+            <span class="pick">Recommended</span>
+          </p>
+        </div>
+        <div class="alt">
+          <span class="n">Current</span>
+          <p>
+            Your browsing as a moving stream. Warm, but it doesn't say "tree",
+            and "current page" would clash everywhere.
+          </p>
+        </div>
+        <div class="alt">
+          <span class="n">Rill</span>
+          <p>
+            A small stream cut into soft ground. Distinctive and very ownable,
+            but most people won't know the word.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent } from 'react';
-import { ListFilter, X } from 'lucide-react';
+import { ListFilter, X } from '../icons';
 import { filteredRows, pageMatches } from '../lib/trail';
 import { api } from '../splash-api';
 import { useShell } from '../stores/shell-store';

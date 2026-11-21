@@ -27,6 +27,9 @@ export const BRANCH_LINK = 'page:branch-link';
 /** A video left its floating window; says whether it's still playing. */
 export const VIDEO_UNFLOATED = 'page:video-unfloated';
 
+/** A video went into its floating window; carries nothing else. */
+export const VIDEO_FLOATED = 'page:video-floated';
+
 /** The user clicked or pressed a key inside a frame; carries nothing else. */
 export const FRAME_GESTURE = 'page:frame-gesture';
 
@@ -35,6 +38,15 @@ export const LINK_DROPPED = 'page:link-dropped';
 
 /** A file was dropped on the page and nothing in the page took it. */
 export const FILE_DROPPED = 'page:file-dropped';
+
+/** The top frame says where the user is in it: scroll, videos, sounds. */
+export const PLACE_REPORT = 'page:place';
+
+/**
+ * A new top-frame document asks where the user was in it, saying how it came
+ * to load. Main answers with a `PagePlace` when it should be brought back.
+ */
+export const PLACE_ASK = 'page:place-ask';
 
 /** A new frame asking, once and synchronously, what applies to it. */
 export const PAGE_SETTINGS = 'page:settings';
@@ -117,3 +129,27 @@ export type FormFill =
       group: 'card';
       card: { name: string; number: string; expMonth: string; expYear: string };
     };
+
+/**
+ * Which trackpad swipes would do something on this page, and the colours of
+ * its workspace to draw them in; the top frame asks.
+ */
+export const SWIPE_ASK = 'page:swipe-ask';
+
+/** The colours a swipe is drawn in: its workspace's accent and gradient. */
+export interface SwipeColors {
+  /** The accent, for light and dark pages. */
+  accent: { light: string; dark: string };
+  /** The workspace's gradient colours, when it has some. */
+  glow: string[] | null;
+}
+
+export interface SwipeAnswer {
+  back: boolean;
+  forward: boolean;
+  reload: boolean;
+  colors: SwipeColors | null;
+}
+
+/** A trackpad swipe over the page finished: `back`, `forward` or `reload`. */
+export const SWIPE_RUN = 'page:swipe-run';

@@ -8,6 +8,9 @@ import {
   TOOLBAR_ACTIONS,
   type SpellingLanguage,
 } from './preferences';
+import { MAX_NOTE_LENGTH, MAX_NOTE_SITES } from './notes';
+import { MAX_MEDIA_PLACES } from './page-place';
+import { SECURE_DNS_CHOICES } from './secure-dns';
 import {
   isSearchKeyword,
   isSearchTemplate,
@@ -117,6 +120,7 @@ export const preferencesSchema = z.strictObject({
   downloads: z.enum(['folder', 'ask']),
   awakePages: z.number().int().min(2).max(100),
   autoPictureInPicture: z.boolean(),
+  trackpadSwipes: z.boolean(),
   newPage: z.enum(['search', 'start', 'homepage']),
   homepage: z
     .url()
@@ -131,6 +135,8 @@ export const preferencesSchema = z.strictObject({
   warnDangerousSites: z.boolean(),
   privacySignal: z.boolean(),
   blockThirdPartyCookies: z.boolean(),
+  secureDns: z.enum(SECURE_DNS_CHOICES),
+  secureDnsStrict: z.boolean(),
   clearOnQuit: z.strictObject({
     history: z.boolean(),
     cookies: z.boolean(),
@@ -224,7 +230,7 @@ export const workspaceAppearanceSchema = z.strictObject({
     .optional(),
   intensity: z.number().min(0).max(1).optional(),
   grain: z.number().min(0).max(1).optional(),
-  mode: z.enum(['system', 'light', 'dark']),
+  mode: z.enum(['default', 'light', 'dark', 'system']),
 });
 
 const vaultId = z.string().min(1).max(64);
@@ -353,6 +359,8 @@ export const invokeContract = {
   'page:close-branch': z.strictObject({ pageId }),
   'page:close-others': z.strictObject({ pageId }),
   'page:close-below': z.strictObject({ pageId }),
+  'trail:clear-loose': z.undefined(),
+  'window:toggle-full-screen': z.undefined(),
   'spelling:words': z.undefined(),
   'spelling:set-word': z.strictObject({
     word: z.string().min(1).max(200),
@@ -378,6 +386,7 @@ export const invokeContract = {
     pageId,
     parentId: pageId.nullable(),
     afterId: pageId.nullable(),
+    groupId: z.uuid().nullable().optional(),
   }),
   'page:return': z.strictObject({
     pageId,
@@ -441,6 +450,21 @@ export const invokeContract = {
     pageId,
     note: z.string().max(4000).nullable(),
   }),
+  'notes:list': z.undefined(),
+  'notes:save': z.strictObject({
+    id: z.uuid().optional(),
+    body: z.string().max(MAX_NOTE_LENGTH),
+    sites: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(253)
+          .regex(/^[\p{L}\p{N}.-]+$/u),
+      )
+      .max(MAX_NOTE_SITES),
+  }),
+  'notes:delete': z.strictObject({ id: z.uuid() }),
   'workspace:switch': z.strictObject({ workspaceId }),
   'workspace:rename': z.strictObject({
     workspaceId,
@@ -612,9 +636,10 @@ export const sendContract = {
   }),
   'view:focus-page': z.undefined(),
   'view:set-overlay': z.strictObject({ active: z.boolean() }),
+  'view:set-window-buttons': z.strictObject({ visible: z.boolean() }),
   'view:set-trail-undo-offered': z.strictObject({ offered: z.boolean() }),
   'workspace:preview-mode': z.strictObject({
-    mode: z.enum(['system', 'light', 'dark']).nullable(),
+    mode: z.enum(['default', 'light', 'dark', 'system']).nullable(),
   }),
   'autofill:resize': z.strictObject({
     height: z.number().int().min(0).max(800),
@@ -634,3 +659,38 @@ export const sendContract = {
 
 export type InvokeChannel = keyof typeof invokeContract;
 export type SendChannel = keyof typeof sendContract;
+
+/** Seconds into a video or sound, or its length; a week's worth is plenty. */
+const mediaSeconds = z
+  .number()
+  .finite()
+  .min(0)
+  .max(86_400 * 7);
+const scrollOffset = z.number().finite().min(0).max(10_000_000);
+
+/**
+ * Where a web page says the user was in it (`page:place`), and how its
+ * document came to load (`page:place-ask`). Checked in the main process:
+ * these come from the page's own renderer, which a site may control.
+ */
+export const pagePlaceSchema = z.strictObject({
+  url: z.string().min(1).max(8192),
+  scrollX: scrollOffset,
+  scrollY: scrollOffset,
+  media: z
+    .array(
+      z.strictObject({
+        index: z.number().int().min(0).max(10_000),
+        src: z.string().max(2048),
+        time: mediaSeconds,
+        duration: mediaSeconds,
+        playing: z.boolean(),
+      }),
+    )
+    .max(MAX_MEDIA_PLACES),
+});
+
+export const placeAskSchema = z.strictObject({
+  url: z.string().min(1).max(8192),
+  kind: z.string().max(32),
+});

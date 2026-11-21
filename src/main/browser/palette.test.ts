@@ -662,7 +662,7 @@ describe('buildPaletteItems', () => {
     expect(pinnedAndMuted).not.toContain('Close branch');
 
     const noPage = buildPaletteItems(input({ query: '>' })).map((i) => i.title);
-    expect(noPage).toContain('New page');
+    expect(noPage).toContain('New blank page');
     expect(noPage).not.toContain('Pin page');
     expect(noPage).not.toContain('Reload page');
 

@@ -27,7 +27,7 @@ import {
   Settings2,
   Star,
   Trash2,
-} from 'lucide-react';
+} from '../icons';
 import type { SavedCollection } from '../../shared/preferences';
 import {
   folderTree,
@@ -274,7 +274,9 @@ function FavoriteRow({
           {icon}
         </span>
         <span className="trail-label min-w-0 flex-1">
-          <span className="trail-title">{label}</span>
+          <span className="trail-title">
+            <span className="trail-title-text">{label}</span>
+          </span>
           {site && <span className="trail-site text-fg-subtle">{site}</span>}
         </span>
         {folder && flat && <RowChevron open={open} minimal={minimal} />}
@@ -349,6 +351,7 @@ function StackFolder({
         index={index}
         icon={
           <Folder
+            open={open}
             size={16}
             fill="currentColor"
             aria-hidden

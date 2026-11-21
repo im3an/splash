@@ -11,13 +11,13 @@ import {
   SortableContext,
   useSortable,
 } from '@dnd-kit/sortable';
-import { Archive, ArrowDownToLine, Clock, Plus, Star } from 'lucide-react';
+import { Archive, Plus } from '../icons';
 import type { WorkspaceSummary } from '../../shared/types';
 import { api } from '../splash-api';
 import { selectWorkspaces, useShell } from '../stores/shell-store';
 import { useWorkspaceSlide } from '../lib/use-workspace-slide';
 import { useDownloads } from '../stores/downloads-store';
-import { useSidebarMenu } from '../hooks/use-sidebar-menu';
+import { SegmentedControl } from './SegmentedControl';
 import { WorkspaceButton } from './WorkspaceButton';
 import { AlmaViewButton } from '../prototype/AlmaViewPrototype';
 
@@ -29,6 +29,8 @@ import { AlmaViewButton } from '../prototype/AlmaViewPrototype';
 export function WorkspaceBar() {
   const workspaces = useShell(selectWorkspaces);
   const activeId = useShell((state) => state.snapshot?.activeWorkspaceId);
+  const panel = useShell((state) => state.sidebarPanel);
+  const library = isLibrary(panel) ? panel : null;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -66,83 +68,96 @@ export function WorkspaceBar() {
   return (
     <div className="grid shrink-0 grid-cols-[1fr_minmax(0,auto)_1fr] items-end gap-1 pt-1 pb-1.5">
       <LibraryButton />
-      <div className="group/ws flex min-w-0 flex-col items-center gap-0.5">
-        <div key={activeId} className={`max-w-full ${slide}`}>
-          <WorkspaceButton />
-        </div>
-        <div className="relative flex h-5 max-w-full items-center">
-          {
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={onDragEnd}
-            >
-              <SortableContext
-                items={visible.map((w) => w.id)}
-                strategy={horizontalListSortingStrategy}
+      {/* One cell: the workspaces stay laid out under the library switcher,
+          so the foot keeps its height and nothing above it moves. */}
+      <div className="grid min-w-0 items-end">
+        {library && (
+          <div className="z-1 flex min-w-0 justify-center [grid-area:1/1]">
+            <LibrarySwitcher panel={library} />
+          </div>
+        )}
+        <div
+          inert={Boolean(library)}
+          aria-hidden={Boolean(library) || undefined}
+          className={`group/ws flex min-w-0 flex-col items-center gap-0.5 [grid-area:1/1] ${library ? 'invisible' : ''}`}
+        >
+          <div key={activeId} className={`max-w-full ${slide}`}>
+            <WorkspaceButton />
+          </div>
+          <div className="relative flex h-5 max-w-full items-center">
+            {
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={onDragEnd}
               >
-                {/* Padded so a focus ring isn't clipped by the scroller. */}
-                <div
-                  role="tablist"
-                  data-fade-start={fadeStart}
-                  data-fade-end={fadeEnd}
-                  aria-label="Workspaces"
-                  onKeyDown={(event) => {
-                    const tabs = Array.from(
-                      event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                        '[role="tab"]',
-                      ),
-                    );
-                    const current = tabs.indexOf(
-                      event.target as HTMLButtonElement,
-                    );
-                    if (current < 0) return;
-                    let next: number;
-                    switch (event.key) {
-                      case 'ArrowRight':
-                        next = (current + 1) % tabs.length;
-                        break;
-                      case 'ArrowLeft':
-                        next = (current - 1 + tabs.length) % tabs.length;
-                        break;
-                      case 'Home':
-                        next = 0;
-                        break;
-                      case 'End':
-                        next = tabs.length - 1;
-                        break;
-                      default:
-                        return;
-                    }
-                    event.preventDefault();
-                    tabs[next]?.focus();
-                    const workspace = visible[next];
-                    if (workspace && workspace.id !== activeId)
-                      void api().switchWorkspace(workspace.id);
-                  }}
-                  className="workspace-strip flex items-center"
+                <SortableContext
+                  items={visible.map((w) => w.id)}
+                  strategy={horizontalListSortingStrategy}
                 >
-                  {visible.map((workspace, i) => (
-                    <WorkspaceChip
-                      key={workspace.id}
-                      workspace={workspace}
-                      index={from + i}
-                      active={workspace.id === activeId}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          }
-          <button
-            type="button"
-            onClick={create}
-            aria-label="New workspace"
-            title="New workspace (⇧⌘N)"
-            className={`pointer-events-none absolute top-1/2 grid size-5 -translate-y-1/2 scale-75 left-full ml-0.5 place-items-center rounded-full text-fg-subtle/60 opacity-0 transition-[opacity,scale,color] duration-slow ease-emphasized group-focus-within/ws:pointer-events-auto group-focus-within/ws:scale-100 group-focus-within/ws:opacity-100 group-hover/ws:pointer-events-auto group-hover/ws:scale-100 group-hover/ws:opacity-100 hover:text-fg-muted`}
-          >
-            <Plus size={11} />
-          </button>
+                  {/* Padded so a focus ring isn't clipped by the scroller. */}
+                  <div
+                    role="tablist"
+                    data-fade-start={fadeStart}
+                    data-fade-end={fadeEnd}
+                    aria-label="Workspaces"
+                    onKeyDown={(event) => {
+                      const tabs = Array.from(
+                        event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                          '[role="tab"]',
+                        ),
+                      );
+                      const current = tabs.indexOf(
+                        event.target as HTMLButtonElement,
+                      );
+                      if (current < 0) return;
+                      let next: number;
+                      switch (event.key) {
+                        case 'ArrowRight':
+                          next = (current + 1) % tabs.length;
+                          break;
+                        case 'ArrowLeft':
+                          next = (current - 1 + tabs.length) % tabs.length;
+                          break;
+                        case 'Home':
+                          next = 0;
+                          break;
+                        case 'End':
+                          next = tabs.length - 1;
+                          break;
+                        default:
+                          return;
+                      }
+                      event.preventDefault();
+                      tabs[next]?.focus();
+                      const workspace = visible[next];
+                      if (workspace && workspace.id !== activeId)
+                        void api().switchWorkspace(workspace.id);
+                    }}
+                    className="workspace-strip flex items-center"
+                  >
+                    {visible.map((workspace, i) => (
+                      <WorkspaceChip
+                        key={workspace.id}
+                        workspace={workspace}
+                        index={from + i}
+                        active={workspace.id === activeId}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            }
+            <button
+              type="button"
+              onClick={create}
+              aria-label="New workspace"
+              title="New workspace (⇧⌘N)"
+              className={`pointer-events-none absolute top-1/2 grid size-5 -translate-y-1/2 scale-75 left-full ml-0.5 place-items-center rounded-full text-fg-subtle/60 opacity-0 transition-[opacity,scale,color] duration-slow ease-emphasized group-focus-within/ws:pointer-events-auto group-focus-within/ws:scale-100 group-focus-within/ws:opacity-100 group-hover/ws:pointer-events-auto group-hover/ws:scale-100 group-hover/ws:opacity-100 hover:text-fg-muted`}
+            >
+              <Plus size={11} />
+            </button>
+          </div>
         </div>
       </div>
       {almaButton ? <AlmaViewButton /> : <span aria-hidden />}
@@ -150,66 +165,58 @@ export function WorkspaceBar() {
   );
 }
 
-/** Downloads, History and Bookmarks behind one box, so the foot stays quiet. */
+const LIBRARY = ['downloads', 'history', 'bookmarks'] as const;
+type LibraryPanel = (typeof LIBRARY)[number];
+const isLibrary = (panel: string | null): panel is LibraryPanel =>
+  LIBRARY.includes(panel as LibraryPanel);
+
+/**
+ * Downloads, History and Bookmarks behind one box: it opens Downloads, and
+ * the foot's switcher moves between the three; pressed again, it closes.
+ */
 function LibraryButton() {
-  const menu = useSidebarMenu('Library');
-  const togglePanel = useShell((state) => state.toggleSidebarPanel);
+  const setPanel = useShell((state) => state.setSidebarPanel);
   const panel = useShell((state) => state.sidebarPanel);
   const unseenProblems = useDownloads((state) => state.unseenProblems);
   const progressing = useDownloads((state) =>
     state.downloads.some((d) => d.state === 'progressing'),
   );
+  const open = isLibrary(panel);
   return (
-    <>
-      <button
-        type="button"
-        onClick={(event) =>
-          menu.show(
-            event,
-            [
-              {
-                kind: 'action',
-                label: 'Downloads',
-                icon: <ArrowDownToLine size={15} />,
-                shortcut: '⌥⌘L',
-                run: () => togglePanel('downloads'),
-              },
-              {
-                kind: 'action',
-                label: 'History',
-                icon: <Clock size={15} />,
-                shortcut: '⌘Y',
-                run: () => togglePanel('history'),
-              },
-              {
-                kind: 'action',
-                label: 'Bookmarks',
-                icon: <Star size={15} />,
-                shortcut: '⌥⌘B',
-                run: () => togglePanel('bookmarks'),
-              },
-            ],
-            true,
-          )
-        }
-        aria-label="Downloads, History and Bookmarks"
-        aria-haspopup="menu"
-        aria-pressed={
-          panel === 'downloads' || panel === 'history' || panel === 'bookmarks'
-        }
-        title="Downloads, History and Bookmarks"
-        className="icon-button relative shrink-0 justify-self-start"
-      >
-        <Archive size={16} />
-        {(unseenProblems > 0 || progressing) && (
-          <span
-            className={`absolute top-1 right-1 size-1.5 rounded-full ${unseenProblems > 0 ? 'bg-danger' : 'bg-accent'}`}
-            aria-hidden
-          />
-        )}
-      </button>
-      {menu.element}
-    </>
+    <button
+      type="button"
+      onClick={() => setPanel(open ? null : 'downloads')}
+      aria-label="Downloads, History and Bookmarks"
+      aria-pressed={open}
+      title={open ? 'Back to pages' : 'Downloads, History and Bookmarks (⌥⌘L)'}
+      className="icon-button relative shrink-0 justify-self-start"
+    >
+      <Archive size={16} />
+      {(unseenProblems > 0 || progressing) && (
+        <span
+          className={`absolute top-1 right-1 size-1.5 rounded-full ${unseenProblems > 0 ? 'bg-danger' : 'bg-accent'}`}
+          aria-hidden
+        />
+      )}
+    </button>
+  );
+}
+
+/** In place of the workspaces while one of the library panels is open. */
+function LibrarySwitcher({ panel }: { panel: LibraryPanel }) {
+  const setPanel = useShell((state) => state.setSidebarPanel);
+  return (
+    <SegmentedControl<LibraryPanel>
+      compact
+      label="Library"
+      value={panel}
+      onChange={setPanel}
+      options={[
+        { value: 'downloads', label: 'Downloads' },
+        { value: 'history', label: 'History' },
+        { value: 'bookmarks', label: 'Bookmarks' },
+      ]}
+    />
   );
 }
 

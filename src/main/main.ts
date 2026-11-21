@@ -30,6 +30,7 @@ import { AutofillMenu } from './windows/autofill-window';
 import { isHelperGone } from './extensions/native-helper';
 import {
   openPrivateProfile,
+  sweepPrivateProfiles,
   type PrivateProfile,
 } from './browser/private-profile';
 import { buildTaskList, type LivePage } from './browser/task-list';
@@ -46,11 +47,13 @@ import {
 import { BrowsingDataCleaner } from './privacy/browsing-data';
 import { CookieViewer, type CookieJar } from './privacy/cookies';
 import { QuitClear } from './privacy/quit-clear';
+import { secureDnsFollower } from './privacy/secure-dns';
 import {
   enableContentBlocking,
   type ContentBlockingHost,
 } from './privacy/electron-content-blocker';
 import { createSiteRules } from './privacy/electron-site-rules';
+import { keepBlockingInStep } from './privacy/ublock';
 import {
   SettingsWindow,
   defaultBrowserStatus,
@@ -86,10 +89,27 @@ import { watchMemoryPressure } from './browser/memory-pressure';
 import { contentsForPage, pageHandleFor } from './browser/electron-page-host';
 import { PreferencesService } from './preferences';
 import { keepSpelling } from './spelling';
+import { letWikimediaFollowTheme } from './browser/wikimedia-theme';
+import { keepYouTubeInStep } from './browser/youtube-theme';
 import type { DownloadManager } from './downloads/download-manager';
-import { createDownloadManager } from './downloads/electron-downloads';
+import {
+  createDownloadManager,
+  followDownloads,
+} from './downloads/electron-downloads';
+import {
+  WorkspaceProfiles,
+  type WorkspaceProfile,
+} from './browser/electron-workspace-profiles';
+import { DEFAULT_PROFILE } from './browser/workspace-profiles';
 
-app.setName('Splash');
+// A channel build other than stable is its own app with its own profile, so
+// it can run beside the stable one. See forge.config.mts.
+declare const __SPLASH_CHANNEL__: string;
+app.setName(
+  __SPLASH_CHANNEL__ === 'stable'
+    ? 'Splash'
+    : `Splash ${__SPLASH_CHANNEL__.charAt(0).toUpperCase()}${__SPLASH_CHANNEL__.slice(1)}`,
+);
 // Before anything else, so a crash at startup is kept too.
 startDiagnostics();
 registerShellScheme();
@@ -102,11 +122,13 @@ const windows = new Set<TrailWindow>();
 const trails = new SharedTrails();
 let persister: SessionPersister;
 let saveProblem: string | null = null;
-let store: TrailStore;
+let store: SqliteTrailStore;
+/** Each workspace's own cookies, storage, history and site decisions. */
+let profiles: WorkspaceProfiles;
 let preferences: PreferencesService;
 let downloads: DownloadManager;
-let cleaner: BrowsingDataCleaner;
-let cookies: CookieViewer;
+/** Workspaces of the saved session, before any window has restored them. */
+let savedWorkspaces: string[] = [];
 let threats: ThreatList;
 let quitClear: QuitClear | null = null;
 let quitClearDone = false;
@@ -181,13 +203,25 @@ function openSettings(section?: string): void {
     vault,
     transfer,
     authorize,
-    store,
+    // What's per site acts on the workspace in front, as it was when asked.
+    get store() {
+      return settingsProfile().store;
+    },
     preferences,
     downloads,
-    cleaner,
+    cleaner: {
+      clear: (request) => settingsProfile().cleaner.clear(request),
+      // Undo goes back to whichever workspace was cleared.
+      restore: (token) =>
+        profiles.all().some((profile) => profile.cleaner.restore(token)),
+    },
     blocker,
-    cookies,
-    webSession: session.fromPartition(WEB_PARTITION),
+    get cookies() {
+      return settingsProfile().cookies;
+    },
+    get webSession() {
+      return settingsProfile().session;
+    },
     threats,
     extensions: () => extensions,
     browserWindow: () => regularWindow(),
@@ -265,7 +299,7 @@ async function chooseFiles(): Promise<void> {
 }
 
 interface StartupStore {
-  store: TrailStore;
+  store: SqliteTrailStore;
   /** Something the user needs to know about their saved data. */
   notice: { message: string; detail: string } | null;
 }
@@ -327,8 +361,8 @@ function refreshMenu(): void {
     openImport: () => openSettings('transfer'),
     openPrivateWindow,
     chooseFiles: () => void chooseFiles(),
-    // The History menu lists what the window in front has been to.
-    store: currentWindow()?.store ?? store,
+    // The History menu lists what the workspace in front has been to.
+    store: currentWindow()?.activeProfile.store ?? store,
     preferences,
   });
   // A click in the Dock menu doesn't bring the app forward by itself.
@@ -423,12 +457,23 @@ function openWindow(
   const beside = currentWindow()?.window.getNormalBounds();
   const trailWindow: TrailWindow = new TrailWindow({
     certificates,
-    webSession: session.fromPartition(WEB_PARTITION),
+    profileFor: (workspaceId) => profiles.forWorkspace(workspaceId),
+    profileKeyOf: (workspaceId) => profiles.keyOf(workspaceId),
+    confirmDeleteWorkspace: (name) =>
+      confirmDeleteWorkspace(trailWindow.window, name),
+    forgetWorkspace: (workspaceId) => {
+      void profiles
+        .forget(workspaceId)
+        .catch((error: unknown) =>
+          console.error('Could not clear a deleted workspace’s data', error),
+        );
+    },
     isPrivate: false,
     trails,
     saves: {
       schedule: () => persister.schedule(),
-      flush: () => persister.flush(),
+      // Closing a window also keeps where the user was in its pages.
+      flush: () => persister.flush({ current: true }),
       problem: () => saveProblem,
     },
     ...(at
@@ -442,7 +487,6 @@ function openWindow(
     preferences,
     downloads,
     blocker,
-    cookies,
     extensions,
     ...windowActions(() => trailWindow),
     onSnapshot: (snapshot) => settings?.send(eventChannels.snapshot, snapshot),
@@ -458,6 +502,7 @@ function openPrivateWindow(show?: { pageId: string }): TrailWindow {
     preferences,
     threats,
     blocker,
+    extensions,
     onDownloads: () => {
       for (const open of windows) if (open.isPrivate) open.sendDownloads();
     },
@@ -465,9 +510,17 @@ function openPrivateWindow(show?: { pageId: string }): TrailWindow {
   const isFirst = profile.windows === 0;
   profile.windows++;
   const beside = currentWindow()?.window.getNormalBounds();
+  // Every private workspace shares the one throwaway profile.
+  const privateWorkspaces = {
+    key: 'private',
+    session: profile.session,
+    store: profile.store,
+    cookies: profile.cookies,
+  };
   const trailWindow: TrailWindow = new TrailWindow({
     certificates,
-    webSession: profile.session,
+    profileFor: () => privateWorkspaces,
+    profileKeyOf: () => privateWorkspaces.key,
     isPrivate: true,
     trails: profile.trails,
     saves: { schedule() {}, flush: () => true, problem: () => null },
@@ -480,7 +533,6 @@ function openPrivateWindow(show?: { pageId: string }): TrailWindow {
     preferences,
     downloads: profile.downloads,
     blocker,
-    cookies: profile.cookies,
     extensions: null,
     ...windowActions(() => trailWindow),
   });
@@ -628,9 +680,139 @@ const certificates = new CertificateExceptions();
 /** Where a session's certificate choices live; none for anything but pages. */
 function certificateStores(from?: Session): CertificateStore[] {
   const open = privateProfile ? [privateProfile.store] : [];
-  if (!from) return [...open, store];
-  if (from === session.fromPartition(WEB_PARTITION)) return [store];
+  const workspaces = profiles.all().map((profile) => profile.store);
+  if (!from) return [...open, ...workspaces];
+  const workspace = profiles.ofSession(from);
+  if (workspace) return [workspace.store];
   return from === privateProfile?.session ? [...open, store] : [];
+}
+
+/**
+ * A workspace's pages can be reopened after it's deleted, but not its
+ * sign-ins, site data and history, so the user is asked first.
+ */
+async function confirmDeleteWorkspace(
+  parent: BrowserWindow,
+  name: string,
+): Promise<boolean> {
+  const { response } = await dialog.showMessageBox(parent, {
+    type: 'warning',
+    message: `Delete the workspace “${name}”?`,
+    detail:
+      'Its pages close, and you’re signed out of every site you used in it: its cookies, site data, history and site settings are deleted. Other workspaces aren’t affected.',
+    buttons: ['Delete Workspace', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return response === 0;
+}
+
+/** The profile Settings acts on: the workspace in front in a regular window. */
+function settingsProfile(): WorkspaceProfile {
+  const front = regularWindow();
+  return front
+    ? profiles.forWorkspace(front.controller.currentWorkspaceId)
+    : profiles.forKey(DEFAULT_PROFILE);
+}
+
+/**
+ * Wires a workspace's session the way the default one is wired at launch:
+ * permission prompts and the user agent, site rules and the helper extension
+ * that enforces them (no `session.webRequest` listener may be registered, or
+ * uBlock Origin sees no requests), downloads, spelling and extensions.
+ */
+function openProfile(
+  key: string,
+  web: Session,
+  scoped: TrailStore,
+): WorkspaceProfile {
+  if (key !== DEFAULT_PROFILE) {
+    configureWebSession(web, scoped);
+    keepSpelling(preferences, web, systemPreferences);
+    const rules = createSiteRules(web, scoped, preferences, threats);
+    blocker.attachSession(web, scoped, rules);
+    followDownloads(downloads, web);
+    // Before then, launch adds every profile opened so far.
+    extensions
+      ?.addSession(web)
+      .catch((error: unknown) =>
+        console.error('Extensions are unavailable in a workspace', error),
+      );
+  }
+  return {
+    key,
+    session: web,
+    store: scoped,
+    cookies: new CookieViewer({
+      jar: web.cookies as CookieJar,
+      now: Date.now,
+      createToken: randomUUID,
+    }),
+    cleaner: createCleaner(web, scoped),
+  };
+}
+
+/** Extensions keep their working data in each session; clearing leaves it. */
+function extensionOrigins(): string[] {
+  // Turned off isn't removed: its settings wait for it to come back.
+  return (extensions?.knownIds() ?? []).map((id) => `chrome-extension://${id}`);
+}
+
+/** Clears what Settings › Privacy asks for, in one workspace's profile. */
+function createCleaner(web: Session, scoped: TrailStore): BrowsingDataCleaner {
+  return new BrowsingDataCleaner({
+    store: scoped,
+    clearSiteData: async () => {
+      // uBlock Origin would have to rebuild its filter lists without its data.
+      await web.clearData({
+        dataTypes: [
+          'backgroundFetch',
+          'cookies',
+          'fileSystems',
+          'indexedDB',
+          'localStorage',
+          'serviceWorkers',
+          'webSQL',
+        ],
+        excludeOrigins: extensionOrigins(),
+      });
+      await web.clearStorageData({
+        storages: ['shadercache', 'cachestorage'],
+      });
+      await web.cookies.flushStore();
+    },
+    clearCache: () => web.clearCache(),
+    clearDownloadList: () => downloads.clearFinished(),
+    forgetClosedPages: () => {
+      // The menus list recent pages, and those may just have been cleared.
+      refreshMenu();
+      // On launch or quit no window is open, and only the saved copy exists.
+      if (regularWindowCount() === 0) {
+        trails.lead?.forgetClosed();
+        forgetSavedClosedPages();
+        return;
+      }
+      for (const trailWindow of windows) {
+        if (!trailWindow.isPrivate) trailWindow.controller.forgetClosed();
+      }
+      // A file that's no longer on any page leaves no trace of its path.
+      forgetLocalFiles(
+        [...windows]
+          .filter((trailWindow) => !trailWindow.isPrivate)
+          .flatMap((trailWindow) =>
+            trailWindow.controller
+              .exportSession()
+              .pages.flatMap((page) => [
+                ...(page.url ? [page.url] : []),
+                ...(page.history?.entries.map((entry) => entry.url) ?? []),
+              ]),
+          ),
+      );
+    },
+    now: Date.now,
+    createToken: randomUUID,
+  });
 }
 
 function currentWindow(): TrailWindow | null {
@@ -765,7 +947,7 @@ if (!app.requestSingleInstanceLock()) {
       iconPath: brandIcon,
     });
     app.setAboutPanelOptions({
-      applicationName: 'Splash',
+      applicationName: app.getName(),
       applicationVersion: app.getVersion(),
       iconPath: brandIcon,
       credits: 'A trail-based browser for macOS',
@@ -773,6 +955,30 @@ if (!app.requestSingleInstanceLock()) {
     });
     const startup = openStartupStore();
     store = startup.store;
+    profiles = new WorkspaceProfiles({
+      store,
+      open: openProfile,
+      keptOrigins: extensionOrigins,
+    });
+    try {
+      savedWorkspaces =
+        store.loadSession()?.workspaces.map((workspace) => workspace.id) ?? [];
+    } catch (error) {
+      console.error('Could not read the saved workspaces', error);
+    }
+    // Before upgrading, every page browsed in one profile; the first
+    // workspace keeps it, so it stays signed in.
+    profiles.claimDefault(savedWorkspaces[0]);
+    // Before any of their sessions opens.
+    await WorkspaceProfiles.removeAbandoned(
+      app.getPath('userData'),
+      savedWorkspaces,
+      (workspaceId) => profiles.keyOf(workspaceId),
+    ).catch((error: unknown) =>
+      console.error('Could not remove a deleted workspace’s data', error),
+    );
+    // What private windows left when Splash crashed or quit with them open.
+    sweepPrivateProfiles(app.getPath('userData'));
     if (process.platform === 'darwin') {
       watchMemoryPressure((pressure) => {
         trails.memoryPressure = pressure;
@@ -807,12 +1013,32 @@ if (!app.requestSingleInstanceLock()) {
     serveShell(session.defaultSession);
     configureWebSession(session.fromPartition(WEB_PARTITION), store);
     preferences = new PreferencesService(store);
+    // Before any page loads, so no lookup goes out the way it was not asked to.
+    const followSecureDns = secureDnsFollower((options) =>
+      app.configureHostResolver(options),
+    );
+    followSecureDns(preferences.get());
+    preferences.onChange(followSecureDns);
     keepSpelling(
       preferences,
       session.fromPartition(WEB_PARTITION),
       systemPreferences,
     );
     nativeTheme.themeSource = preferences.get().theme;
+    // Websites see Splash's light or dark through nativeTheme; Wikipedia
+    // needs telling to listen, and YouTube only looks as it loads. The
+    // shell's own session has no websites.
+    const isWebsite = (contents: WebContents) =>
+      contents.session !== session.defaultSession;
+    const youTube = keepYouTubeInStep({
+      theme: nativeTheme,
+      pages: () => webContents.getAllWebContents().filter(isWebsite),
+    });
+    app.on('web-contents-created', (_event, contents) => {
+      if (!isWebsite(contents)) return;
+      letWikimediaFollowTheme(contents);
+      youTube.track(contents);
+    });
     threats = createThreatList(preferences);
     const siteRules = createSiteRules(
       session.fromPartition(WEB_PARTITION),
@@ -825,6 +1051,7 @@ if (!app.requestSingleInstanceLock()) {
       store,
       preferences,
       siteRules,
+      threats,
     );
     downloads = createDownloadManager(
       session.fromPartition(WEB_PARTITION),
@@ -878,9 +1105,7 @@ if (!app.requestSingleInstanceLock()) {
     bridgeFormAssist({
       assist: formAssist,
       accepts: (from: Session) => {
-        if (from === session.fromPartition(WEB_PARTITION)) {
-          return { canSave: true };
-        }
+        if (profiles.ofSession(from)) return { canSave: true };
         return from === privateProfile?.session ? { canSave: false } : null;
       },
       prompt: (prompt) => {
@@ -912,72 +1137,19 @@ if (!app.requestSingleInstanceLock()) {
         );
       }, 200);
     });
-    const webSession = session.fromPartition(WEB_PARTITION);
-    cleaner = new BrowsingDataCleaner({
-      store,
-      clearSiteData: async () => {
-        // Extensions keep their working data in the same session; uBlock
-        // Origin would have to rebuild its filter lists without it.
-        await webSession.clearData({
-          dataTypes: [
-            'backgroundFetch',
-            'cookies',
-            'fileSystems',
-            'indexedDB',
-            'localStorage',
-            'serviceWorkers',
-            'webSQL',
-          ],
-          // Turned off isn't removed: its settings wait for it to come back.
-          excludeOrigins: (extensions?.knownIds() ?? []).map(
-            (id) => `chrome-extension://${id}`,
-          ),
-        });
-        await webSession.clearStorageData({
-          storages: ['shadercache', 'cachestorage'],
-        });
-        await webSession.cookies.flushStore();
-      },
-      clearCache: () => webSession.clearCache(),
-      clearDownloadList: () => downloads.clearFinished(),
-      forgetClosedPages: () => {
-        // The menus list recent pages, and those may just have been cleared.
-        refreshMenu();
-        // On launch or quit no window is open, and only the saved copy exists.
-        if (regularWindowCount() === 0) {
-          trails.lead?.forgetClosed();
-          forgetSavedClosedPages();
-          return;
-        }
-        for (const trailWindow of windows) {
-          if (!trailWindow.isPrivate) trailWindow.controller.forgetClosed();
-        }
-        // A file that's no longer on any page leaves no trace of its path.
-        forgetLocalFiles(
-          [...windows]
-            .filter((trailWindow) => !trailWindow.isPrivate)
-            .flatMap((trailWindow) =>
-              trailWindow.controller
-                .exportSession()
-                .pages.flatMap((page) => [
-                  ...(page.url ? [page.url] : []),
-                  ...(page.history?.entries.map((entry) => entry.url) ?? []),
-                ]),
-            ),
-        );
-      },
-      now: Date.now,
-      createToken: randomUUID,
-    });
-    cookies = new CookieViewer({
-      jar: webSession.cookies as CookieJar,
-      now: Date.now,
-      createToken: randomUUID,
-    });
+    // The workspaces of the saved session, so a crash's leftovers are cleared
+    // from all of them and their pages wake into a wired session.
+    for (const workspaceId of savedWorkspaces) {
+      profiles.forWorkspace(workspaceId);
+    }
     quitClear = new QuitClear({
       store,
       chosen: () => preferences.get().clearOnQuit,
-      clear: (request) => cleaner.clear(request),
+      // Every workspace's profile; each is opened before its pages load.
+      clear: (request) =>
+        Promise.all(
+          profiles.all().map((profile) => profile.cleaner.clear(request)),
+        ),
     });
     // Whatever a crash left behind goes before any page can see it.
     await quitClear.atLaunch();
@@ -990,12 +1162,25 @@ if (!app.requestSingleInstanceLock()) {
     refreshMenu();
     try {
       extensions = createExtensionHost();
-      extensions.onChange(() =>
-        settings?.send(eventChannels.extensions, extensions?.list() ?? []),
-      );
+      extensions.onChange(() => {
+        settings?.send(eventChannels.extensions, extensions?.list() ?? []);
+        for (const trailWindow of windows) trailWindow.sendExtensions();
+      });
       // Before the first window, so restored pages open with uBlock Origin
-      // already running.
+      // already running, in every workspace.
       await extensions.loadBundled();
+      const host = extensions;
+      await Promise.all(
+        profiles.all().map((profile) => host.addSession(profile.session)),
+      );
+      void keepBlockingInStep({
+        session: session.fromPartition(WEB_PARTITION),
+        extensions: host,
+        preferences,
+        store,
+      }).catch((error: unknown) =>
+        console.error('Could not link Block ads to uBlock Origin', error),
+      );
     } catch (error) {
       console.error('Extensions are unavailable', error);
     }
@@ -1065,6 +1250,8 @@ if (!app.requestSingleInstanceLock()) {
     if (!quitClear || quitClearDone) {
       persister?.dispose();
       store?.close();
+      // Private windows closed with the quit, before their data was cleared.
+      sweepPrivateProfiles(app.getPath('userData'));
       return;
     }
     event.preventDefault();

@@ -1,4 +1,4 @@
-import { ExternalLink, ShieldQuestion } from 'lucide-react';
+import { ExternalLink, ShieldQuestion } from '../icons';
 import { hostOf, permissionNames } from '../lib/format';
 import { api } from '../splash-api';
 import { selectActivePage, useShell } from '../stores/shell-store';

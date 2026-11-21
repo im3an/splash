@@ -134,6 +134,24 @@ body::before {
   background-image: var(--frame-grain, none), var(--frame-image, none);
   background-attachment: fixed;
 }
+/*
+ * The shut sidebar, out over the frozen page from the window's left edge.
+ * The same frame as docked, lifted by a shadow on its open side.
+ */
+.sidebar-peek {
+  border-radius: 0 var(--radius-panel) var(--radius-panel) 0;
+  box-shadow: var(--shadow-panel);
+  animation: sidebar-peek-in var(--duration-base) var(--ease-emphasized);
+  transition: transform var(--duration-exit) var(--ease-in);
+}
+.sidebar-peek[data-leaving='true'] {
+  transform: translateX(calc(-100% - 24px));
+}
+@keyframes sidebar-peek-in {
+  from {
+    transform: translateX(calc(-100% - 24px));
+  }
+}
 :root[data-frame-swap='a'] body::before {
   animation: frame-in-a var(--duration-slow) var(--ease-out);
 }
@@ -956,6 +974,27 @@ details:not([open]) > summary .sidebar-section-label > svg,
 .trail-row[aria-expanded='false'] .trail-branch-toggle {
   opacity: 1;
 }
+/* Float video: offered on hover while a video plays, kept while it floats. */
+.trail-float {
+  display: none;
+}
+.trail-row:is(:hover, :focus-within)[data-video='playing'] .trail-float,
+.trail-row[data-video='floating'] .trail-float {
+  display: grid;
+}
+.trail-row[data-video='floating'] .trail-float {
+  color: var(--accent);
+}
+/* A page whose video floats looks lifted off the trail, as its video is. */
+.trail-favicon {
+  transition:
+    translate var(--duration-base) var(--ease-emphasized),
+    filter var(--duration-base) var(--ease-emphasized);
+}
+.trail-row[data-video='floating'] .trail-favicon {
+  translate: 0 -2px;
+  filter: var(--shadow-lifted);
+}
 .trail-label {
   display: flex;
   align-items: baseline;
@@ -966,6 +1005,28 @@ details:not([open]) > summary .sidebar-section-label > svg,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Scrolling on hover: no ellipsis, and the text fades out at the edges. The
+   left fade only shows once the text has moved, so the first letter reads in
+   full at rest. The inner span moves by transform: Chromium doesn't repaint
+   text-indent changes under a mask, so the text looked stuck. */
+@property --marquee-edge {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 1;
+}
+.trail-label > .trail-title[data-marquee='true'] {
+  text-overflow: clip;
+  mask-image: linear-gradient(
+    to right,
+    color-mix(in srgb, black calc(var(--marquee-edge) * 100%), transparent),
+    black 6px,
+    black calc(100% - 10px),
+    transparent
+  );
+}
+.trail-title[data-marquee='true'] > .trail-title-text {
+  display: inline-block;
 }
 .trail-site {
   flex-shrink: 0;
@@ -1084,38 +1145,56 @@ details[open] > .sidebar-section-content {
 .sidebar-resize[data-resizing='true']::after {
   background: var(--accent);
 }
+/*
+ * The trail's handle fills the whole gap between the sidebar and the page
+ * card, with its line down the middle. Fixed, so the aside's overflow
+ * clipping doesn't cut it off at the sidebar's edge.
+ */
+.trail-resize {
+  position: fixed;
+  left: var(--sidebar-width);
+  right: auto;
+  width: var(--gutter);
+  z-index: 1;
+}
+.trail-resize::after {
+  right: auto;
+  left: calc(50% - 1px);
+  width: 2px;
+  bottom: var(--gutter);
+  border-radius: var(--radius-full);
+}
 :root:has(.sidebar-resize[data-resizing='true']) aside,
 :root:has(.sidebar-resize[data-resizing='true']) aside > div {
   transition: none;
 }
 
 /*
- * Every icon has one chunky, round-cornered weight, set here instead of at
- * each use. The tiny ones and the big ones step to look the same on screen.
+ * Icons are Fluent System drawings (src/renderer/icons). Fluent's regular
+ * line is thin, so every regular icon is traced with an outline in its own
+ * colour, set here instead of at each use, in units of the 20-unit grid.
+ * The tiny ones get more so they read the same on screen.
  */
-.lucide {
-  stroke-width: var(--icon-stroke);
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.icon > .icon-regular {
+  stroke-width: var(--icon-weight);
 }
-.lucide:is([width='10'], [width='11'], [width='12'], [width='13']) {
-  stroke-width: var(--icon-stroke-small);
+.icon:is([width='10'], [width='11'], [width='12'], [width='13'])
+  > .icon-regular {
+  stroke-width: var(--icon-weight-small);
 }
-.lucide:is([width='20'], [width='24']) {
-  stroke-width: var(--icon-stroke-large);
+.icon[data-bold='true'] > .icon-regular {
+  stroke-width: var(--icon-weight-bold);
 }
-.lucide[width='16'] {
-  stroke-width: var(--icon-stroke-md);
+/* The filled drawing shows when asked for, or when the control is on. */
+.icon > .icon-filled {
+  display: none;
 }
-/*
- * The icon grid's main lines fall on whole device pixels at 2x, so a 3-pixel
- * stroke straddles them and leaves soft half-covered edges. A quarter point
- * moves those edges onto the pixel grid.
- */
-@media (min-resolution: 2dppx) {
-  .icon-button > .lucide[width='16'] {
-    translate: 0.25px 0.25px;
-  }
+.icon[data-filled='true'] > .icon-filled,
+[aria-pressed='true'] > .icon > .icon-filled {
+  display: inline;
+}
+[aria-pressed='true'] > .icon > .icon-regular {
+  display: none;
 }
 
 /*
@@ -1527,6 +1606,56 @@ button.sidebar-row,
 .trail-row[data-link-over='true'] {
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+@keyframes drop-line-in {
+  from {
+    opacity: 0;
+    scale: 0.6 1;
+  }
+}
+.group-card > .sidebar-row {
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+[role='tree'][data-dragging='true'] {
+  cursor: grabbing;
+}
+/* A page dragged onto a group's heading goes in. */
+.group-card[data-drop-over='true'] > .sidebar-row {
+  border-radius: var(--radius-row);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* Where a dragged page lands; rows hold still around it. */
+.trail-drop-line {
+  position: absolute;
+  transition:
+    top var(--duration-fast) var(--ease-out),
+    left var(--duration-fast) var(--ease-out);
+  animation: drop-line-in var(--duration-fast) var(--ease-out);
+  right: 4px;
+  z-index: 20;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  pointer-events: none;
+}
+.trail-drop-line::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  background: var(--chrome);
+}
+/* A row dragged out of a group isn't clipped by the group's reveal. */
+[role='tree'][data-dragging='true'] .reveal > * {
+  overflow: visible;
 }
 .link-drop-trail[data-over='true'] {
   box-shadow: inset 0 0 0 1px var(--accent);

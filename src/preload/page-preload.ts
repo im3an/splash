@@ -8,8 +8,17 @@ import {
   LINK_ACTIVATED,
   LINK_DROPPED,
   NAVIGATION_BUTTON,
+  PLACE_ASK,
+  PLACE_REPORT,
+  SWIPE_ASK,
+  SWIPE_RUN,
+  VIDEO_FLOATED,
   VIDEO_UNFLOATED,
 } from '../shared/page-bridge';
+import type { SwipeAnswer } from '../shared/page-bridge';
+import type { PagePlace } from '../shared/page-place';
+import { installPagePlace } from './page-place';
+import { installPageSwipe } from './page-swipe';
 
 /*
  * Runs in an isolated world inside every web page. It exposes nothing to the
@@ -50,6 +59,16 @@ if (window === window.top) {
   );
 }
 
+// Where the user is in the page comes back after a reload, sleep or relaunch.
+// Only web documents: the start page and Splash's own pages keep no place.
+if (window === window.top && /^(https?|file):$/.test(location.protocol)) {
+  installPagePlace({
+    ask: (url, kind) =>
+      ipcRenderer.invoke(PLACE_ASK, { url, kind }) as Promise<PagePlace | null>,
+    report: (place) => ipcRenderer.send(PLACE_REPORT, place),
+  });
+}
+
 // Wait for document-level routers to handle the click first. Eligible normal
 // links become child pages directly, avoiding Chromium's beforeunload step on
 // the source document (which stays open). Named targets keep native behavior.
@@ -82,6 +101,16 @@ if (window === window.top)
     ipcRenderer.send(BRANCH_LINK, href);
   });
 
+// Two fingers past the page's edge go back or forward; pulled down past its
+// top, they reload. Only the top frame: an embedded frame's own scrolling is
+// out of its reach, and it may not speak for the page.
+if (window === window.top) {
+  installPageSwipe({
+    available: () => ipcRenderer.invoke(SWIPE_ASK) as Promise<SwipeAnswer>,
+    run: (kind) => ipcRenderer.send(SWIPE_RUN, kind),
+  });
+}
+
 // Every frame listens, so the buttons work over embedded videos and maps too.
 window.addEventListener(
   'mouseup',
@@ -101,6 +130,11 @@ document.addEventListener(
     const video = event.target as HTMLVideoElement;
     setTimeout(() => ipcRenderer.send(VIDEO_UNFLOATED, !video.paused), 100);
   },
+  { capture: true },
+);
+document.addEventListener(
+  'enterpictureinpicture',
+  () => ipcRenderer.send(VIDEO_FLOATED),
   { capture: true },
 );
 

@@ -6,7 +6,12 @@ import type {
 } from 'electron';
 import { isGestureInput, UserGestures } from '../browser/popup-policy';
 import { isPageUrl, mayOpenFromPage } from '../browser/url';
-import { popupFallback } from '../security/https-only';
+import { sessionRulesFor } from '../privacy/helper-extension';
+import {
+  popupFallback,
+  popupUpgraded,
+  wantsSecurePopup,
+} from '../security/https-only';
 import { requestAuthentication } from './auth-window';
 
 /**
@@ -52,19 +57,8 @@ export function popupWindowOptions(
   };
 }
 
-/** What the network hooks can ask of a popup, which has no page of its own. */
-export interface PopupHandle {
-  /** Its main-frame request for `url` was stopped: reported as dangerous. */
-  flaggedDangerous(url: string): void;
-}
-
-const popupHandles = new Map<number, PopupHandle>();
-
-export function popupHandleFor(
-  contents: { id: number } | null | undefined,
-): PopupHandle | null {
-  return (contents && popupHandles.get(contents.id)) ?? null;
-}
+/** The helper extension stops a dangerous address with this. */
+const ERR_BLOCKED_BY_CLIENT = -20;
 
 /** The same limits a page has, for a window opened from one. */
 export function wirePopupWindow(
@@ -77,27 +71,42 @@ export function wirePopupWindow(
   // moves to the trail, where the page shows both. A sign-in that uses it loses
   // its popup, which is the point.
   let moved = false;
-  popupHandles.set(contents.id, {
-    flaggedDangerous(url) {
-      if (moved) return;
-      moved = true;
-      // Not inside the network hook that asked.
-      setImmediate(() => {
-        openPage(url);
-        if (!popup.isDestroyed()) popup.close();
-      });
-    },
+  const rules = () => sessionRulesFor(contents.session);
+  // The helper extension tries HTTPS first by the same rule, unless this
+  // popup already failed to reach that address securely.
+  const noteUpgrade = (url: string) => {
+    if (!wantsSecurePopup(url)) return;
+    const secure = rules()?.upgradeOf(url);
+    if (secure) popupUpgraded(url, secure);
+  };
+  contents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument)
+      noteUpgrade(details.url);
   });
-  const id = contents.id;
-  contents.on('destroyed', () => popupHandles.delete(id));
+  contents.on('did-redirect-navigation', (details) => {
+    if (details.isMainFrame) noteUpgrade(details.url);
+  });
   const showAddress = () => {
     if (!popup.isDestroyed()) popup.setTitle(popupTitle(contents.getURL()));
   };
   popup.on('page-title-updated', (event) => event.preventDefault());
   contents.on('did-fail-load', (_event, code, _text, url, isMainFrame) => {
     if (!isMainFrame) return;
+    if (code === ERR_BLOCKED_BY_CLIENT && rules()?.isDangerous(url)) {
+      if (moved) return;
+      moved = true;
+      openPage(url);
+      if (!popup.isDestroyed()) popup.close();
+      return;
+    }
     const plain = popupFallback(url, code);
-    if (plain) void contents.loadURL(plain).catch(() => undefined);
+    if (!plain) return;
+    // The helper must know first, or it would send it to HTTPS again.
+    void (rules()?.allowPlain(contents.id, plain) ?? Promise.resolve())
+      .then(() => {
+        if (!contents.isDestroyed()) return contents.loadURL(plain);
+      })
+      .catch(() => undefined);
   });
   contents.on('did-navigate', showAddress);
   contents.on('did-navigate-in-page', showAddress);

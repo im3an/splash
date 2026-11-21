@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp } from 'lucide-react';
+import { ArrowDown, ArrowUp } from '../icons';
 import {
   TOOLBAR_ACTIONS,
   DEFAULT_PREFERENCES,
@@ -14,6 +14,11 @@ import {
   type SpellingLanguage,
 } from '../../shared/preferences';
 import { customEngines, SEARCH_ENGINES } from '../../shared/search';
+import {
+  SECURE_DNS_PROVIDERS,
+  secureDnsProvider,
+  type SecureDns,
+} from '../../shared/secure-dns';
 import type {
   ThreatListStatus,
   AboutInfo,
@@ -189,7 +194,7 @@ export function AppearanceSettings() {
       <Section title="Appearance">
         <Row
           label="Theme"
-          help="Websites follow it too. A workspace’s own theme wins while it’s open."
+          help="For workspaces left at Default. Websites follow along."
         >
           <Choice
             label="Theme"
@@ -235,6 +240,18 @@ export function AppearanceSettings() {
             label="Reduce motion"
             checked={preferences.reduceMotion}
             onChange={(reduceMotion) => update({ reduceMotion })}
+          />
+        </Row>
+      </Section>
+      <Section title="Trackpad">
+        <Row
+          label="Swipe to go back and reload"
+          help="Swipe two fingers right or left past the page’s edge to go back or forward. Pull down past the top to reload."
+        >
+          <Toggle
+            label="Swipe to go back and reload"
+            checked={preferences.trackpadSwipes}
+            onChange={(trackpadSwipes) => update({ trackpadSwipes })}
           />
         </Row>
       </Section>
@@ -582,6 +599,20 @@ export function PageSettings() {
           </Select>
         </Row>
       </Section>
+      <Section title="Video">
+        <Row
+          label="Float videos when you leave their page"
+          help="A video you’re watching keeps playing in a small window above everything, and goes back when you return. Videos that are muted or paused stay put."
+        >
+          <Toggle
+            label="Float videos when you leave their page"
+            checked={preferences.autoPictureInPicture}
+            onChange={(autoPictureInPicture) =>
+              update({ autoPictureInPicture })
+            }
+          />
+        </Row>
+      </Section>
       <Section title="Spelling">
         <Row
           label="Check spelling"
@@ -643,6 +674,20 @@ function ClearOnQuitSettings() {
   );
 }
 
+function secureDnsHelp({
+  secureDns,
+  secureDnsStrict,
+}: Pick<Preferences, 'secureDns' | 'secureDnsStrict'>): string {
+  if (secureDns === 'automatic')
+    return 'Encrypts the lookups that turn addresses into servers when your network’s DNS provider supports it.';
+  if (secureDns === 'off')
+    return 'Uses your network’s DNS without encryption, so the network can see which sites you look up.';
+  const name = secureDnsProvider(secureDns)?.name ?? secureDns;
+  return secureDnsStrict
+    ? `Looks up every site with ${name}, encrypted, so your network can’t see or change the answers.`
+    : `Looks up sites with ${name}, encrypted, so your network can’t see or change the answers. If ${name} can’t be reached, Splash uses your network’s DNS.`;
+}
+
 function SecureConnectionSettings() {
   const [preferences, update] = usePreferences();
   const [threats, setThreats] = useState<ThreatListStatus | null>(null);
@@ -678,6 +723,35 @@ function SecureConnectionSettings() {
           onChange={(httpsOnly) => update({ httpsOnly })}
         />
       </Row>
+      <Row label="Secure DNS" help={secureDnsHelp(preferences)}>
+        <Select
+          aria-label="Secure DNS"
+          value={preferences.secureDns}
+          onChange={(event) =>
+            update({ secureDns: event.target.value as SecureDns })
+          }
+        >
+          <option value="automatic">Automatic</option>
+          {SECURE_DNS_PROVIDERS.map((provider) => (
+            <option key={provider.id} value={provider.id}>
+              {provider.name}
+            </option>
+          ))}
+          <option value="off">Off</option>
+        </Select>
+      </Row>
+      {secureDnsProvider(preferences.secureDns) && (
+        <Row
+          label="Only secure DNS"
+          help={`Pages don’t load while ${secureDnsProvider(preferences.secureDns)?.name} can’t be reached. A sign-in page on hotel or airport Wi-Fi may need this off.`}
+        >
+          <Toggle
+            label="Only secure DNS"
+            checked={preferences.secureDnsStrict}
+            onChange={(secureDnsStrict) => update({ secureDnsStrict })}
+          />
+        </Row>
+      )}
       <Row
         label="Warn about dangerous sites"
         help={

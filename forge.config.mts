@@ -1,5 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { ForgeConfig, ForgePlatform } from '@electron-forge/shared-types';
@@ -16,6 +24,27 @@ import {
 
 /** Developer ID and notarisation when the environment names them; else ad hoc. */
 const signing = signingFrom(process.env);
+
+/**
+ * The release channel, from SPLASH_CHANNEL: stable (the default), beta,
+ * preview, nightly or dev. A channel other than stable is its own app: it
+ * has its own name, bundle ID, icon and profile. Run
+ * `npm run brand:channel-icons` after changing a channel master.
+ */
+const CHANNELS = ['stable', 'beta', 'preview', 'nightly', 'dev'];
+const channel = process.env.SPLASH_CHANNEL?.trim().toLowerCase() || 'stable';
+if (!CHANNELS.includes(channel)) {
+  throw new Error(
+    `SPLASH_CHANNEL must be one of ${CHANNELS.join(', ')}, not "${channel}"`,
+  );
+}
+/** Every channel but stable is a separate app that installs beside it. */
+const appName =
+  channel === 'stable'
+    ? 'Splash'
+    : `Splash ${channel.charAt(0).toUpperCase()}${channel.slice(1)}`;
+const iconDir =
+  channel === 'stable' ? 'assets/macos' : `assets/macos/channels/${channel}`;
 
 /**
  * A drag-to-Applications disk image, made with macOS's own `hdiutil`, so the
@@ -45,13 +74,22 @@ class MakerDMG extends MakerBase<Record<string, never>> {
       `${appName}-${version}-${targetArch}.dmg`,
     );
     await this.ensureFile(dmgPath);
-    const staging = mkdtempSync(join(tmpdir(), 'splash-dmg-'));
+    const work = mkdtempSync(join(tmpdir(), 'splash-dmg-'));
+    const staging = join(work, 'root');
+    const scratch = join(work, 'layout.dmg');
+    const background = `assets/dmg/${channel}.tiff`;
     try {
+      mkdirSync(staging);
       execFileSync('ditto', [
         join(dir, `${appName}.app`),
         join(staging, `${appName}.app`),
       ]);
       symlinkSync('/Applications', join(staging, 'Applications'));
+      copyFileSync(`${iconDir}/Splash.icns`, join(staging, '.VolumeIcon.icns'));
+      if (existsSync(background)) {
+        mkdirSync(join(staging, '.background'));
+        copyFileSync(background, join(staging, '.background/background.tiff'));
+      }
       execFileSync(
         'hdiutil',
         [
@@ -63,10 +101,16 @@ class MakerDMG extends MakerBase<Record<string, never>> {
           '-fs',
           'HFS+',
           '-format',
-          'UDZO',
+          'UDRW',
           '-ov',
-          dmgPath,
+          scratch,
         ],
+        { stdio: 'inherit' },
+      );
+      layOutDiskImage(scratch, appName, existsSync(background));
+      execFileSync(
+        'hdiutil',
+        ['convert', scratch, '-format', 'UDZO', '-ov', '-o', dmgPath],
         { stdio: 'inherit' },
       );
       for (const [command, args] of signing
@@ -75,9 +119,84 @@ class MakerDMG extends MakerBase<Record<string, never>> {
         execFileSync(command, args, { stdio: 'inherit' });
       }
     } finally {
-      rmSync(staging, { recursive: true, force: true });
+      rmSync(work, { recursive: true, force: true });
     }
     return [dmgPath];
+  }
+}
+
+/** The DMG window, in points; assets/dmg/<channel>.svg is drawn to this size. */
+const DMG_WINDOW = { width: 660, height: 420 };
+/** Finder's bounds include the title bar: 32 points on macOS 26 and later. */
+const DMG_TITLE_BAR = 32;
+/** Icon centres, matching the burst and the ripple in the background art. */
+const DMG_APP_AT = [170, 190];
+const DMG_APPLICATIONS_AT = [490, 190];
+
+/**
+ * Mount the read-write image and have Finder save its window layout (size,
+ * icon positions, background) into the volume's .DS_Store, and flag the
+ * custom volume icon. Finder is the only writer of that file macOS supports,
+ * so this needs Automation access to Finder; without it the image still
+ * works, just with Finder's default window.
+ */
+function layOutDiskImage(
+  image: string,
+  appName: string,
+  hasBackground: boolean,
+) {
+  const mount = mkdtempSync(join(tmpdir(), 'splash-dmg-mount-'));
+  execFileSync('hdiutil', [
+    'attach',
+    image,
+    '-readwrite',
+    '-noverify',
+    '-noautoopen',
+    '-mountpoint',
+    mount,
+  ]);
+  try {
+    execFileSync('SetFile', ['-a', 'C', mount]);
+    const left = 200;
+    const top = 120;
+    const script = `
+      set volumeRoot to POSIX file ${JSON.stringify(mount)} as alias
+      tell application "Finder"
+        open volumeRoot
+        set theWindow to container window of (item volumeRoot)
+        set current view of theWindow to icon view
+        set toolbar visible of theWindow to false
+        set statusbar visible of theWindow to false
+        set pathbar visible of theWindow to false
+        set sidebar width of theWindow to 0
+        set bounds of theWindow to {${left}, ${top}, ${left + DMG_WINDOW.width}, ${top + DMG_TITLE_BAR + DMG_WINDOW.height}}
+        set viewOptions to icon view options of theWindow
+        set arrangement of viewOptions to not arranged
+        set icon size of viewOptions to 128
+        set text size of viewOptions to 13
+        set shows item info of viewOptions to false
+        set shows icon preview of viewOptions to false
+        ${hasBackground ? `set background picture of viewOptions to file ".background:background.tiff" of (item volumeRoot)` : ''}
+        set extension hidden of item ${JSON.stringify(`${appName}.app`)} of (item volumeRoot) to true
+        set position of item ${JSON.stringify(`${appName}.app`)} of (item volumeRoot) to {${DMG_APP_AT.join(', ')}}
+        set position of item "Applications" of (item volumeRoot) to {${DMG_APPLICATIONS_AT.join(', ')}}
+        update (item volumeRoot) without registering applications
+        delay 1
+        close theWindow
+        delay 1
+      end tell`;
+    try {
+      execFileSync('osascript', ['-e', script], { stdio: 'inherit' });
+    } catch (error) {
+      console.warn(
+        'Finder could not lay out the disk image window (is Automation access to Finder allowed?); building it with the default window.',
+        error,
+      );
+    }
+    execFileSync('sync');
+  } finally {
+    execFileSync('hdiutil', ['detach', mount, '-force']);
+    rmSync(mount, { recursive: true, force: true });
   }
 }
 
@@ -90,17 +209,21 @@ const config: ForgeConfig = {
       Boolean(file) &&
       !file.startsWith('/.vite') &&
       !['/LICENSE', '/README.md'].includes(file),
-    icon: 'assets/macos/Splash',
+    icon: `${iconDir}/Splash`,
     // Bundled extensions load from disk, outside the asar archive.
     // So are the licence notices Settings › About shows. Chromium's licences
     // would otherwise sit beside the app and miss the disk image.
     extraResource: [
       'extensions',
-      'assets/macos/Splash.png',
+      `${iconDir}/Splash.png`,
       'build/third-party-notices.txt',
       'node_modules/electron/dist/LICENSES.chromium.html',
     ],
-    appBundleId: 'app.splash.browser',
+    ...(channel === 'stable' ? {} : { name: appName }),
+    appBundleId:
+      channel === 'stable'
+        ? 'app.splash.browser'
+        : `app.splash.browser.${channel}`,
     ...(signing ? packagerSigning(signing) : {}),
     appCategoryType: 'public.app-category.productivity',
     darwinDarkModeSupport: true,
@@ -162,6 +285,9 @@ const config: ForgeConfig = {
     // licence notices are there.
     generateAssets: async () => {
       execFileSync(process.execPath, ['scripts/fetch-extensions.mjs'], {
+        stdio: 'inherit',
+      });
+      execFileSync(process.execPath, ['scripts/build-helper-extension.mjs'], {
         stdio: 'inherit',
       });
       execFileSync(process.execPath, ['scripts/third-party-notices.mjs'], {

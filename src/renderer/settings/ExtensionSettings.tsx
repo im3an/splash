@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronRight, FolderOpen, Puzzle, Store } from 'lucide-react';
+import { ChevronRight, FolderOpen, Puzzle, Store } from '../icons';
 import type { ExtensionInfo, ExtensionSource } from '../../shared/types';
 import { api } from '../splash-api';
 import { Button, Section, Toggle } from './controls';

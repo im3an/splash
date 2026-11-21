@@ -12,7 +12,9 @@ const info: SiteInfo = {
   security: 'secure',
   blockedCount: 0,
   refusedBySystem: [],
-  permissions: [{ permission: 'camera', label: 'Camera', decision: 'ask' }],
+  permissions: [
+    { permission: 'camera', label: 'Camera', decision: 'ask', inUse: true },
+  ],
 };
 function stubApi() {
   const splash = {
@@ -25,6 +27,50 @@ function stubApi() {
   return splash;
 }
 afterEach(() => vi.restoreAllMocks());
+
+describe('settings the site never touched', () => {
+  const withUnused: SiteInfo = {
+    ...info,
+    permissions: [
+      ...info.permissions,
+      {
+        permission: 'midi',
+        label: 'MIDI devices',
+        decision: 'ask',
+        inUse: false,
+      },
+    ],
+  };
+
+  it('are folded away until asked for', async () => {
+    const splash = stubApi();
+    splash.getSiteInfo.mockResolvedValueOnce(withUnused);
+    render(<SiteInfoPopover />);
+    await screen.findByRole('radiogroup', { name: 'Camera' });
+    expect(
+      screen.queryByRole('radiogroup', { name: 'MIDI devices' }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'More settings' }));
+    expect(
+      screen.getByRole('radiogroup', { name: 'MIDI devices' }),
+    ).toBeTruthy();
+  });
+
+  it('leave a note when the site asked for nothing', async () => {
+    const splash = stubApi();
+    splash.getSiteInfo.mockResolvedValueOnce({
+      ...withUnused,
+      permissions: withUnused.permissions.map((row) => ({
+        ...row,
+        inUse: false,
+      })),
+    });
+    render(<SiteInfoPopover />);
+    expect(
+      await screen.findByText('This site hasn’t asked for anything.'),
+    ).toBeTruthy();
+  });
+});
 
 it('recovers from a failed load', async () => {
   const splash = stubApi();

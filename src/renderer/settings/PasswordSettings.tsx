@@ -6,7 +6,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { Copy, Eye, EyeOff, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Copy, Eye, EyeOff, Pencil, Plus, Trash2 } from '../icons';
 import {
   isValidCardNumber,
   type AddressFields,

@@ -49,12 +49,23 @@ function trustedTarget(
   return trusted ? target : null;
 }
 
+let shellResolver: IpcTargetResolver | null = null;
+
+/**
+ * Whether a message came from the top frame of Splash's own UI, by the same
+ * test the typed channels use. For channels a library registers itself.
+ */
+export function isFromShell(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  return shellResolver !== null && trustedTarget(event, shellResolver) !== null;
+}
+
 /**
  * Wires the typed contract to its handlers. Every message is checked for
  * origin and parsed against its schema before any handler runs.
  * Returns a function that removes the handlers again.
  */
 export function registerIpc(resolve: IpcTargetResolver): () => void {
+  shellResolver = resolve;
   const invokeChannels = Object.keys(invokeContract) as InvokeChannel[];
   const sendChannels = Object.keys(sendContract) as SendChannel[];
 
@@ -86,6 +97,7 @@ export function registerIpc(resolve: IpcTargetResolver): () => void {
   });
 
   return () => {
+    if (shellResolver === resolve) shellResolver = null;
     for (const channel of invokeChannels) ipcMain.removeHandler(channel);
     for (const [channel, listener] of listeners) {
       ipcMain.removeListener(channel, listener);
