@@ -134,6 +134,24 @@ body::before {
   background-image: var(--frame-grain, none), var(--frame-image, none);
   background-attachment: fixed;
 }
+/*
+ * The shut sidebar, out over the frozen page from the window's left edge.
+ * The same frame as docked, lifted by a shadow on its open side.
+ */
+.sidebar-peek {
+  border-radius: 0 var(--radius-panel) var(--radius-panel) 0;
+  box-shadow: var(--shadow-panel);
+  animation: sidebar-peek-in var(--duration-base) var(--ease-emphasized);
+  transition: transform var(--duration-exit) var(--ease-in);
+}
+.sidebar-peek[data-leaving='true'] {
+  transform: translateX(calc(-100% - 24px));
+}
+@keyframes sidebar-peek-in {
+  from {
+    transform: translateX(calc(-100% - 24px));
+  }
+}
 :root[data-frame-swap='a'] body::before {
   animation: frame-in-a var(--duration-slow) var(--ease-out);
 }

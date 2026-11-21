@@ -14,19 +14,7 @@ export function NotesButton() {
   const page = useShell(selectActivePage);
   const notes = useNotes((state) => state.notes);
   const open = useOverlay((state) => state.overlay?.kind === 'notes');
-  // Read on start and whenever the window comes forward, so notes written
-  // in another window show here too.
-  useEffect(() => {
-    const load = () =>
-      void useNotes
-        .getState()
-        .flush()
-        .then(() => useNotes.getState().load())
-        .catch(() => undefined);
-    load();
-    window.addEventListener('focus', load);
-    return () => window.removeEventListener('focus', load);
-  }, []);
+  useNotesSync();
   const key = siteKey(page?.url);
   const here = useMemo(() => notesForSite(notes, key), [notes, key]);
   const label = here.length
@@ -64,4 +52,22 @@ export function NotesButton() {
       )}
     </button>
   );
+}
+
+/**
+ * Reads notes on start and whenever the window comes forward, so notes
+ * written in another window show here too.
+ */
+export function useNotesSync() {
+  useEffect(() => {
+    const load = () =>
+      void useNotes
+        .getState()
+        .flush()
+        .then(() => useNotes.getState().load())
+        .catch(() => undefined);
+    load();
+    window.addEventListener('focus', load);
+    return () => window.removeEventListener('focus', load);
+  }, []);
 }

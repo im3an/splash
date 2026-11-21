@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { DEFAULT_PREFERENCES } from '../../shared/preferences';
 import { useShell } from '../stores/shell-store';
 import { useToast } from '../stores/toast-store';
 import { Toast } from './Toast';
@@ -39,6 +40,31 @@ describe('Toast', () => {
       name: 'Open System Settings',
     });
     expect(button.parentElement?.className).toContain('justify-end');
+  });
+
+  it('sits at the top of the sidebar when the address bar is there', () => {
+    act(() =>
+      useShell.setState({
+        preferences: { ...DEFAULT_PREFERENCES, addressBar: 'sidebar' },
+      }),
+    );
+    render(
+      <>
+        <div data-testid="foot">
+          <Toast placement="sidebar" />
+        </div>
+        <div data-testid="top">
+          <Toast placement="sidebar-top" />
+        </div>
+      </>,
+    );
+    showToast();
+    const status = () => screen.getByRole('status');
+    expect(screen.getByTestId('top').contains(status())).toBe(true);
+    // Shut, the sidebar peeks out to show it in the same place.
+    act(() => useShell.setState({ sidebarOpen: false }));
+    expect(screen.getByTestId('top').contains(status())).toBe(true);
+    act(() => useShell.setState({ preferences: null }));
   });
 
   it('moves from the sidebar to the toolbar when the sidebar hides', () => {

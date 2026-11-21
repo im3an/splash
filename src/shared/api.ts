@@ -463,6 +463,8 @@ export interface SplashApi {
   freezePage(): Promise<Record<PageId, string>>;
   /** While true, the live page steps aside so shell popovers are visible. */
   setOverlayActive(active: boolean): void;
+  /** Shows or hides the window's close, minimise and zoom buttons. */
+  setWindowButtonsVisible(visible: boolean): void;
   /** A toast with Undo or Redo is showing, so ⌘Z and ⇧⌘Z mean the trail. */
   setTrailUndoOffered(offered: boolean): void;
   /**

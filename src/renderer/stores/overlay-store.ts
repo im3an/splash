@@ -14,6 +14,8 @@ export type Overlay =
   | { kind: 'downloads' }
   | { kind: 'extensions' }
   | { kind: 'notes' }
+  /** The shut sidebar, out over the page while the pointer is on it. */
+  | { kind: 'sidebar-peek' }
   /** PROTOTYPE: see src/renderer/prototype/. */
   | { kind: 'alma-view' };
 

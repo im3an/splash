@@ -11,6 +11,7 @@ import { api } from '../splash-api';
 import {
   selectActivePage,
   selectAddressInSidebar,
+  selectBarless,
   selectBlank,
   selectVisibleSplit,
   useShell,
@@ -27,12 +28,13 @@ import { Toast } from './Toast';
 export function Toolbar() {
   const sidebarOpen = useShell((state) => state.sidebarOpen);
   const addressInSidebar = useShell(selectAddressInSidebar);
+  const barless = useShell(selectBarless);
   const toggleSidebar = useShell((state) => state.toggleSidebar);
   // With nothing to browse, the palette is all there is; the strip stays so
   // the window can still be dragged.
   const blank = useShell(selectBlank);
 
-  if (addressInSidebar) return null;
+  if (addressInSidebar || barless) return null;
 
   return (
     <header

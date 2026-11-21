@@ -31,6 +31,11 @@ interface ShellState {
   snapshot: BrowserSnapshot | null;
   preferences: Preferences | null;
   sidebarOpen: boolean;
+  /**
+   * The shut sidebar is showing over the page because the pointer reached the
+   * window's left edge. Only with the address bar in the sidebar.
+   */
+  sidebarPeek: boolean;
   sidebarPanel: SidebarPanel | null;
   /** The workspace the workspace panel edits; `null` creates a new one. */
   editingWorkspaceId: WorkspaceId | null;
@@ -57,6 +62,7 @@ interface ShellState {
   findRequest: { serial: number; action: 'open' | 'next' | 'previous' };
   receiveSnapshot(snapshot: BrowserSnapshot): void;
   toggleSidebar(): void;
+  setSidebarPeek(peek: boolean): void;
   /** Shows a panel in place of the trail (opening the sidebar), or the trail. */
   setSidebarPanel(panel: SidebarPanel | null): void;
   /** Shows `panel`, or goes back to the trail when it's already showing. */
@@ -80,6 +86,7 @@ export const useShell = create<ShellState>()((set) => ({
   snapshot: null,
   preferences: null,
   sidebarOpen: true,
+  sidebarPeek: false,
   sidebarPanel: null,
   editingWorkspaceId: null,
   appearancePreview: null,
@@ -94,7 +101,9 @@ export const useShell = create<ShellState>()((set) => ({
   workspaceDropId: null,
   receiveSnapshot: (snapshot) =>
     set((state) => ({ snapshot: shareUnchanged(state.snapshot, snapshot) })),
-  toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+  toggleSidebar: () =>
+    set((state) => ({ sidebarOpen: !state.sidebarOpen, sidebarPeek: false })),
+  setSidebarPeek: (peek) => set({ sidebarPeek: peek }),
   setSidebarPanel: (panel) =>
     set(
       panel
@@ -229,7 +238,31 @@ export function selectFlatTrail(state: ShellState): boolean {
  * Address bar setting), and the sidebar is open to hold them.
  */
 export function selectAddressInSidebar(state: ShellState): boolean {
-  return state.sidebarOpen && state.preferences?.addressBar === 'sidebar';
+  return (
+    (state.sidebarOpen || state.sidebarPeek) &&
+    state.preferences?.addressBar === 'sidebar'
+  );
+}
+
+/**
+ * Where the toast shows. With the address bar in the sidebar, it's at the
+ * right end of the sidebar's top row, over the page's back and forward, the
+ * spot it had in the toolbar; a shut sidebar peeks out to show it. Otherwise
+ * at the sidebar's foot, or in the toolbar while the sidebar is hidden.
+ */
+export type ToastPlace = 'sidebar' | 'toolbar' | 'sidebar-top';
+export function selectToastPlace(state: ShellState): ToastPlace {
+  if (state.preferences?.addressBar === 'sidebar') return 'sidebar-top';
+  return state.sidebarOpen ? 'sidebar' : 'toolbar';
+}
+
+/**
+ * The Address bar setting puts the field in the sidebar and the sidebar is
+ * shut: nothing sits above the page, not even the window buttons, until the
+ * sidebar opens or peeks out from the left edge.
+ */
+export function selectBarless(state: ShellState): boolean {
+  return !state.sidebarOpen && state.preferences?.addressBar === 'sidebar';
 }
 
 /** The split view, while it is on screen (its pages include the active one). */

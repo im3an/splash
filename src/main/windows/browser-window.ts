@@ -818,6 +818,13 @@ export class TrailWindow {
         'view:focus-page': () => this.controller.focusActivePage(),
         'view:set-overlay': ({ active }) =>
           this.controller.setOverlayActive(active),
+        // With the address bar in the sidebar and the sidebar shut, nothing
+        // sits above the page, so the buttons would cover it.
+        'view:set-window-buttons': ({ visible }) => {
+          this.window.setWindowButtonVisibility(visible);
+          // Shown again, macOS puts them back at its own spot.
+          if (visible) this.window.setWindowButtonPosition({ x: 18, y: 18 });
+        },
         'view:set-trail-undo-offered': ({ offered }) => {
           this.trailUndoOffered = offered;
         },

@@ -195,6 +195,8 @@ const api: SplashApi = {
   resetSite: (origin) => invoke('site:reset', { origin }),
   freezePage: () => invoke('view:freeze'),
   setOverlayActive: (active) => send('view:set-overlay', { active }),
+  setWindowButtonsVisible: (visible) =>
+    send('view:set-window-buttons', { visible }),
   setTrailUndoOffered: (offered) =>
     send('view:set-trail-undo-offered', { offered }),
   previewWorkspaceMode: (mode) => send('workspace:preview-mode', { mode }),

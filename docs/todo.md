@@ -564,7 +564,22 @@ Arc / Zen style
 - [ ] Link routing rules: links from an app or domain open in a chosen workspace
 - [ ] Auto-archive pages untouched for N days, with a way to find them again
 - [ ] Boosts: per-site CSS/JS tweaks, dark mode per site, element zapper
-- [ ] Auto-hide / compact sidebar with a hover reveal
+- [x] Auto-hide / compact sidebar with a hover reveal (21 November). With the
+      address bar in the sidebar and the sidebar shut, nothing sits above the
+      page, not even the window buttons. The pointer at the window's left edge
+      brings the sidebar out over the frozen page, and a toast does too, going
+      with it. The sidebar's top row is Arc's: the toggle by the window
+      buttons, back and forward at the other end. The page's actions sit
+      behind one button at the end of the address pill, beside extensions'
+      own buttons. ⌘S keeps the sidebar open; there is no separate peek key.
+      Unit tested (`use-sidebar-peek.test.tsx`) and checked in the app: in
+      split view, for a toast, and with sound playing, which carries on.
+  - [ ] By hand: in full screen, and on a second display to the left (the
+        edge is shared). Neither could be driven from a test.
+  - [ ] Tests for `PageMenuButton.tsx`: entries for a web page, a private
+        page and split view, and that the extensions popover lines up with it.
+  - [ ] Keyboard for the page menu button: reach it with Tab, open with Space
+        or Enter, arrows in the menu.
 - [ ] Essentials: always-on pinned sites shared by every workspace
 - [ ] Page-aware notes and a scratchpad per workspace
 - [ ] Sidebar web panels (chat, music, calendar) beside the trail

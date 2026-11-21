@@ -636,6 +636,7 @@ export const sendContract = {
   }),
   'view:focus-page': z.undefined(),
   'view:set-overlay': z.strictObject({ active: z.boolean() }),
+  'view:set-window-buttons': z.strictObject({ visible: z.boolean() }),
   'view:set-trail-undo-offered': z.strictObject({ offered: z.boolean() }),
   'workspace:preview-mode': z.strictObject({
     mode: z.enum(['default', 'light', 'dark', 'system']).nullable(),

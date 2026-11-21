@@ -26,7 +26,12 @@ const DEFAULT_PARTITION = 'persist:web';
  * puzzle button after them lists every extension, to turn on or off, set up,
  * remove or add to.
  */
-export function ExtensionActions() {
+export function ExtensionActions({
+  buttonsOnly = false,
+}: {
+  /** Just the extensions' own buttons: the sidebar's page menu lists them all. */
+  buttonsOnly?: boolean;
+} = {}) {
   // A private window's session has no extensions; the toolbar must not offer
   // the regular window's, which would act on pages elsewhere.
   const isPrivate = useIsPrivate();
@@ -36,14 +41,18 @@ export function ExtensionActions() {
     (state) => state.overlay?.kind === 'extensions' && !state.leaving,
   );
   if (isPrivate) return null;
+  const list = (
+    <browser-action-list
+      // Each workspace runs its own copy of every extension, in its session.
+      partition={partition}
+      alignment="bottom left"
+      aria-label="Extensions"
+    />
+  );
+  if (buttonsOnly) return list;
   return (
     <>
-      <browser-action-list
-        // Each workspace runs its own copy of every extension, in its session.
-        partition={partition}
-        alignment="bottom left"
-        aria-label="Extensions"
-      />
+      {list}
       <button
         id={EXTENSIONS_BUTTON_ID}
         type="button"

@@ -13,9 +13,11 @@ import { useEffect, useRef } from 'react';
 import { useWorkspaceTheme } from './hooks/use-workspace-theme';
 import { useInterfacePreferences } from './hooks/use-interface-preferences';
 import { useLinkDrop } from './hooks/use-link-drop';
+import { startSidebarPeek, useSidebarPeek } from './hooks/use-sidebar-peek';
 import { useOverlay, type Overlay } from './stores/overlay-store';
 import {
   selectAddressInSidebar,
+  selectBarless,
   openLocation,
   selectBlank,
   selectStartPageFocus,
@@ -26,7 +28,10 @@ export function App() {
   useWorkspaceTheme();
   useInterfacePreferences();
   useLinkDrop();
+  useSidebarPeek();
   const addressInSidebar = useShell(selectAddressInSidebar);
+  const barless = useShell(selectBarless);
+  const peeking = useShell((state) => state.sidebarPeek);
   // A window or page with nothing in it opens straight into the location
   // field: once per blank page, so dismissing it sticks. Leaving the blank
   // page (another workspace, another page) takes that field with it.
@@ -61,7 +66,7 @@ export function App() {
           window's top edge like Arc's. */}
       <main
         className="flex min-w-0 flex-1 flex-col data-[toolbar=false]:pt-(--gutter)"
-        data-toolbar={!addressInSidebar}
+        data-toolbar={!addressInSidebar && !barless}
       >
         <Toolbar />
         <BookmarksBar />
@@ -74,6 +79,24 @@ export function App() {
       </main>
       <AiPanel />
       <PageMenu />
+      {barless && (
+        <>
+          {/* With nothing above the page, its top margin moves the window. */}
+          <div
+            aria-hidden
+            className="drag fixed inset-x-0 top-0 h-(--gutter)"
+          />
+          {/* The left margin brings the sidebar out. */}
+          {!peeking && (
+            <div
+              aria-hidden
+              data-testid="sidebar-peek-edge"
+              className="fixed inset-y-0 left-0 z-40 w-(--gutter)"
+              onMouseEnter={startSidebarPeek}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 }
