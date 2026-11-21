@@ -9,6 +9,7 @@ import type {
   PageId,
   SitePermission,
   SystemPermission,
+  WorkspaceId,
 } from '../../shared/types';
 
 /** Live state reported by a page's Chromium view. */
@@ -74,6 +75,11 @@ export interface PageDownload {
 export interface PageHostEvents {
   /** The trail page this host shows. */
   readonly pageId: PageId;
+  /**
+   * The workspace whose profile the page browses in. Fixed for the host's
+   * life: a page moved to another profile gets a new host.
+   */
+  readonly workspaceId: WorkspaceId;
   onStateChange(patch: Partial<PageRuntimeState>): void;
   /** The page asked to open a new window (`window.open`, `target=_blank`). */
   onOpenRequest(url: string, options: { background: boolean }): void;

@@ -536,6 +536,11 @@ export interface BrowserSnapshot {
   lastClosed: ClosedSummary | null;
   workspaces: WorkspaceSummary[];
   activeWorkspaceId: WorkspaceId;
+  /**
+   * The profile the active workspace's pages browse in: their partition is
+   * `persist:<activeProfile>`. Absent where workspaces have no profiles.
+   */
+  activeProfile?: string;
 }
 
 /** Distance from each window edge to the page content area, in CSS pixels. */

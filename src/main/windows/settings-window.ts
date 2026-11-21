@@ -44,7 +44,7 @@ export interface SettingsWindowOptions {
   store: TrailStore;
   preferences: PreferencesService;
   downloads: DownloadManager;
-  cleaner: BrowsingDataCleaner;
+  cleaner: Pick<BrowsingDataCleaner, 'clear' | 'restore'>;
   blocker: ContentBlocking;
   cookies: CookieViewer;
   /** The session pages browse in, which keeps words added to the dictionary. */
@@ -262,7 +262,7 @@ export class SettingsWindow {
           );
         },
         'settings:delete-workspace': ({ workspaceId }) =>
-          this.options.browserWindow()?.controller.deleteWorkspace(workspaceId),
+          this.options.browserWindow()?.deleteWorkspace(workspaceId),
       },
       send: {},
     };

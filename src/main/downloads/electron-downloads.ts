@@ -7,6 +7,20 @@ import type { TrailStore } from '../storage/trail-store';
 import { DownloadManager } from './download-manager';
 import { quarantineDownload } from './quarantine';
 
+/** How each manager starts listening to another session. */
+const followers = new WeakMap<DownloadManager, (session: Session) => void>();
+
+/**
+ * Lists another workspace's downloads with the rest: there is one downloads
+ * list, whichever workspace a file came from.
+ */
+export function followDownloads(
+  manager: DownloadManager,
+  session: Session,
+): void {
+  followers.get(manager)?.(session);
+}
+
 /** The download manager, wired to the browsing session and macOS. */
 export function createDownloadManager(
   session: Session,
@@ -28,9 +42,12 @@ export function createDownloadManager(
       if (state === 'completed') void quarantineDownload(item.getSavePath());
     });
   };
+  const sessions = new Set<Session>();
   const manager = new DownloadManager({
     onDispose: () => {
-      session.removeListener('will-download', onDownload);
+      for (const followed of sessions) {
+        followed.removeListener('will-download', onDownload);
+      }
     },
     store,
     downloadsFolder: () => app.getPath('downloads'),
@@ -63,6 +80,12 @@ export function createDownloadManager(
     createId: randomUUID,
     now: Date.now,
   });
-  session.on('will-download', onDownload);
+  const follow = (followed: Session) => {
+    if (sessions.has(followed)) return;
+    sessions.add(followed);
+    followed.on('will-download', onDownload);
+  };
+  followers.set(manager, follow);
+  follow(session);
   return manager;
 }

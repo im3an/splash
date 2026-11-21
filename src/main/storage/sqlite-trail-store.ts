@@ -22,6 +22,7 @@ import {
   rollback,
   SchemaTooNewError,
 } from './migrations';
+import { DEFAULT_PROFILE } from '../browser/workspace-profiles';
 import type {
   HistoryMatch,
   HistoryRow,
@@ -202,10 +203,35 @@ function escapeLike(value: string): string {
 }
 
 export class SqliteTrailStore implements TrailStore {
-  constructor(private readonly db: DatabaseSync) {
+  /**
+   * @param profile whose history and site decisions this instance reads and
+   * writes. Everything else (trails, preferences, the vault, downloads) is
+   * shared by every profile.
+   */
+  constructor(
+    private readonly db: DatabaseSync,
+    readonly profile: string = DEFAULT_PROFILE,
+  ) {
     // Wait briefly instead of failing if another process holds a lock.
     db.exec('PRAGMA busy_timeout = 3000; PRAGMA foreign_keys = ON;');
     migrate(db);
+  }
+
+  /** The same database, seen from another workspace's profile. */
+  forProfile(profile: string): SqliteTrailStore {
+    return profile === this.profile
+      ? this
+      : new SqliteTrailStore(this.db, profile);
+  }
+
+  /** Forgets a profile's history and site decisions, as its workspace goes. */
+  forgetProfile(profile: string): void {
+    this.transaction(() => {
+      this.db.prepare('DELETE FROM history WHERE profile = ?').run(profile);
+      this.db
+        .prepare('DELETE FROM permission_decisions WHERE profile = ?')
+        .run(profile);
+    });
   }
 
   loadSession(): StoredSession | null {
@@ -372,26 +398,28 @@ export class SqliteTrailStore implements TrailStore {
     if (!isNavigableUrl(url)) return;
     this.db
       .prepare(
-        `INSERT INTO history (url, visit_count, last_visited_at) VALUES (?, 1, ?)
-         ON CONFLICT (url) DO UPDATE SET
+        `INSERT INTO history (profile, url, visit_count, last_visited_at) VALUES (?, ?, 1, ?)
+         ON CONFLICT (profile, url) DO UPDATE SET
            visit_count = visit_count + 1,
            last_visited_at = excluded.last_visited_at`,
       )
-      .run(url, at);
+      .run(this.profile, url, at);
   }
 
   recordTitle(url: string, title: string): void {
     this.db
-      .prepare('UPDATE history SET title = ? WHERE url = ?')
-      .run(title.slice(0, 500), url);
+      .prepare('UPDATE history SET title = ? WHERE profile = ? AND url = ?')
+      .run(title.slice(0, 500), this.profile, url);
   }
 
   recordFavicon(url: string, faviconUrl: string): void {
     // Inline icons can be large; those are left to the open page.
     if (faviconUrl.length > MAX_FAVICON_URL_LENGTH) return;
     this.db
-      .prepare('UPDATE history SET favicon_url = ? WHERE url = ?')
-      .run(faviconUrl, url);
+      .prepare(
+        'UPDATE history SET favicon_url = ? WHERE profile = ? AND url = ?',
+      )
+      .run(faviconUrl, this.profile, url);
   }
 
   searchHistory(query: string, limit: number): HistoryMatch[] {
@@ -410,10 +438,10 @@ export class SqliteTrailStore implements TrailStore {
     const rows = this.db
       .prepare(
         `SELECT url, title, visit_count, last_visited_at, favicon_url FROM history
-         WHERE ${conditions}
+         WHERE profile = ? AND ${conditions}
          ORDER BY last_visited_at DESC LIMIT ?`,
       )
-      .all(...params, limit) as unknown as {
+      .all(this.profile, ...params, limit) as unknown as {
       url: string;
       title: string;
       visit_count: number;
@@ -433,12 +461,12 @@ export class SqliteTrailStore implements TrailStore {
     const rows = this.db
       .prepare(
         `SELECT * FROM (SELECT url, title, visit_count, last_visited_at, favicon_url FROM history
-           ORDER BY last_visited_at DESC LIMIT ?)
+           WHERE profile = ? ORDER BY last_visited_at DESC LIMIT ?)
          UNION
          SELECT * FROM (SELECT url, title, visit_count, last_visited_at, favicon_url FROM history
-           ORDER BY visit_count DESC, last_visited_at DESC LIMIT ?)`,
+           WHERE profile = ? ORDER BY visit_count DESC, last_visited_at DESC LIMIT ?)`,
       )
-      .all(limit, limit) as unknown as {
+      .all(this.profile, limit, this.profile, limit) as unknown as {
       url: string;
       title: string;
       visit_count: number;
@@ -473,9 +501,9 @@ export class SqliteTrailStore implements TrailStore {
   getPermission(origin: string, permission: SitePermission): boolean | null {
     const row = this.db
       .prepare(
-        'SELECT granted FROM permission_decisions WHERE origin = ? AND permission = ?',
+        'SELECT granted FROM permission_decisions WHERE profile = ? AND origin = ? AND permission = ?',
       )
-      .get(origin, permission) as { granted: number } | undefined;
+      .get(this.profile, origin, permission) as { granted: number } | undefined;
     return row ? row.granted === 1 : null;
   }
 
@@ -487,37 +515,41 @@ export class SqliteTrailStore implements TrailStore {
     if (granted === null) {
       this.db
         .prepare(
-          'DELETE FROM permission_decisions WHERE origin = ? AND permission = ?',
+          'DELETE FROM permission_decisions WHERE profile = ? AND origin = ? AND permission = ?',
         )
-        .run(origin, permission);
+        .run(this.profile, origin, permission);
       return;
     }
     this.db
       .prepare(
-        `INSERT INTO permission_decisions (origin, permission, granted, decided_at)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT (origin, permission) DO UPDATE SET
+        `INSERT INTO permission_decisions (profile, origin, permission, granted, decided_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (profile, origin, permission) DO UPDATE SET
            granted = excluded.granted, decided_at = excluded.decided_at`,
       )
-      .run(origin, permission, granted ? 1 : 0, Date.now());
+      .run(this.profile, origin, permission, granted ? 1 : 0, Date.now());
   }
 
   clearPermissions(origin?: string): void {
     if (origin === undefined) {
-      this.db.exec('DELETE FROM permission_decisions');
+      this.db
+        .prepare('DELETE FROM permission_decisions WHERE profile = ?')
+        .run(this.profile);
     } else {
       this.db
-        .prepare('DELETE FROM permission_decisions WHERE origin = ?')
-        .run(origin);
+        .prepare(
+          'DELETE FROM permission_decisions WHERE profile = ? AND origin = ?',
+        )
+        .run(this.profile, origin);
     }
   }
 
   listPermissions(): PermissionRecord[] {
     const rows = this.db
       .prepare(
-        'SELECT origin, permission, granted FROM permission_decisions ORDER BY origin, permission',
+        'SELECT origin, permission, granted FROM permission_decisions WHERE profile = ? ORDER BY origin, permission',
       )
-      .all() as unknown as {
+      .all(this.profile) as unknown as {
       origin: string;
       permission: SitePermission;
       granted: number;
@@ -534,9 +566,9 @@ export class SqliteTrailStore implements TrailStore {
     const rows = this.db
       .prepare(
         `SELECT url, title, visit_count, last_visited_at, favicon_url FROM history
-         ORDER BY last_visited_at DESC LIMIT ?`,
+         WHERE profile = ? ORDER BY last_visited_at DESC LIMIT ?`,
       )
-      .all(limit) as unknown as {
+      .all(this.profile, limit) as unknown as {
       url: string;
       title: string;
       visit_count: number;
@@ -553,7 +585,9 @@ export class SqliteTrailStore implements TrailStore {
   }
 
   deleteHistoryEntry(url: string): void {
-    this.db.prepare('DELETE FROM history WHERE url = ?').run(url);
+    this.db
+      .prepare('DELETE FROM history WHERE profile = ? AND url = ?')
+      .run(this.profile, url);
   }
 
   deleteHistory(since: number): HistoryRow[] {
@@ -562,9 +596,9 @@ export class SqliteTrailStore implements TrailStore {
       removed = (
         this.db
           .prepare(
-            'SELECT url, title, visit_count, last_visited_at, favicon_url FROM history WHERE last_visited_at >= ?',
+            'SELECT url, title, visit_count, last_visited_at, favicon_url FROM history WHERE profile = ? AND last_visited_at >= ?',
           )
-          .all(since) as unknown as {
+          .all(this.profile, since) as unknown as {
           url: string;
           title: string;
           visit_count: number;
@@ -579,18 +613,22 @@ export class SqliteTrailStore implements TrailStore {
         faviconUrl: row.favicon_url,
       }));
       this.db
-        .prepare('DELETE FROM history WHERE last_visited_at >= ?')
-        .run(since);
+        .prepare(
+          'DELETE FROM history WHERE profile = ? AND last_visited_at >= ?',
+        )
+        .run(this.profile, since);
     });
     return removed;
   }
 
   importHistory(rows: HistoryRow[]): string[] {
-    const known = this.db.prepare('SELECT 1 FROM history WHERE url = ?');
+    const known = this.db.prepare(
+      'SELECT 1 FROM history WHERE profile = ? AND url = ?',
+    );
     const upsert = this.db.prepare(
-      `INSERT INTO history (url, title, visit_count, last_visited_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT (url) DO UPDATE SET
+      `INSERT INTO history (profile, url, title, visit_count, last_visited_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (profile, url) DO UPDATE SET
          title = CASE WHEN history.title = '' THEN excluded.title ELSE history.title END,
          visit_count = max(history.visit_count, excluded.visit_count),
          last_visited_at = max(history.last_visited_at, excluded.last_visited_at)`,
@@ -598,17 +636,25 @@ export class SqliteTrailStore implements TrailStore {
     const added: string[] = [];
     this.transaction(() => {
       for (const row of rows) {
-        if (!known.get(row.url)) added.push(row.url);
-        upsert.run(row.url, row.title, row.visitCount, row.lastVisitedAt);
+        if (!known.get(this.profile, row.url)) added.push(row.url);
+        upsert.run(
+          this.profile,
+          row.url,
+          row.title,
+          row.visitCount,
+          row.lastVisitedAt,
+        );
       }
     });
     return added;
   }
 
   forgetHistory(urls: string[]): void {
-    const forget = this.db.prepare('DELETE FROM history WHERE url = ?');
+    const forget = this.db.prepare(
+      'DELETE FROM history WHERE profile = ? AND url = ?',
+    );
     this.transaction(() => {
-      for (const url of urls) forget.run(url);
+      for (const url of urls) forget.run(this.profile, url);
     });
   }
 
@@ -681,9 +727,9 @@ export class SqliteTrailStore implements TrailStore {
 
   restoreHistory(rows: HistoryRow[]): void {
     const insert = this.db.prepare(
-      `INSERT INTO history (url, title, visit_count, last_visited_at, favicon_url)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (url) DO UPDATE SET
+      `INSERT INTO history (profile, url, title, visit_count, last_visited_at, favicon_url)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (profile, url) DO UPDATE SET
          title = excluded.title,
          favicon_url = coalesce(history.favicon_url, excluded.favicon_url),
          visit_count = history.visit_count + excluded.visit_count,
@@ -692,6 +738,7 @@ export class SqliteTrailStore implements TrailStore {
     this.transaction(() => {
       for (const row of rows) {
         insert.run(
+          this.profile,
           row.url,
           row.title,
           row.visitCount,

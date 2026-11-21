@@ -113,6 +113,41 @@ export const MIGRATIONS: readonly string[] = [
   UPDATE workspaces SET appearance = json_set(appearance, '$.mode', 'default')
   WHERE json_valid(appearance) AND json_extract(appearance, '$.mode') = 'system';
   `,
+  // 13 — every workspace is its own profile, so history and site decisions
+  // are kept per profile. What there was belongs to the one profile there
+  // was, 'web', which the first workspace keeps (see workspace-profiles.ts).
+  `
+  CREATE TABLE history_by_profile (
+    profile TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    visit_count INTEGER NOT NULL DEFAULT 0,
+    last_visited_at INTEGER NOT NULL,
+    favicon_url TEXT,
+    PRIMARY KEY (profile, url)
+  );
+  INSERT INTO history_by_profile
+    (profile, url, title, visit_count, last_visited_at, favicon_url)
+    SELECT 'web', url, title, visit_count, last_visited_at, favicon_url
+    FROM history;
+  DROP TABLE history;
+  ALTER TABLE history_by_profile RENAME TO history;
+  CREATE INDEX history_by_recency ON history (profile, last_visited_at DESC);
+  CREATE TABLE permission_decisions_by_profile (
+    profile TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    permission TEXT NOT NULL,
+    granted INTEGER NOT NULL,
+    decided_at INTEGER NOT NULL,
+    PRIMARY KEY (profile, origin, permission)
+  );
+  INSERT INTO permission_decisions_by_profile
+    (profile, origin, permission, granted, decided_at)
+    SELECT 'web', origin, permission, granted, decided_at
+    FROM permission_decisions;
+  DROP TABLE permission_decisions;
+  ALTER TABLE permission_decisions_by_profile RENAME TO permission_decisions;
+  `,
 ];
 
 export class SchemaTooNewError extends Error {}

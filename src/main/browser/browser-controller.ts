@@ -145,12 +145,17 @@ export interface BrowserControllerOptions {
   /** Brings this window to the front, for a page sent to it. */
   focusWindow?(): void;
   onSnapshot(snapshot: BrowserSnapshot): void;
-  /** A page committed a navigation to a new document. */
-  onVisit?(url: string): void;
+  /** A page in this workspace committed a navigation to a new document. */
+  onVisit?(url: string, workspaceId: WorkspaceId): void;
   /** A page reported the title of the document it shows. */
-  onTitle?(url: string, title: string): void;
+  onTitle?(url: string, title: string, workspaceId: WorkspaceId): void;
   /** A page reported the favicon of the document it shows. */
-  onFavicon?(url: string, faviconUrl: string): void;
+  onFavicon?(url: string, faviconUrl: string, workspaceId: WorkspaceId): void;
+  /**
+   * The profile (cookies, storage) a workspace's pages browse in. A page
+   * moved to a workspace with another profile is opened again there.
+   */
+  profileOf?(workspaceId: WorkspaceId): string;
   /** Coalesces snapshot emissions; defaults to one per microtask. */
   schedule?: (flush: () => void) => void;
   createId?: () => string;
@@ -1678,6 +1683,28 @@ export class BrowserController {
     }
   }
 
+  /**
+   * Frees a page's view so it wakes again in another profile. Unlike
+   * `discard`, it can't wait for unsaved form edits: the page has to go.
+   */
+  private reopenInProfile(id: PageId): void {
+    const page = this.require(id);
+    if (!page.host) return;
+    page.history = page.host.captureHistory() ?? page.history;
+    this.cancelPermissionRequests(page);
+    page.host.destroy();
+    page.host = null;
+    this.forgetView(id);
+    page.state = {
+      ...page.state,
+      isLoading: false,
+      isAudible: false,
+      isUnresponsive: false,
+      hasFormEdits: false,
+      find: null,
+    };
+  }
+
   /** Frees a page's view, keeping its address and history for later. */
   discard(id: PageId): void {
     const page = this.require(id);
@@ -2044,6 +2071,9 @@ export class BrowserController {
       }
     }
     source.tree.removeBranch(id);
+    const profileOf = this.options.profileOf;
+    const reopens =
+      profileOf !== undefined && profileOf(source.id) !== profileOf(target.id);
     for (const node of structure) {
       const isRoot = node.pageId === id;
       target.tree.add(
@@ -2053,6 +2083,9 @@ export class BrowserController {
       );
       this.require(node.pageId).workspaceId = target.id;
       this.require(node.pageId).groupId = null;
+      // A view can't change its session, so the page is opened again at the
+      // same place in its new workspace's profile, signed in as that one is.
+      if (reopens) this.reopenInProfile(node.pageId);
     }
     const targetView = this.viewOf(target);
     targetView.activePageId ??= id;
@@ -2244,6 +2277,9 @@ export class BrowserController {
         };
       }),
       activeWorkspaceId: workspace.id,
+      ...(this.options.profileOf
+        ? { activeProfile: this.options.profileOf(workspace.id) }
+        : {}),
     };
   }
 
@@ -2812,6 +2848,7 @@ export class BrowserController {
     const at = (): BrowserController => this.pages.get(id)?.holder ?? this;
     const host: PageHost = this.options.createHost({
       pageId: id,
+      workspaceId: this.require(id).workspaceId,
       onStateChange: (patch) => {
         if (isCurrent()) at().updateState(id, patch);
       },
@@ -3023,12 +3060,14 @@ export class BrowserController {
         // Popups are stopped per document; a new one starts with a clean slate.
         page.blockedPopups = [];
         page.blocked.delete('popups');
-        this.options.onVisit?.(patch.url);
+        this.options.onVisit?.(patch.url, page.workspaceId);
       }
     }
-    if (patch.title && url) this.options.onTitle?.(url, patch.title);
+    if (patch.title && url) {
+      this.options.onTitle?.(url, patch.title, page.workspaceId);
+    }
     if (patch.faviconUrl && url) {
-      this.options.onFavicon?.(url, patch.faviconUrl);
+      this.options.onFavicon?.(url, patch.faviconUrl, page.workspaceId);
     }
     if ('error' in patch || 'url' in patch) this.syncVisibleHost();
     this.changed();

@@ -43,6 +43,7 @@ import type {
   TaskList,
   UiCommand,
   WorkspaceAppearance,
+  WorkspaceId,
   WorkspaceMode,
 } from '../../shared/types';
 import {
@@ -89,6 +90,7 @@ import {
 import { dangerousSiteKey } from '../security/threat-list';
 import { AiPanel } from '../ai/ai-panel';
 import { NotesStore } from '../notes/notes-store';
+import type { PageHostFactory } from '../browser/page-host';
 import type { HistoryMatch, TrailStore } from '../storage/trail-store';
 import type { PreferencesService } from '../preferences';
 import type { DownloadManager } from '../downloads/download-manager';
@@ -132,10 +134,30 @@ export interface SessionSaves {
   problem(): string | null;
 }
 
+/** A workspace's profile, as a window's pages and popovers use it. */
+export interface WindowProfile {
+  /** Names the profile; workspaces with the same key share everything. */
+  key: string;
+  /** Where the workspace's pages keep their cookies and storage. */
+  session: Session;
+  /** Its history and site decisions; everything else in it is shared. */
+  store: TrailStore;
+  cookies: CookieViewer;
+}
+
 export interface TrailWindowOptions {
   certificates: CertificateExceptions;
-  /** Where this window's pages keep their cookies and storage. */
-  webSession: Session;
+  /** The profile a workspace's pages browse in; a private window has one. */
+  profileFor(workspaceId: WorkspaceId): WindowProfile;
+  /** The key of that profile, without opening it. */
+  profileKeyOf(workspaceId: WorkspaceId): string;
+  /**
+   * Asks before a workspace goes with its sign-ins and history, then lets
+   * its profile go. Absent for private windows, where everything goes anyway.
+   */
+  confirmDeleteWorkspace?(name: string): Promise<boolean>;
+  /** A deleted workspace's profile can be cleared. */
+  forgetWorkspace?(workspaceId: WorkspaceId): void;
   /** Nothing outlives its windows: no saved session, history or new logins. */
   isPrivate: boolean;
   openSettingsSection(section: SettingsSection): void;
@@ -154,7 +176,6 @@ export interface TrailWindowOptions {
   preferences: PreferencesService;
   downloads: DownloadManager;
   blocker: ContentBlocking;
-  cookies: CookieViewer;
   /**
    * Called when the list of workspaces, their names or the active one
    * changes, or the active page's pin or mute, so the menu bar can follow.
@@ -283,6 +304,34 @@ export class TrailWindow {
     return this.options.store;
   }
 
+  /** The profile of the workspace in front, for its history and sites. */
+  get activeProfile(): WindowProfile {
+    return this.options.profileFor(this.controller.currentWorkspaceId);
+  }
+
+  /**
+   * Deletes a workspace once the user agrees that its sign-ins, site data
+   * and history go with it. Reopening it brings its pages back, signed out.
+   */
+  async deleteWorkspace(workspaceId: WorkspaceId): Promise<void> {
+    const workspace = this.controller
+      .snapshot()
+      .workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!workspace || this.controller.snapshot().workspaces.length < 2) return;
+    const { confirmDeleteWorkspace, forgetWorkspace } = this.options;
+    if (
+      confirmDeleteWorkspace &&
+      !(await confirmDeleteWorkspace(workspace.name))
+    )
+      return;
+    if (this.window.isDestroyed()) return;
+    await this.controller.deleteWorkspace(workspaceId);
+    const gone = !this.controller
+      .snapshot()
+      .workspaces.some((candidate) => candidate.id === workspaceId);
+    if (gone) forgetWorkspace?.(workspaceId);
+  }
+
   get isPrivate(): boolean {
     return this.options.isPrivate;
   }
@@ -329,61 +378,8 @@ export class TrailWindow {
       trails: options.trails,
       site: this.window,
       focusWindow: () => this.window.focus(),
-      createHost: createElectronPageHostFactory({
-        window: this.window,
-        session: options.webSession,
-        preload: path.join(__dirname, 'page-preload.cjs'),
-        allowFile: (address) =>
-          allowLocalFile(address, { remember: !options.isPrivate }),
-        openDroppedFiles: (paths) => options.openFiles(paths),
-        isSoundBlocked: (origin) =>
-          this.safely(() => store.getPermission(origin, 'sound')) === false,
-        webPreferences: () => pageWebPreferences(options.preferences.get()),
-        zoomFor: (address) => zoomFor(options.preferences.get(), address),
-        rememberZoom: (address, percent) => {
-          if (options.isPrivate) return;
-          const siteZoom = rememberZoom(
-            options.preferences.get(),
-            address,
-            percent,
-          );
-          if (siteZoom) options.preferences.update({ siteZoom });
-        },
-        popupsAllowed: (origin) =>
-          this.safely(() => store.getPermission(origin, 'popups')) ?? null,
-        httpsOnly: () => options.preferences.get().httpsOnly,
-        trackpadSwipes: () => options.preferences.get().trackpadSwipes,
-        plainHttpAllowed: (address) =>
-          this.safely(() => {
-            const { origin } = new URL(address);
-            return (
-              store.getPermission(origin, 'insecure') === true ||
-              store.getPermission(wwwSibling(origin), 'insecure') === true
-            );
-          }) === true,
-        certificateException: (address) =>
-          this.safely(() => hasCertificateException(store, address)) === true,
-        certificateLocked: (address) => options.certificates.locked(address),
-        onContentsCreated: (contents) =>
-          options.extensions?.addPage(contents, this.window),
-        onContentsMoved: (contents, window) =>
-          options.extensions?.movePage(contents, window as BrowserWindow),
-        extensionMenuItems: (contents, params) =>
-          options.extensions?.menuItems(contents, params) ?? [],
-        openExternal: (contents, url) =>
-          void requestExternalOpen(
-            pageHandleFor(contents),
-            contents.getURL(),
-            url,
-            store,
-            {
-              appFor: (link) => app.getApplicationNameForProtocol(link),
-              open: (link) => void shell.openExternal(link),
-            },
-          ).catch((error: unknown) =>
-            console.error('Splash could not open an external link', error),
-          ),
-      }),
+      createHost: (events) =>
+        this.hostFactoryFor(options.profileFor(events.workspaceId))(events),
       onSnapshot: (snapshot) => {
         this.send(eventChannels.snapshot, snapshot);
         this.selectForExtensions(snapshot.activePageId);
@@ -426,34 +422,63 @@ export class TrailWindow {
       maxLiveViews: options.preferences.get().awakePages,
       defaultZoom: () => options.preferences.get().defaultZoom,
       search: () => options.preferences.get(),
+      // Asked from the page in front, so its workspace's profile decides.
       allowPlainHttp: (address) => {
         this.safely(() =>
-          store.setPermission(new URL(address).origin, 'insecure', true),
+          this.activeProfile.store.setPermission(
+            new URL(address).origin,
+            'insecure',
+            true,
+          ),
         );
       },
       allowDangerousSite: (address) => {
         const key = dangerousSiteKey(address);
-        if (key) this.safely(() => store.setPermission(key, 'dangerous', true));
+        if (key) {
+          this.safely(() =>
+            this.activeProfile.store.setPermission(key, 'dangerous', true),
+          );
+        }
       },
       allowCertificate: (address) => {
-        this.safely(() => options.certificates.accept(store, address));
+        this.safely(() =>
+          options.certificates.accept(this.activeProfile.store, address),
+        );
       },
+
       newPageUrl: () => {
         const { newPage, homepage } = options.preferences.get();
         return newPage === 'homepage' ? homepage : null;
       },
-      onVisit: (visited) =>
-        this.safely(() => store.recordVisit(visited, Date.now())),
-      onTitle: (visited, title) =>
-        this.safely(() => store.recordTitle(visited, title)),
-      onFavicon: (visited, faviconUrl) =>
-        this.safely(() => store.recordFavicon(visited, faviconUrl)),
+      profileOf: (workspaceId) => options.profileKeyOf(workspaceId),
+      onVisit: (visited, workspaceId) =>
+        this.safely(() =>
+          options
+            .profileFor(workspaceId)
+            .store.recordVisit(visited, Date.now()),
+        ),
+      onTitle: (visited, title, workspaceId) =>
+        this.safely(() =>
+          options.profileFor(workspaceId).store.recordTitle(visited, title),
+        ),
+      onFavicon: (visited, faviconUrl, workspaceId) =>
+        this.safely(() =>
+          options
+            .profileFor(workspaceId)
+            .store.recordFavicon(visited, faviconUrl),
+        ),
       onNotice: (notice) => this.notify(notice),
     });
 
+    // Asked when the panel opens a view, so it signs in as the workspace in
+    // front does, and never during startup, before the saved workspaces are
+    // back (the controller starts with a placeholder workspace).
+    const activeSession = () => this.activeProfile.session;
     this.aiPanel = new AiPanel({
       window: this.window,
-      session: options.webSession,
+      get session() {
+        return activeSession();
+      },
       openPage: (link) => this.controller.createPage({ input: link }),
       onState: (state) => this.send(eventChannels.aiPanel, state),
     });
@@ -553,7 +578,7 @@ export class TrailWindow {
         'window:toggle-full-screen': () =>
           this.window.setFullScreen(!this.window.isFullScreen()),
         'spelling:set-word': ({ word, known }) =>
-          setDictionaryWord(options.webSession, word, known),
+          setDictionaryWord(this.activeProfile.session, word, known),
         'page:view-source': ({ pageId }) => this.controller.viewSource(pageId),
         'page:toggle-devtools': ({ pageId }) =>
           this.controller.toggleDevTools(pageId),
@@ -565,10 +590,8 @@ export class TrailWindow {
               this.notify({ kind: 'page-saved', filename }),
             );
         },
-        'workspace:delete': ({ workspaceId }) => {
-          if (this.controller.snapshot().workspaces.length > 1)
-            return this.controller.deleteWorkspace(workspaceId);
-        },
+        'workspace:delete': ({ workspaceId }) =>
+          this.deleteWorkspace(workspaceId),
         'page:reopen-closed': () => this.controller.reopenClosed(),
         'page:reopen-closed-item': ({ serial }) =>
           this.controller.reopenClosed(serial),
@@ -641,7 +664,7 @@ export class TrailWindow {
         'system:open-permission-settings': ({ permission }) =>
           shell.openExternal(systemSettingsUrl(permission)),
         'site:set-permission': ({ origin, permission, decision }) => {
-          store.setPermission(
+          this.activeProfile.store.setPermission(
             origin,
             permission,
             decision === 'ask' ? null : decision === 'allow',
@@ -658,19 +681,20 @@ export class TrailWindow {
             (permission === 'javascript' || permission === 'images') &&
             decision === 'block'
           ) {
-            void options.webSession
+            void this.activeProfile.session
               .clearData({ dataTypes: ['serviceWorkers'], origins: [origin] })
               .catch((error: unknown) =>
                 console.error('Could not clear service workers', error),
               );
           }
         },
-        'cookies:list': ({ host }) => this.options.cookies.list(host),
+        'cookies:list': ({ host }) => this.activeProfile.cookies.list(host),
         'cookies:delete': ({ site, only }) =>
-          this.options.cookies.delete(site, only),
-        'cookies:undo': ({ token }) => this.options.cookies.restore(token),
+          this.activeProfile.cookies.delete(site, only),
+        'cookies:undo': ({ token }) =>
+          this.activeProfile.cookies.restore(token),
         'site:reset': ({ origin }) => {
-          store.clearPermissions(origin);
+          this.activeProfile.store.clearPermissions(origin);
           this.controller.applySoundPolicy(origin, false);
         },
         'view:freeze': () => this.controller.captureVisiblePages(),
@@ -686,12 +710,14 @@ export class TrailWindow {
         'downloads:open-folder': () => {
           void shell.openPath(app.getPath('downloads'));
         },
-        'history:list': ({ query, limit }) => store.listHistory(query, limit),
+        // History is the workspace's own, like its sign-ins.
+        'history:list': ({ query, limit }) =>
+          this.activeProfile.store.listHistory(query, limit),
         'history:delete': ({ url }) => {
-          store.deleteHistoryEntry(url);
+          this.activeProfile.store.deleteHistoryEntry(url);
         },
         'history:restore': ({ entry }) => {
-          store.restoreHistory([entry]);
+          this.activeProfile.store.restoreHistory([entry]);
         },
         'extensions:manage': () => this.options.openSettings('extensions'),
         // The toolbar's Extensions popover: the same controls as Settings.
@@ -1149,12 +1175,80 @@ export class TrailWindow {
     this.options.extensions?.selectPage(contents);
   }
 
+  /** Each profile's pages are made the same way, in its own session. */
+  private readonly hostFactories = new Map<string, PageHostFactory>();
+
+  private hostFactoryFor(profile: WindowProfile): PageHostFactory {
+    const known = this.hostFactories.get(profile.key);
+    if (known) return known;
+    const factory = createElectronPageHostFactory({
+      window: this.window,
+      session: profile.session,
+      preload: path.join(__dirname, 'page-preload.cjs'),
+      allowFile: (address) =>
+        allowLocalFile(address, { remember: !this.options.isPrivate }),
+      openDroppedFiles: (paths) => this.options.openFiles(paths),
+      isSoundBlocked: (origin) =>
+        this.safely(() => profile.store.getPermission(origin, 'sound')) ===
+        false,
+      webPreferences: () => pageWebPreferences(this.options.preferences.get()),
+      zoomFor: (address) => zoomFor(this.options.preferences.get(), address),
+      rememberZoom: (address, percent) => {
+        if (this.options.isPrivate) return;
+        const siteZoom = rememberZoom(
+          this.options.preferences.get(),
+          address,
+          percent,
+        );
+        if (siteZoom) this.options.preferences.update({ siteZoom });
+      },
+      popupsAllowed: (origin) =>
+        this.safely(() => profile.store.getPermission(origin, 'popups')) ??
+        null,
+      httpsOnly: () => this.options.preferences.get().httpsOnly,
+      trackpadSwipes: () => this.options.preferences.get().trackpadSwipes,
+      plainHttpAllowed: (address) =>
+        this.safely(() => {
+          const { origin } = new URL(address);
+          return (
+            profile.store.getPermission(origin, 'insecure') === true ||
+            profile.store.getPermission(wwwSibling(origin), 'insecure') === true
+          );
+        }) === true,
+      certificateException: (address) =>
+        this.safely(() => hasCertificateException(profile.store, address)) ===
+        true,
+      certificateLocked: (address) => this.options.certificates.locked(address),
+      onContentsCreated: (contents) =>
+        this.options.extensions?.addPage(contents, this.window),
+      onContentsMoved: (contents, window) =>
+        this.options.extensions?.movePage(contents, window as BrowserWindow),
+      extensionMenuItems: (contents, params) =>
+        this.options.extensions?.menuItems(contents, params) ?? [],
+      openExternal: (contents, url) =>
+        void requestExternalOpen(
+          pageHandleFor(contents),
+          contents.getURL(),
+          url,
+          profile.store,
+          {
+            appFor: (link) => app.getApplicationNameForProtocol(link),
+            open: (link) => void shell.openExternal(link),
+          },
+        ).catch((error: unknown) =>
+          console.error('Splash could not open an external link', error),
+        ),
+    });
+    this.hostFactories.set(profile.key, factory);
+    return factory;
+  }
+
   /** Connection and permission details for the page's site. */
   private siteInfo(pageId: string): SiteInfo | null {
     const page = this.controller.snapshot().pages[pageId];
     const origin = webOrigin(page?.url ?? undefined);
     if (!origin) return null;
-    const { store } = this.options;
+    const { store } = this.activeProfile;
     return {
       origin,
       host: new URL(origin).host,
@@ -1222,7 +1316,7 @@ export class TrailWindow {
    * a completion may still lead to.
    */
   private historyPool(query: string): HistoryMatch[] {
-    const { store } = this.options;
+    const { store } = this.activeProfile;
     const matches = this.safely(() => store.searchHistory(query, 60)) ?? [];
     const frequent = this.safely(() => store.frequentHistory(300)) ?? [];
     const byUrl = new Map(matches.map((entry) => [entry.url, entry]));
