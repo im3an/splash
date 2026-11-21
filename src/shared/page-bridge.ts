@@ -27,6 +27,9 @@ export const BRANCH_LINK = 'page:branch-link';
 /** A video left its floating window; says whether it's still playing. */
 export const VIDEO_UNFLOATED = 'page:video-unfloated';
 
+/** A video went into its floating window; carries nothing else. */
+export const VIDEO_FLOATED = 'page:video-floated';
+
 /** The user clicked or pressed a key inside a frame; carries nothing else. */
 export const FRAME_GESTURE = 'page:frame-gesture';
 

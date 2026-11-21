@@ -133,6 +133,8 @@
   /* The colour disc's dots and the sliders' thumbs in white. */
   --wheel-handle-ring: #ffffff;
   --shadow-wheel-handle: 0 1px 4px rgb(0 0 0 / 0.3);
+  /* Under a page's site icon while its video floats. */
+  --shadow-lifted: drop-shadow(0 3px 2px rgb(0 0 0 / 0.28));
 
   --font-ui:
     -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;

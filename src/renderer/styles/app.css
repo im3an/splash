@@ -974,6 +974,27 @@ details:not([open]) > summary .sidebar-section-label > svg,
 .trail-row[aria-expanded='false'] .trail-branch-toggle {
   opacity: 1;
 }
+/* Float video: offered on hover while a video plays, kept while it floats. */
+.trail-float {
+  display: none;
+}
+.trail-row:is(:hover, :focus-within)[data-video='playing'] .trail-float,
+.trail-row[data-video='floating'] .trail-float {
+  display: grid;
+}
+.trail-row[data-video='floating'] .trail-float {
+  color: var(--accent);
+}
+/* A page whose video floats looks lifted off the trail, as its video is. */
+.trail-favicon {
+  transition:
+    translate var(--duration-base) var(--ease-emphasized),
+    filter var(--duration-base) var(--ease-emphasized);
+}
+.trail-row[data-video='floating'] .trail-favicon {
+  translate: 0 -2px;
+  filter: var(--shadow-lifted);
+}
 .trail-label {
   display: flex;
   align-items: baseline;

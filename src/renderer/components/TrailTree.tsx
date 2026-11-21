@@ -42,6 +42,7 @@ import {
   MoreHorizontal,
   Pin,
   PencilLine,
+  PictureInPicture2,
   StickyNote,
   Volume2,
   VolumeX,
@@ -1215,6 +1216,7 @@ const TrailRow = memo(function TrailRow({
       data-dragging={dragging}
       data-link-over={linkOver}
       data-discarded={page.isDiscarded}
+      data-video={page.video ?? 'none'}
       onAnimationEnd={(event) => {
         if (event.target === event.currentTarget) setAppearing(false);
       }}
@@ -1339,6 +1341,26 @@ const TrailRow = memo(function TrailRow({
           data-playing={page.isAudible && !page.isMuted}
         >
           {page.isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+        </button>
+      )}
+      {page.video && page.video !== 'none' && !renaming && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={
+            page.video === 'floating'
+              ? `Bring the video back to ${label}`
+              : `Float the video in ${label}`
+          }
+          title={page.video === 'floating' ? 'Bring video back' : 'Float video'}
+          onClick={(event) => {
+            event.stopPropagation();
+            void api().togglePictureInPicture(row.id);
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          className="trail-float -my-1 size-6 shrink-0 place-items-center rounded-inner text-fg-subtle hover:bg-pressed hover:text-fg"
+        >
+          <PictureInPicture2 size={13} />
         </button>
       )}
       {hidden && !renaming && (

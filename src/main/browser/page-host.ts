@@ -9,6 +9,7 @@ import type {
   PageId,
   SitePermission,
   SystemPermission,
+  VideoActivity,
   WorkspaceId,
 } from '../../shared/types';
 
@@ -25,6 +26,8 @@ export interface PageRuntimeState {
   /** The page is producing sound right now. */
   isAudible: boolean;
   isMuted: boolean;
+  /** A video floating above other windows, or one playing that could. */
+  video?: VideoActivity;
   /** Page zoom in percent; shared across a site and remembered for it. */
   zoomPercent: number;
   /** The latest find-in-page result, while a search is open. */

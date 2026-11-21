@@ -78,6 +78,8 @@ export interface PageSnapshot {
   lastActiveAt?: number;
   isAudible: boolean;
   isMuted: boolean;
+  /** A video floating above other windows, or one playing that could. */
+  video?: VideoActivity;
   zoomPercent: number;
   find: FindResult | null;
   isUnresponsive: boolean;
@@ -91,6 +93,9 @@ export interface PageSnapshot {
   /** A permission request waiting for the user's answer. */
   permissionRequest: PermissionRequest | null;
 }
+
+/** What a page's videos are doing, as far as picture in picture goes. */
+export type VideoActivity = 'none' | 'playing' | 'floating';
 
 /** Site permissions the user can decide on. */
 /** The permissions macOS decides for the whole app, above any one site. */
@@ -142,6 +147,8 @@ export interface SiteInfo {
     permission: SitePermission;
     label: string;
     decision: PermissionDecision;
+    /** Decided for the site, or something the page asked for or used. */
+    inUse: boolean;
   }[];
 }
 

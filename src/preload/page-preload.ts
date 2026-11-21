@@ -12,6 +12,7 @@ import {
   PLACE_REPORT,
   SWIPE_ASK,
   SWIPE_RUN,
+  VIDEO_FLOATED,
   VIDEO_UNFLOATED,
 } from '../shared/page-bridge';
 import type { SwipeAnswer } from '../shared/page-bridge';
@@ -105,8 +106,7 @@ if (window === window.top)
 // out of its reach, and it may not speak for the page.
 if (window === window.top) {
   installPageSwipe({
-    available: () =>
-      ipcRenderer.invoke(SWIPE_ASK) as Promise<SwipeAnswer>,
+    available: () => ipcRenderer.invoke(SWIPE_ASK) as Promise<SwipeAnswer>,
     run: (kind) => ipcRenderer.send(SWIPE_RUN, kind),
   });
 }
@@ -130,6 +130,11 @@ document.addEventListener(
     const video = event.target as HTMLVideoElement;
     setTimeout(() => ipcRenderer.send(VIDEO_UNFLOATED, !video.paused), 100);
   },
+  { capture: true },
+);
+document.addEventListener(
+  'enterpictureinpicture',
+  () => ipcRenderer.send(VIDEO_FLOATED),
   { capture: true },
 );
 

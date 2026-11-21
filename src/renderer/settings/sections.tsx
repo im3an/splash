@@ -599,6 +599,20 @@ export function PageSettings() {
           </Select>
         </Row>
       </Section>
+      <Section title="Video">
+        <Row
+          label="Float videos when you leave their page"
+          help="A video you’re watching keeps playing in a small window above everything, and goes back when you return. Videos that are muted or paused stay put."
+        >
+          <Toggle
+            label="Float videos when you leave their page"
+            checked={preferences.autoPictureInPicture}
+            onChange={(autoPictureInPicture) =>
+              update({ autoPictureInPicture })
+            }
+          />
+        </Row>
+      </Section>
       <Section title="Spelling">
         <Row
           label="Check spelling"

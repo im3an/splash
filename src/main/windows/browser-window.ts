@@ -298,6 +298,8 @@ export class TrailWindow {
   private appliedView: string;
   /** The contents extensions were last told are in front. */
   private extensionContentsId: number | null = null;
+  /** The pages on screen at the last snapshot, for floating videos. */
+  private onScreenIds: string[] = [];
   /** Reloads "You're offline" pages when the connection returns. */
   /** The store this window reads, which a private window keeps in memory. */
   get store(): TrailStore {
@@ -383,6 +385,7 @@ export class TrailWindow {
       onSnapshot: (snapshot) => {
         this.send(eventChannels.snapshot, snapshot);
         this.selectForExtensions(snapshot.activePageId);
+        this.followPagesOnScreen(snapshot);
         this.options.onSnapshot?.(snapshot);
         options.saves.schedule();
         this.offline.update(snapshot);
@@ -1190,6 +1193,33 @@ export class TrailWindow {
     }
   }
 
+  /**
+   * A page that leaves the screen floats the video being watched in it, if
+   * the setting allows; coming back brings the video home.
+   */
+  private followPagesOnScreen(snapshot: BrowserSnapshot): void {
+    const { activePageId, split } = snapshot;
+    const now =
+      activePageId === null
+        ? []
+        : split &&
+            (split.leftId === activePageId || split.rightId === activePageId)
+          ? [split.leftId, split.rightId]
+          : [activePageId];
+    const before = this.onScreenIds;
+    this.onScreenIds = now;
+    if (this.options.preferences.get().autoPictureInPicture) {
+      for (const id of before) {
+        if (!now.includes(id) && this.controller.holds(id)) {
+          this.controller.floatVideo(id);
+        }
+      }
+    }
+    for (const id of now) {
+      if (!before.includes(id)) this.controller.sinkVideo(id);
+    }
+  }
+
   /** Tells extensions when a different page comes to the front. */
   private selectForExtensions(pageId: string | null): void {
     const contents =
@@ -1278,6 +1308,7 @@ export class TrailWindow {
     const origin = webOrigin(page?.url ?? undefined);
     if (!origin) return null;
     const { store } = this.activeProfile;
+    const used = this.usedOn(pageId, ads.blocked);
     return {
       origin,
       host: new URL(origin).host,
@@ -1293,7 +1324,9 @@ export class TrailWindow {
         // The warning itself asks about danger; Settings lists what was chosen.
         (permission) =>
           permission !== 'dangerous' &&
-          (permission !== 'insecure' || origin.startsWith('http:')),
+          (permission !== 'insecure' || origin.startsWith('http:')) &&
+          // Only a site the user went on to despite its certificate has one.
+          (permission !== 'certificate' || used.has('certificate')),
       ).map((permission) => {
         const decided =
           permission === 'ads'
@@ -1305,9 +1338,35 @@ export class TrailWindow {
           label: PERMISSION_LABELS[permission],
           decision:
             decided === null ? this.undecided(permission) : decisionOf(decided),
+          // uBlock Origin answers for every site, so only a trusted one counts.
+          inUse:
+            used.has(permission) ||
+            (permission === 'ads' ? decided === true : decided !== null),
         };
       }),
     };
+  }
+
+  /**
+   * What the page's site actually touched: asked for, or did something a
+   * setting governs. The site panel leads with these and tucks the rest away.
+   */
+  private usedOn(pageId: string, blockedCount: number): Set<SitePermission> {
+    const page = this.controller.snapshot().pages[pageId];
+    const used = new Set<SitePermission>(this.controller.askedOn(pageId));
+    if (!page) return used;
+    for (const permission of page.blockedPermissions) used.add(permission);
+    if (page.blockedPopups.length > 0) used.add('popups');
+    if (page.isAudible || page.isMuted) used.add('sound');
+    if (page.video && page.video !== 'none') {
+      used.add('picture-in-picture');
+      used.add('autoplay');
+    }
+    if (blockedCount > 0) used.add('ads');
+    if (page.certificateException) used.add('certificate');
+    // Only listed for a plain HTTP site, where it's the point of the panel.
+    if (page.url?.startsWith('http:')) used.add('insecure');
+    return used;
   }
 
   /** What applies on a site where the user hasn't decided. */

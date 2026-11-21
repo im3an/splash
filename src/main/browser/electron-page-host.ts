@@ -18,6 +18,7 @@ import {
   FILE_DROPPED,
   FORM_EDITED,
   FRAME_GESTURE,
+  VIDEO_FLOATED,
   VIDEO_UNFLOATED,
   LINK_DROPPED,
   LINK_ACTIVATED,
@@ -35,6 +36,7 @@ import type {
   Notice,
   SitePermission,
   SystemPermission,
+  VideoActivity,
 } from '../../shared/types';
 import { webContextMenu } from '../menus/web-context-menu';
 import { setDictionaryWord } from '../spelling';
@@ -69,6 +71,7 @@ import { SECURE_ATTEMPT_LIMIT_MS, SecureAttempt } from '../security/https-only';
 import { sessionRulesFor } from '../privacy/helper-extension';
 import {
   floatPlayingVideo,
+  probeVideo,
   sinkFloatingVideo,
   togglePictureInPicture,
 } from './picture-in-picture';
@@ -200,6 +203,9 @@ class ElectronPageHost implements PageHost {
   private capturing = false;
   private videoFloats = false;
   private wantsFloat = false;
+  /** What the page's videos were last seen doing. */
+  private video: VideoActivity = 'none';
+  private videoCheck: ReturnType<typeof setTimeout> | null = null;
   private origin: string | null = null;
   private sourceUrl: string | null = null;
   private secureTimer: ReturnType<typeof setTimeout> | null = null;
@@ -464,7 +470,10 @@ class ElectronPageHost implements PageHost {
 
   isInUse(): boolean {
     return (
-      this.capturing || this.videoFloats || this.contents.isDevToolsOpened()
+      this.capturing ||
+      this.videoFloats ||
+      this.video === 'floating' ||
+      this.contents.isDevToolsOpened()
     );
   }
 
@@ -483,6 +492,23 @@ class ElectronPageHost implements PageHost {
     if (!this.videoFloats) return;
     this.videoFloats = false;
     void sinkFloatingVideo(this.contents);
+  }
+
+  /**
+   * Looks again at what the page's videos are doing, once things settle: a
+   * play, a pause or a float often comes in a burst of events.
+   */
+  private checkVideo(): void {
+    if (this.videoCheck) clearTimeout(this.videoCheck);
+    this.videoCheck = setTimeout(() => {
+      this.videoCheck = null;
+      if (this.contents.isDestroyed()) return;
+      void probeVideo(this.contents).then((video) => {
+        if (this.contents.isDestroyed() || video === this.video) return;
+        this.video = video;
+        this.events.onStateChange({ video });
+      });
+    }, 150);
   }
 
   setMuted(muted: boolean): void {
@@ -574,6 +600,7 @@ class ElectronPageHost implements PageHost {
     // Forget the page now: `destroyed` comes later, and until then a sleeping
     // page would still seem to have this view.
     if (!this.contents.isDestroyed()) pageHandles.delete(this.contents.id);
+    if (this.videoCheck) clearTimeout(this.videoCheck);
     this.stopWatchingSecureAttempt();
     this.hide();
     // A WebContentsView does not destroy its WebContents on its own.
@@ -653,10 +680,16 @@ class ElectronPageHost implements PageHost {
       this.gestures.record();
       this.downloads.userActed();
     });
+    // Playing, pausing and floating all change what the page can offer.
+    contents.on('media-started-playing', () => this.checkVideo());
+    contents.on('media-paused', () => this.checkVideo());
+    contents.ipc.on(VIDEO_FLOATED, () => this.checkVideo());
     contents.ipc.on(VIDEO_UNFLOATED, (_event, playing: unknown) => {
-      const floated = this.videoFloats;
+      this.checkVideo();
       this.videoFloats = false;
-      if (floated && playing === true) this.events.onVideoReturned?.();
+      // Still playing means its back button, not its close button: whoever
+      // floated it, the page it belongs to comes to the front.
+      if (playing === true) this.events.onVideoReturned?.();
     });
     // Only the top frame's document has a place; it may only speak for itself.
     contents.ipc.on(PLACE_REPORT, (event, report: unknown) => {
@@ -867,6 +900,8 @@ class ElectronPageHost implements PageHost {
       emit({ isLoading: false, ...this.navigationState() }),
     );
     contents.on('did-navigate', (_event, committed, status) => {
+      // A new document has no videos playing yet.
+      this.checkVideo();
       this.downloads.committed();
       this.stopWatchingSecureAttempt();
       // The secure address answered only to say it has nothing there: the

@@ -8,6 +8,7 @@ import {
 } from 'react';
 import {
   Lock,
+  PictureInPicture2,
   Search,
   ShieldOff,
   TriangleAlert,
@@ -353,6 +354,21 @@ export function AddressBar({
             className="icon-button icon-button-sm shrink-0 data-[playing=true]:text-accent"
           >
             {page.isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+          </button>
+        )}
+        {!editing && page?.video && page.video !== 'none' && (
+          <button
+            type="button"
+            onClick={() => void api().togglePictureInPicture(page.id)}
+            onMouseDown={(event) => event.preventDefault()}
+            aria-label={
+              page.video === 'floating' ? 'Bring video back' : 'Float video'
+            }
+            title={`${page.video === 'floating' ? 'Bring video back' : 'Float video'} (⌥⌘P)`}
+            data-floating={page.video === 'floating'}
+            className="icon-button icon-button-sm shrink-0 data-[floating=true]:text-accent"
+          >
+            <PictureInPicture2 size={13} />
           </button>
         )}
         {!editing && page?.url && page.zoomPercent !== defaultZoom && (

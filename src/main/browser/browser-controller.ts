@@ -112,6 +112,8 @@ interface Page {
   permissionQueue: PendingPermission[];
   /** Permissions refused on the current site. */
   blocked: Set<SitePermission>;
+  /** Permissions the current site asked for, whatever the answer. */
+  asked: Set<SitePermission>;
   /** Those of them the site was allowed, and macOS refused to Splash. */
   systemRefused: Set<SystemPermission>;
   /** Addresses stopped from opening in the current document. */
@@ -736,6 +738,7 @@ export class BrowserController {
           ...closed.state,
           isLoading: false,
           isAudible: false,
+          video: 'none',
           isUnresponsive: false,
           find: null,
         },
@@ -1475,6 +1478,21 @@ export class BrowserController {
     if (childId !== null) this.activatePage(childId);
   }
 
+  /** What the page's current site asked for, allowed or not. */
+  askedOn(id: PageId): SitePermission[] {
+    return [...(this.pages.get(id)?.asked ?? [])];
+  }
+
+  /** The page left the screen: a video being watched floats, if allowed. */
+  floatVideo(id: PageId): void {
+    this.pages.get(id)?.host?.floatVideo?.();
+  }
+
+  /** The page came back: a video floated for leaving returns to it. */
+  sinkVideo(id: PageId): void {
+    this.pages.get(id)?.host?.sinkVideo?.();
+  }
+
   /** What macOS refused to Splash on this page, since it last loaded. */
   systemRefusedOn(id: PageId): SystemPermission[] {
     return [...(this.pages.get(id)?.systemRefused ?? [])];
@@ -1699,6 +1717,7 @@ export class BrowserController {
       ...page.state,
       isLoading: false,
       isAudible: false,
+      video: 'none',
       isUnresponsive: false,
       hasFormEdits: false,
       find: null,
@@ -1718,6 +1737,7 @@ export class BrowserController {
       ...page.state,
       isLoading: false,
       isAudible: false,
+      video: 'none',
       isUnresponsive: false,
       find: null,
     };
@@ -2349,6 +2369,7 @@ export class BrowserController {
             ...page.state,
             isLoading: false,
             isAudible: false,
+            video: 'none',
             hasFormEdits: false,
             find: null,
           };
@@ -2393,6 +2414,7 @@ export class BrowserController {
         ...page.state,
         isLoading: false,
         isAudible: false,
+        video: 'none',
         isUnresponsive: false,
         find: null,
       };
@@ -2622,6 +2644,7 @@ export class BrowserController {
       committedUrl: null,
       permissionQueue: [],
       blocked: new Set(),
+      asked: new Set(),
       systemRefused: new Set(),
       blockedPopups: [],
     };
@@ -2880,6 +2903,7 @@ export class BrowserController {
         // A page looping on `window.open` shouldn't redraw the shell each time.
         if (!listed && page.blocked.has('popups')) return;
         page.blocked.add('popups');
+        page.asked.add('popups');
         this.changed();
       },
       onBranchRequest: (url, referrer) => {
@@ -2918,6 +2942,13 @@ export class BrowserController {
         if (isCurrent()) at().afterDownload(id, download);
       },
       onNotice: (notice) => at().options.onNotice?.(notice),
+      // The floating window's back button: show the page it came from.
+      onVideoReturned: () => {
+        if (!isCurrent() || !this.pages.has(id)) return;
+        const viewer = at();
+        viewer.activatePage(id);
+        viewer.options.focusWindow?.();
+      },
       onFullscreenChange: (active) => {
         if (!isCurrent()) return;
         const viewer = at();
@@ -2928,6 +2959,7 @@ export class BrowserController {
       onPermissionRequest: (origin, permissions, opens) => {
         const page = this.pages.get(id);
         if (!isCurrent() || !page) return Promise.resolve(false);
+        for (const permission of permissions) page.asked.add(permission);
         return new Promise<boolean>((resolve) => {
           page.permissionQueue.push({
             request: {
@@ -2948,7 +2980,10 @@ export class BrowserController {
       onPermissionBlocked: (permissions) => {
         const page = this.pages.get(id);
         if (!isCurrent() || !page) return;
-        for (const permission of permissions) page.blocked.add(permission);
+        for (const permission of permissions) {
+          page.blocked.add(permission);
+          page.asked.add(permission);
+        }
         this.changed();
       },
       onPermissionRefusedBySystem: (permissions) => {
@@ -2958,6 +2993,7 @@ export class BrowserController {
         if (fresh.length === 0) return;
         for (const permission of fresh) {
           page.blocked.add(permission);
+          page.asked.add(permission);
           page.systemRefused.add(permission);
         }
         at().options.onNotice?.({
@@ -3054,6 +3090,7 @@ export class BrowserController {
         // Requests and refusals belong to the site the page has left.
         this.cancelPermissionRequests(page);
         page.blocked.clear();
+        page.asked.clear();
         page.systemRefused.clear();
       }
       if (previous === null || !isSameDocumentUrl(patch.url, previous)) {
